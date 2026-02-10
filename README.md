@@ -592,11 +592,11 @@ HISTFILESIZE=2000    # Number of commands in history file (default: 20000)
 
 | Metric | Value |
 |---|---|
-| Git subprocesses per prompt | 2-3 (down from 7) |
+| Git subprocesses per prompt | 3-4 (down from 7) |
 | Environment detection | Once at shell startup |
 | Git state detection | Filesystem checks only (0 subprocesses) |
 | Dirty detection | Early-exit on first dirty file |
-| Box rendering | Pure bash (`printf -v`), no external commands |
+| Box rendering | Mostly pure bash (`printf -v`), `wc -L` for display width |
 
 ---
 

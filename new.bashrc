@@ -189,12 +189,26 @@ if [ "$_utf8" = 1 ]; then
     SYM_AHEAD="↑"
     SYM_BEHIND="↓"
     SYM_STASH="⚑"
+    # Box-drawing characters (rounded corners)
+    BOX_H="─"
+    BOX_V="│"
+    BOX_TL="╭"
+    BOX_TR="╮"
+    BOX_BL="╰"
+    BOX_BR="╯"
 else
     SYM_CLEAN="OK"
     SYM_DIRTY="*"
     SYM_AHEAD="^"
     SYM_BEHIND="v"
     SYM_STASH="S"
+    # ASCII fallback
+    BOX_H="-"
+    BOX_V="|"
+    BOX_TL="+"
+    BOX_TR="+"
+    BOX_BL="+"
+    BOX_BR="+"
 fi
 
 # ============================================================================
@@ -359,33 +373,33 @@ __prompt_command() {
                 msg_display_width=$max_msg_width
             fi
 
-            # Top border: +- Commit ---...---+
+            # Top border: ╭─ Commit ───...───╮
             local label=" Commit"
             local top_used=$((2 + ${#label}))
             local top_remaining=$((term_width - top_used - 1))
             local fill
-            PS1+="${PROMPT_MESSAGE_BOX}+-${RESET}"
+            PS1+="${PROMPT_MESSAGE_BOX}${BOX_TL}${BOX_H}${RESET}"
             PS1+="${PROMPT_GIT_COMMIT}${label}${RESET}"
             PS1+="${PROMPT_MESSAGE_BOX}"
             if [ "$top_remaining" -gt 0 ]; then
                 printf -v fill '%*s' "$top_remaining" ''
-                PS1+="${fill// /-}"
+                PS1+="${fill// /$BOX_H}"
             fi
-            PS1+="+${RESET}\n"
+            PS1+="${BOX_TR}${RESET}\n"
 
-            # Message line: | message       |
-            PS1+="${PROMPT_MESSAGE_BOX}|${RESET} "
+            # Message line: │ message       │
+            PS1+="${PROMPT_MESSAGE_BOX}${BOX_V}${RESET} "
             PS1+="${PROMPT_GIT_MESSAGE}${msg}${RESET}"
             local msg_remaining=$((term_width - msg_display_width - 3))
             if [ "$msg_remaining" -gt 0 ]; then
                 printf -v fill '%*s' "$msg_remaining" ''
                 PS1+="$fill"
             fi
-            PS1+="${PROMPT_MESSAGE_BOX}|${RESET}\n"
+            PS1+="${PROMPT_MESSAGE_BOX}${BOX_V}${RESET}\n"
 
-            # Bottom border: +---...---+
+            # Bottom border: ╰───...───╯
             printf -v fill '%*s' "$((term_width - 2))" ''
-            PS1+="${PROMPT_MESSAGE_BOX}+${fill// /-}+${RESET}\n"
+            PS1+="${PROMPT_MESSAGE_BOX}${BOX_BL}${fill// /$BOX_H}${BOX_BR}${RESET}\n"
         else
             # Narrow terminal: show inline
             PS1+="${PROMPT_GIT_COMMIT}Commit: ${PROMPT_GIT_MESSAGE}${_git_commit_msg}${RESET}\n"

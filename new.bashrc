@@ -39,19 +39,53 @@ if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
 fi
 
 # ============================================================================
+# ENVIRONMENT DETECTION
+# ============================================================================
+# SSH detection (run once at shell startup)
+if [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_TTY" ] || [ -n "$SSH_CLIENT" ]; then
+    _is_ssh=1
+else
+    _is_ssh=0
+fi
+
+# Container detection (run once at shell startup)
+if [ -f /.dockerenv ] || [ -f /run/.containerenv ] || grep -qsm1 'docker\|lxc\|containerd' /proc/1/cgroup 2>/dev/null; then
+    _is_container=1
+else
+    _is_container=0
+fi
+
+# UTF-8 support detection
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) _utf8=1 ;;
+    *) _utf8=0 ;;
+esac
+
+# Terminal title support
+case "$TERM" in
+    xterm*|rxvt*|screen*|tmux*) _set_title=1 ;;
+    *) _set_title=0 ;;
+esac
+
+# ============================================================================
 # COLOR DETECTION
 # ============================================================================
-# set a fancy prompt (non-color, unless we know we "want" color)
-case "$TERM" in
-    xterm-color|*-256color) color_prompt=yes;;
-esac
+# Respect NO_COLOR standard (https://no-color.org/)
+if [ "${NO_COLOR+set}" = set ]; then
+    color_prompt=
+else
+    # set a fancy prompt (non-color, unless we know we "want" color)
+    case "$TERM" in
+        xterm-color|*-256color) color_prompt=yes;;
+    esac
+fi
 
 # uncomment for a colored prompt, if the terminal has the capability; turned
 # off by default to not distract the user: the focus in a terminal window
 # should be on the output of commands, not on the prompt
 #force_color_prompt=yes
 
-if [ -n "$force_color_prompt" ]; then
+if [ -n "$force_color_prompt" ] && [ "${NO_COLOR+set}" != set ]; then
     if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
 	# We have color support; assume it's compliant with Ecma-48
 	# (ISO/IEC-6429). (Lack of such support is extremely rare, and such
@@ -66,14 +100,14 @@ fi
 # COLOR DEFINITIONS
 # ============================================================================
 # Modern color palette with 256-color support
-if [ "$color_prompt" = yes ] || ([ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null); then
+if [ "$color_prompt" = yes ] || { [ "${NO_COLOR+set}" != set ] && [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; }; then
     # We have color support
     color_prompt=yes
-    
+
     # Basic colors
     RESET='\[\033[0m\]'
     BOLD='\[\033[1m\]'
-    
+
     # Standard colors
     BLACK='\[\033[0;30m\]'
     RED='\[\033[0;31m\]'
@@ -83,7 +117,7 @@ if [ "$color_prompt" = yes ] || ([ -x /usr/bin/tput ] && tput setaf 1 >&/dev/nul
     MAGENTA='\[\033[0;35m\]'
     CYAN='\[\033[0;36m\]'
     WHITE='\[\033[0;37m\]'
-    
+
     # Bright colors
     BRIGHT_BLACK='\[\033[0;90m\]'
     BRIGHT_RED='\[\033[0;91m\]'
@@ -93,8 +127,8 @@ if [ "$color_prompt" = yes ] || ([ -x /usr/bin/tput ] && tput setaf 1 >&/dev/nul
     BRIGHT_MAGENTA='\[\033[0;95m\]'
     BRIGHT_CYAN='\[\033[0;96m\]'
     BRIGHT_WHITE='\[\033[0;97m\]'
-    
-    # Modern color scheme
+
+    # Semantic prompt color mappings
     PROMPT_USER="${BRIGHT_CYAN}"
     PROMPT_HOST="${BRIGHT_YELLOW}"
     PROMPT_PATH="${BRIGHT_BLUE}"
@@ -105,13 +139,24 @@ if [ "$color_prompt" = yes ] || ([ -x /usr/bin/tput ] && tput setaf 1 >&/dev/nul
     PROMPT_GIT_BEHIND="${BRIGHT_MAGENTA}"
     PROMPT_GIT_COMMIT="${BRIGHT_CYAN}"
     PROMPT_GIT_MESSAGE="${BRIGHT_WHITE}"
+    PROMPT_GIT_STASH="${BRIGHT_CYAN}"
+    PROMPT_GIT_STATE="${BRIGHT_RED}"
     PROMPT_MESSAGE_BOX="${BRIGHT_BLACK}"
     PROMPT_SUCCESS="${BRIGHT_GREEN}"
     PROMPT_ERROR="${BRIGHT_RED}"
     PROMPT_SYMBOL="${BRIGHT_WHITE}"
+    PROMPT_VENV="${BRIGHT_MAGENTA}"
+    PROMPT_TIMER="${BRIGHT_YELLOW}"
+    PROMPT_SSH_HOST="${BRIGHT_YELLOW}"
+    PROMPT_CONTAINER="${BRIGHT_YELLOW}"
 else
     color_prompt=
     RESET=''
+    BOLD=''
+    BRIGHT_BLACK=''
+    BRIGHT_CYAN=''
+    BRIGHT_YELLOW=''
+    BRIGHT_MAGENTA=''
     PROMPT_USER=''
     PROMPT_HOST=''
     PROMPT_PATH=''
@@ -122,179 +167,308 @@ else
     PROMPT_GIT_BEHIND=''
     PROMPT_GIT_COMMIT=''
     PROMPT_GIT_MESSAGE=''
+    PROMPT_GIT_STASH=''
+    PROMPT_GIT_STATE=''
     PROMPT_MESSAGE_BOX=''
     PROMPT_SUCCESS=''
     PROMPT_ERROR=''
     PROMPT_SYMBOL=''
+    PROMPT_VENV=''
+    PROMPT_TIMER=''
+    PROMPT_SSH_HOST=''
+    PROMPT_CONTAINER=''
 fi
+
+# ============================================================================
+# SYMBOL DEFINITIONS
+# ============================================================================
+# Unicode symbols with ASCII fallback for non-UTF-8 terminals
+if [ "$_utf8" = 1 ]; then
+    SYM_CLEAN="✓"
+    SYM_DIRTY="✗"
+    SYM_AHEAD="↑"
+    SYM_BEHIND="↓"
+    SYM_STASH="⚑"
+else
+    SYM_CLEAN="OK"
+    SYM_DIRTY="*"
+    SYM_AHEAD="^"
+    SYM_BEHIND="v"
+    SYM_STASH="S"
+fi
+
+# ============================================================================
+# COMMAND TIMER
+# ============================================================================
+# Track command execution time using DEBUG trap
+_timer_start=
+_last_duration=
+
+__timer_start() {
+    _timer_start=${_timer_start:-$SECONDS}
+}
+trap '__timer_start' DEBUG
 
 # ============================================================================
 # GIT FUNCTIONS FOR PROMPT
 # ============================================================================
-# Get current git branch name
-parse_git_branch() {
-    git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/\1/'
-}
-
-# Get git status information
-parse_git_status() {
-    local git_status="$(git status --porcelain 2> /dev/null)"
-    local git_branch="$(parse_git_branch)"
-    
-    if [ -z "$git_branch" ]; then
-        return
-    fi
-    
-    local status=""
-    local ahead_behind=""
-    
-    # Check if working directory is dirty
-    if [ -n "$git_status" ]; then
-        status="${PROMPT_GIT_DIRTY}*${RESET}"
-    else
-        status="${PROMPT_GIT_CLEAN}OK${RESET}"
-    fi
-    
-    # Check if branch is ahead/behind remote
-    local remote_info="$(git rev-list --left-right --count @{upstream}...HEAD 2>/dev/null)"
-    if [ -n "$remote_info" ]; then
-        local ahead=$(echo $remote_info | awk '{print $2}')
-        local behind=$(echo $remote_info | awk '{print $1}')
-        
-        if [ "$ahead" -gt 0 ] && [ "$behind" -gt 0 ]; then
-            ahead_behind="${PROMPT_GIT_AHEAD}^${ahead}${RESET} ${PROMPT_GIT_BEHIND}v${behind}${RESET}"
-        elif [ "$ahead" -gt 0 ]; then
-            ahead_behind="${PROMPT_GIT_AHEAD}^${ahead}${RESET}"
-        elif [ "$behind" -gt 0 ]; then
-            ahead_behind="${PROMPT_GIT_BEHIND}v${behind}${RESET}"
+# Detect rebase/merge/cherry-pick/bisect/revert state (filesystem checks only)
+__detect_git_state() {
+    _git_state=
+    if [ -d "${_git_dir}/rebase-merge" ]; then
+        local step total
+        step=$(<"${_git_dir}/rebase-merge/msgnum")
+        total=$(<"${_git_dir}/rebase-merge/end")
+        _git_state="REBASE ${step}/${total}"
+    elif [ -d "${_git_dir}/rebase-apply" ]; then
+        local step total
+        step=$(<"${_git_dir}/rebase-apply/next")
+        total=$(<"${_git_dir}/rebase-apply/last")
+        if [ -f "${_git_dir}/rebase-apply/rebasing" ]; then
+            _git_state="REBASE ${step}/${total}"
+        else
+            _git_state="AM ${step}/${total}"
         fi
-    fi
-    
-    # Get short commit hash (first 7 characters)
-    local commit_hash="$(git rev-parse --short HEAD 2>/dev/null)"
-    
-    # Format: [branch:commit] status [ahead/behind]
-    echo -n "${PROMPT_GIT_BRANCH}[${git_branch}"
-    if [ -n "$commit_hash" ]; then
-        echo -n ":${PROMPT_GIT_COMMIT}${commit_hash}${RESET}"
-    fi
-    echo -n "${PROMPT_GIT_BRANCH}]${RESET}"
-    
-    # Add status and ahead/behind
-    echo -n " ${status}"
-    if [ -n "$ahead_behind" ]; then
-        echo -n " ${ahead_behind}"
+    elif [ -f "${_git_dir}/MERGE_HEAD" ]; then
+        _git_state="MERGING"
+    elif [ -f "${_git_dir}/CHERRY_PICK_HEAD" ]; then
+        _git_state="CHERRY-PICK"
+    elif [ -f "${_git_dir}/REVERT_HEAD" ]; then
+        _git_state="REVERTING"
+    elif [ -f "${_git_dir}/BISECT_LOG" ]; then
+        _git_state="BISECTING"
     fi
 }
 
-# Get commit message for display on separate line
-get_git_commit_message() {
-    local commit_hash="$(git rev-parse --short HEAD 2>/dev/null)"
-    
-    if [ -z "$commit_hash" ]; then
-        return
+# Consolidated git info: branch, hash, dirty, ahead/behind, stash, commit msg
+# Uses git status --porcelain=v2 --branch (single subprocess for most info)
+__git_prompt_info() {
+    _git_branch=
+    _git_hash=
+    _git_dirty=0
+    _git_ahead=0
+    _git_behind=0
+    _git_stash=0
+    _git_commit_msg=
+    _git_state=
+    _git_dir=
+    _in_git_repo=0
+
+    # Get git directory (fast check + needed for state detection)
+    _git_dir="$(git rev-parse --git-dir 2>/dev/null)" || return
+    _in_git_repo=1
+
+    # Call 1: git status --porcelain=v2 --branch
+    # Provides: branch name, commit hash, ahead/behind, dirty status
+    local line
+    while IFS= read -r line; do
+        case "$line" in
+            '# branch.head '*)
+                _git_branch="${line#\# branch.head }"
+                ;;
+            '# branch.oid '*)
+                _git_hash="${line#\# branch.oid }"
+                case "$_git_hash" in
+                    '('*) _git_hash= ;;  # (initial) - no commits yet
+                    *) _git_hash="${_git_hash:0:7}" ;;
+                esac
+                ;;
+            '# branch.ab '*)
+                # Format: "# branch.ab +N -M"
+                _git_ahead="${line#\# branch.ab +}"
+                _git_behind="${_git_ahead##*-}"
+                _git_ahead="${_git_ahead%% -*}"
+                ;;
+            '#'*) ;;  # skip other headers (e.g. # branch.upstream)
+            ?*)  # any non-empty, non-header line = dirty file
+                _git_dirty=1
+                break  # no need to parse remaining files
+                ;;
+        esac
+    done < <(git status --porcelain=v2 --branch 2>/dev/null)
+
+    # Handle detached HEAD
+    if [ "$_git_branch" = "(detached)" ]; then
+        _git_branch="detached:${_git_hash}"
     fi
-    
-    # Get commit message (first line only)
-    local commit_message="$(git log -1 --pretty=format:'%s' 2>/dev/null)"
-    
-    if [ -n "$commit_message" ]; then
-        echo "$commit_message"
+
+    # Call 2: commit message (only if we have commits)
+    if [ -n "$_git_hash" ]; then
+        _git_commit_msg="$(git log -1 --pretty=format:'%s' 2>/dev/null)"
     fi
+
+    # Call 3 (conditional): stash count
+    if [ -f "${_git_dir}/refs/stash" ]; then
+        _git_stash=$(git stash list 2>/dev/null | wc -l)
+        _git_stash=$(( _git_stash ))
+    fi
+
+    # Detect git state (filesystem checks only, no subprocesses)
+    __detect_git_state
 }
 
 # ============================================================================
 # MODERN PROMPT
 # ============================================================================
-# Build the prompt with exit code indicator
+# Build the prompt dynamically each command
 __prompt_command() {
     local exit_code=$?
-    
-    # Start building prompt
-    PS1=""
-    
-    # Get git commit message if in a git repo
-    local git_message="$(get_git_commit_message)"
-    
-    # If we have a commit message, display it on its own decorated line
-    if [ -n "$git_message" ]; then
-        # Calculate terminal width (default to 80 if not available)
+
+    # Capture elapsed time before any other work
+    _last_duration=
+    if [ -n "$_timer_start" ]; then
+        local _elapsed=$(( SECONDS - _timer_start ))
+        if [ $_elapsed -ge 2 ]; then
+            if [ $_elapsed -ge 3600 ]; then
+                _last_duration="$((_elapsed / 3600))h$((_elapsed % 3600 / 60))m"
+            elif [ $_elapsed -ge 60 ]; then
+                _last_duration="$((_elapsed / 60))m$((_elapsed % 60))s"
+            else
+                _last_duration="${_elapsed}s"
+            fi
+        fi
+    fi
+
+    # Gather git info (2-3 subprocesses vs previous 7)
+    __git_prompt_info
+
+    # Initialize PS1 (with terminal title if supported)
+    if [ "$_set_title" = 1 ]; then
+        PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]"
+    else
+        PS1=""
+    fi
+
+    # === Commit message box ===
+    if [ "$_in_git_repo" = 1 ] && [ -n "$_git_commit_msg" ]; then
         local term_width=${COLUMNS:-80}
-        
-        # Create a decorative box around the commit message (using ASCII characters)
-        # Top border
-        PS1+="${PROMPT_MESSAGE_BOX}+-${RESET}"
-        PS1+="${PROMPT_GIT_COMMIT} Commit${RESET}"
-        PS1+="${PROMPT_MESSAGE_BOX}${RESET}"
-        
-        # Fill remaining width with dashes
-        local used_width=9  # "+- Commit" = 9 chars
-        local remaining=$((term_width - used_width - 1))
-        if [ $remaining -gt 0 ]; then
-            PS1+="$(printf '%*s' $remaining '' | tr ' ' '-')"
+
+        if [ "$term_width" -ge 30 ]; then
+            local msg="$_git_commit_msg"
+            local max_msg_width=$((term_width - 4))
+
+            # Get display width (locale-aware via wc -L, fallback to char length)
+            local msg_display_width
+            msg_display_width=$(printf '%s' "$msg" | wc -L 2>/dev/null) || msg_display_width=0
+            msg_display_width=$(( msg_display_width ))
+            [ "$msg_display_width" -eq 0 ] && [ -n "$msg" ] && msg_display_width=${#msg}
+
+            # Truncate if message exceeds available width
+            if [ "$msg_display_width" -gt "$max_msg_width" ]; then
+                msg="${msg:0:$((max_msg_width - 3))}..."
+                msg_display_width=$max_msg_width
+            fi
+
+            # Top border: +- Commit ---...---+
+            local label=" Commit"
+            local top_used=$((2 + ${#label}))
+            local top_remaining=$((term_width - top_used - 1))
+            local fill
+            PS1+="${PROMPT_MESSAGE_BOX}+-${RESET}"
+            PS1+="${PROMPT_GIT_COMMIT}${label}${RESET}"
+            PS1+="${PROMPT_MESSAGE_BOX}"
+            if [ "$top_remaining" -gt 0 ]; then
+                printf -v fill '%*s' "$top_remaining" ''
+                PS1+="${fill// /-}"
+            fi
+            PS1+="+${RESET}\n"
+
+            # Message line: | message       |
+            PS1+="${PROMPT_MESSAGE_BOX}|${RESET} "
+            PS1+="${PROMPT_GIT_MESSAGE}${msg}${RESET}"
+            local msg_remaining=$((term_width - msg_display_width - 3))
+            if [ "$msg_remaining" -gt 0 ]; then
+                printf -v fill '%*s' "$msg_remaining" ''
+                PS1+="$fill"
+            fi
+            PS1+="${PROMPT_MESSAGE_BOX}|${RESET}\n"
+
+            # Bottom border: +---...---+
+            printf -v fill '%*s' "$((term_width - 2))" ''
+            PS1+="${PROMPT_MESSAGE_BOX}+${fill// /-}+${RESET}\n"
+        else
+            # Narrow terminal: show inline
+            PS1+="${PROMPT_GIT_COMMIT}Commit: ${PROMPT_GIT_MESSAGE}${_git_commit_msg}${RESET}\n"
         fi
-        PS1+="${PROMPT_MESSAGE_BOX}+${RESET}\n"
-        
-        # Commit message line with side borders
-        PS1+="${PROMPT_MESSAGE_BOX}|${RESET} "
-        PS1+="${PROMPT_GIT_MESSAGE}${git_message}${RESET}"
-        
-        # Fill remaining width with spaces
-        local msg_length=${#git_message}
-        local used_width=$((msg_length + 3))  # "| " + message + " "
-        local remaining=$((term_width - used_width - 1))
-        if [ $remaining -gt 0 ]; then
-            PS1+="$(printf '%*s' $remaining '')"
-        fi
-        PS1+=" ${PROMPT_MESSAGE_BOX}|${RESET}\n"
-        
-        # Bottom border
-        PS1+="${PROMPT_MESSAGE_BOX}+${RESET}"
-        PS1+="$(printf '%*s' $((term_width - 1)) '' | tr ' ' '-')"
-        PS1+="${PROMPT_MESSAGE_BOX}+${RESET}\n"
     fi
-    
-    # Debian chroot indicator
-    if [ -n "${debian_chroot:-}" ]; then
-        PS1+="${BRIGHT_BLACK}(${debian_chroot})${RESET} "
+
+    # === Virtual environment indicators ===
+    local venv_info=""
+    if [ -n "$VIRTUAL_ENV" ]; then
+        venv_info+="(${VIRTUAL_ENV##*/}) "
     fi
-    
-    # User@Host
-    PS1+="${PROMPT_USER}\u${RESET}@${PROMPT_HOST}\h${RESET}"
-    
-    # Current directory
+    if [ -n "$CONDA_DEFAULT_ENV" ] && [ "$CONDA_DEFAULT_ENV" != "base" ]; then
+        venv_info+="(conda:${CONDA_DEFAULT_ENV}) "
+    fi
+    if [ -n "$NVM_BIN" ]; then
+        local node_ver="${NVM_BIN%/bin}"
+        node_ver="${node_ver##*/}"
+        venv_info+="(node:${node_ver}) "
+    fi
+    [ -n "$venv_info" ] && PS1+="${PROMPT_VENV}${venv_info}${RESET}"
+
+    # === Debian chroot indicator ===
+    [ -n "${debian_chroot:-}" ] && PS1+="${BRIGHT_BLACK}(${debian_chroot})${RESET} "
+
+    # === Container indicator ===
+    [ "$_is_container" = 1 ] && PS1+="${PROMPT_CONTAINER}[container]${RESET} "
+
+    # === User@Host (SSH: bold yellow hostname) ===
+    if [ "$_is_ssh" = 1 ]; then
+        PS1+="${PROMPT_USER}\u${RESET}@${BOLD}${PROMPT_SSH_HOST}\h${RESET}"
+    else
+        PS1+="${PROMPT_USER}\u${RESET}@${PROMPT_HOST}\h${RESET}"
+    fi
+
+    # === Current directory ===
     PS1+=":${PROMPT_PATH}\w${RESET}"
-    
-    # Git information
-    local git_info="$(parse_git_status)"
-    if [ -n "$git_info" ]; then
-        PS1+=" ${git_info}"
+
+    # === Git information: [branch:hash|STATE] status ahead behind stash ===
+    if [ "$_in_git_repo" = 1 ]; then
+        PS1+=" ${PROMPT_GIT_BRANCH}["
+        PS1+="${_git_branch}"
+        if [ -n "$_git_hash" ] && [ "$_git_branch" != "detached:${_git_hash}" ]; then
+            PS1+=":${PROMPT_GIT_COMMIT}${_git_hash}${PROMPT_GIT_BRANCH}"
+        fi
+        if [ -n "$_git_state" ]; then
+            PS1+="|${PROMPT_GIT_STATE}${_git_state}${PROMPT_GIT_BRANCH}"
+        fi
+        PS1+="]${RESET}"
+
+        # Dirty/clean indicator
+        if [ "$_git_dirty" = 1 ]; then
+            PS1+=" ${PROMPT_GIT_DIRTY}${SYM_DIRTY}${RESET}"
+        else
+            PS1+=" ${PROMPT_GIT_CLEAN}${SYM_CLEAN}${RESET}"
+        fi
+
+        # Ahead/behind indicators
+        [ "$_git_ahead" -gt 0 ] 2>/dev/null && PS1+=" ${PROMPT_GIT_AHEAD}${SYM_AHEAD}${_git_ahead}${RESET}"
+        [ "$_git_behind" -gt 0 ] 2>/dev/null && PS1+=" ${PROMPT_GIT_BEHIND}${SYM_BEHIND}${_git_behind}${RESET}"
+
+        # Stash indicator
+        [ "$_git_stash" -gt 0 ] 2>/dev/null && PS1+=" ${PROMPT_GIT_STASH}${SYM_STASH}${_git_stash}${RESET}"
     fi
-    
-    # Exit code indicator (only show if command failed)
-    if [ $exit_code -ne 0 ]; then
-        PS1+=" ${PROMPT_ERROR}[X ${exit_code}]${RESET}"
-    fi
-    
-    # Prompt symbol with color based on exit code
+
+    # === Exit code (only on failure) ===
+    [ $exit_code -ne 0 ] && PS1+=" ${PROMPT_ERROR}[X ${exit_code}]${RESET}"
+
+    # === Command duration (only if >= 2 seconds) ===
+    [ -n "$_last_duration" ] && PS1+=" ${PROMPT_TIMER}(${_last_duration})${RESET}"
+
+    # === Prompt symbol (green=success, red=failure) ===
     if [ $exit_code -eq 0 ]; then
         PS1+="\n${PROMPT_SUCCESS}>${RESET} "
     else
         PS1+="\n${PROMPT_ERROR}>${RESET} "
     fi
+
+    # Reset timer for next command (must be last to avoid DEBUG trap interference)
+    _timer_start=
 }
 
 # Set prompt command
 PROMPT_COMMAND=__prompt_command
-
-# If this is an xterm set the title to user@host:dir
-case "$TERM" in
-xterm*|rxvt*|screen*|tmux*)
-    PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
-    ;;
-*)
-    ;;
-esac
 
 # ============================================================================
 # COLOR SUPPORT FOR COMMANDS

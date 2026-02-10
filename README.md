@@ -9,18 +9,36 @@ This repository contains a modern, colorful, and professional `.bashrc` configur
 ### Modern Visual Design
 - **Colorful prompt** with bright, professional color scheme
 - **Git commit message display** in a decorated box above the prompt
-- **Real-time Git status** indicators (clean/dirty, ahead/behind)
+- **Real-time Git status** indicators (clean/dirty, ahead/behind, stash)
 - **Exit code feedback** (only shown on errors)
-- **Terminal width adaptation** for commit message box
+- **Command execution timer** (shown when command takes >= 2 seconds)
+- **Terminal width adaptation** for commit message box with smart truncation
+- **Unicode symbols** with automatic ASCII fallback (`✓/OK`, `✗/*`, `↑/^`, `↓/v`, `⚑/S`)
 
 ### Git Information Display
 - **Current branch name** with commit hash
-- **Working directory status**: OK (clean) or * (dirty)
-- **Remote sync status**: ^ (ahead) and v (behind) with counts
-- **Commit message** displayed in a decorative box (full width, no truncation)
+- **Working directory status**: ✓ (clean) or ✗ (dirty)
+- **Remote sync status**: ↑ (ahead) and ↓ (behind) with counts
+- **Stash count**: ⚑N when stashes exist
+- **Git state detection**: REBASE (with progress), MERGING, CHERRY-PICK, REVERTING, BISECTING, AM
+- **Commit message** displayed in a decorative box (truncated with `...` for long messages)
+- **Detached HEAD** display with hash
+
+### Environment Detection
+- **SSH sessions**: hostname displayed in bold yellow when connected via SSH
+- **Containers**: `[container]` prefix when running inside Docker or other containers
+- **Virtual environments**: Python venv, Conda, and Node.js (NVM) indicators before user@host
+- **NO_COLOR support**: respects the [NO_COLOR](https://no-color.org/) standard
+
+### Performance
+- **Optimized git subprocess usage**: 2-3 git calls per prompt (down from 7 in previous version)
+- **Single `git status --porcelain=v2 --branch`** provides branch, hash, ahead/behind, and dirty status
+- **Early-exit parsing**: stops reading git output as soon as dirty state is detected
+- **No subprocesses** for git state detection (filesystem checks only)
+- **Environment detection** runs once at shell startup, not every prompt
 
 ### Preserved Functionality
-All essential features from the original `actual.bashrc` are preserved:
+All essential features from the original configuration are preserved:
 - History configuration (HISTCONTROL, HISTSIZE, HISTFILESIZE)
 - Bash completion support
 - Color support for `ls`, `grep`, `fgrep`, `egrep`
@@ -29,7 +47,7 @@ All essential features from the original `actual.bashrc` are preserved:
 - Debian chroot support
 - Terminal title setting
 
-### Additional Git Aliases
+### Git Aliases
 - `gs` - git status
 - `ga` - git add
 - `gc` - git commit
@@ -84,7 +102,7 @@ Or simply open a new terminal window/tab.
 ### Normal Directory (No Git)
 ```
 username@hostname:/home/dev/projects
-> 
+>
 ```
 
 ### Git Repository - Clean
@@ -92,54 +110,69 @@ username@hostname:/home/dev/projects
 +- Commit ------------------------------------------------------------------+
 | Fix bug in login                                                          |
 +---------------------------------------------------------------------------+
-username@hostname:/home/dev/projects/console [main:a1b2c3d] OK
-> 
+username@hostname:/home/dev/projects/console [main:a1b2c3d] ✓
+>
 ```
 
-### Git Repository - Dirty with Changes
+### Git Repository - Dirty with Ahead/Behind
 ```
 +- Commit -----------------------------------------------------------------+
 | Implement new feature for user authentication                            |
 +--------------------------------------------------------------------------+
-username@hostname:/home/dev/projects/console [main:a1b2c3d] *
-> 
+username@hostname:/home/dev/projects/console [main:a1b2c3d] ✗ ↑3 ↓1
+>
 ```
 
-### Git Repository - Ahead of Remote
-```
-+- Commit ----------------------------------------------------------------+
-| Add user dashboard with real-time updates                               |
-+-------------------------------------------------------------------------+
-username@hostname:/home/dev/projects/console [main:a1b2c3d] OK ^3
-> 
-```
-
-### Git Repository - Behind Remote
+### Git Repository - With Stash and State
 ```
 +- Commit -----------------------------------------------------------------+
-| Update dependencies                                                      |
+| Add user dashboard                                                       |
 +--------------------------------------------------------------------------+
-username@hostname:/home/dev/projects/console [main:a1b2c3d] OK v2
-> 
+username@hostname:/home/dev/projects/console [main:a1b2c3d|REBASE 3/7] ✗ ⚑2
+>
 ```
 
-### After Failed Command
+### SSH Session with Virtual Environment
+```
++- Commit -----------------------------------------------------------------+
+| Update API endpoints                                                     |
++--------------------------------------------------------------------------+
+(myenv) username@hostname:/home/dev/projects [main:a1b2c3d] ✓
+>
+```
+
+### After Failed Long-Running Command
 ```
 +- Commit -----------------------------------------------------------------+
 | Refactor code structure                                                  |
 +--------------------------------------------------------------------------+
-username@hostname:/home/dev/projects/console [main:a1b2c3d] OK [X 1]
-> 
+username@hostname:/home/dev/projects/console [main:a1b2c3d] ✓ [X 1] (5s)
+>
 ```
+
+### Container Environment
+```
+[container] username@hostname:/app [main:a1b2c3d] ✓
+>
+```
+
+## Compatibility
+
+- **Bash**: 4.x and 5.x
+- **OS**: Linux (all distros), macOS, WSL
+- **Git**: 2.11+ (required for `--porcelain=v2`)
+- **Terminals**: with and without color support (graceful degradation)
+- **Locales**: UTF-8 and ASCII (automatic detection with fallback)
+- **Standards**: respects [NO_COLOR](https://no-color.org/)
 
 ## Color Scheme
 
-- **Cyan** (`BRIGHT_CYAN`): Username and commit hash
-- **Yellow** (`BRIGHT_YELLOW`): Hostname and ahead indicator
+- **Cyan** (`BRIGHT_CYAN`): Username, commit hash, stash indicator
+- **Yellow** (`BRIGHT_YELLOW`): Hostname, ahead indicator, SSH host, timer, container
 - **Blue** (`BRIGHT_BLUE`): Current directory path
-- **Green** (`BRIGHT_GREEN`): Git branch, clean status (OK), success prompt (>)
-- **Red** (`BRIGHT_RED`): Dirty status (*), error indicator, error prompt (X)
-- **Magenta** (`BRIGHT_MAGENTA`): Behind indicator
+- **Green** (`BRIGHT_GREEN`): Git branch, clean status (✓), success prompt (>)
+- **Red** (`BRIGHT_RED`): Dirty status (✗), error indicator, error prompt (>), git state
+- **Magenta** (`BRIGHT_MAGENTA`): Behind indicator, virtual environment names
 - **White** (`BRIGHT_WHITE`): Commit message text
 - **Gray** (`BRIGHT_BLACK`): Commit message box borders
 
@@ -153,52 +186,63 @@ If colors don't appear, ensure your terminal supports 256 colors. The configurat
 force_color_prompt=yes
 ```
 
+Make sure `NO_COLOR` environment variable is not set.
+
 ### Git Information Not Appearing
 
 - Ensure you're in a Git repository (`git status` should work)
 - Check that Git is installed: `which git`
-- Verify Git is working: `git --version`
+- Verify Git version is 2.11+: `git --version`
+
+### Unicode Symbols Not Showing
+
+If you see garbled characters instead of ✓, ✗, ↑, ↓, ⚑:
+- Check your locale supports UTF-8: `echo $LANG`
+- The prompt automatically falls back to ASCII symbols (OK, *, ^, v, S) for non-UTF-8 locales
 
 ### Commit Message Box Too Wide/Narrow
 
-The commit message box automatically adapts to your terminal width. If it looks incorrect:
-- Resize your terminal window
-- Open a new terminal session
-- The box uses the `COLUMNS` environment variable
+The commit message box automatically adapts to your terminal width. Long messages are truncated with `...`. If the terminal is narrower than 30 columns, the box is replaced with an inline display.
 
 ### Performance Issues
 
-If the prompt feels slow:
-- The Git status checks run on every command
-- In very large repositories, this might be noticeable
-- Consider using a faster Git status tool like `gitstatus` if needed
+The prompt uses 2-3 git subprocesses per command (down from 7 in the previous version). If the prompt still feels slow in very large repositories, consider using a faster Git status tool like `gitstatus`.
 
 ## Customization
 
 ### Change Colors
 
-Edit the color definitions in the "COLOR DEFINITIONS" section. For example, to change the username color:
+Edit the semantic color mappings in the "COLOR DEFINITIONS" section:
 
 ```bash
 PROMPT_USER="${BRIGHT_MAGENTA}"  # Change from BRIGHT_CYAN to BRIGHT_MAGENTA
 ```
 
+### Change Symbols
+
+Edit the "SYMBOL DEFINITIONS" section to use custom symbols:
+
+```bash
+SYM_CLEAN="ok"
+SYM_DIRTY="!!"
+```
+
 ### Disable Commit Message Box
 
-If you find the commit message box distracting, you can comment out or remove the commit message display section in the `__prompt_command()` function.
+Comment out or remove the commit message display section in the `__prompt_command()` function.
+
+### Disable Command Timer
+
+Remove or comment out the `trap '__timer_start' DEBUG` line and the timer section in `__prompt_command()`.
 
 ### Adjust History Size
 
-Modify these lines to change history size:
-
 ```bash
 HISTSIZE=1000        # Number of commands in memory
-HISTFILESIZE=2000     # Number of commands in history file
+HISTFILESIZE=2000    # Number of commands in history file
 ```
 
 ## Reverting to Original
-
-If you need to revert to your original configuration:
 
 ```bash
 cp ~/.bashrc.backup ~/.bashrc
@@ -207,19 +251,19 @@ source ~/.bashrc
 
 ## Files in This Repository
 
-- `new.bashrc` - The new modern configuration (use this one)
+- `new.bashrc` - The modern configuration (use this one)
 - `README.md` - This file
+- `LICENSE` - MIT License
 
 ## Requirements
 
-- Bash shell
-- Git (for Git features to work)
-- Terminal with color support (most modern terminals)
-- Linux/Unix-like system (tested on Debian/Ubuntu)
+- Bash 4.x or 5.x
+- Git 2.11+ (for `--porcelain=v2` support)
+- Terminal with color support (most modern terminals; graceful fallback without)
+- Linux/Unix-like system
 
 ## License
 
-This is a personal configuration file. Use it as you wish!
+MIT License - See [LICENSE](LICENSE) for details.
 
 **Author:** Waldemar Szemat <waldemar@szemat.pro>
-

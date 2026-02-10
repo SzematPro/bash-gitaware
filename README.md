@@ -1,6 +1,6 @@
 # Modern Git-Aware Bash Configuration
 
-**Author:** Waldemar Szemat <waldemar@szemat.pro>
+**Author:** Waldemar Szemat <hello@szemat.pro>
 
 A modern, colorful `.bashrc` configuration with real-time Git integration, environment detection, and visual feedback. Designed for developers who live in the terminal.
 
@@ -626,4 +626,4 @@ source ~/.bashrc
 
 MIT License - See [LICENSE](LICENSE) for details.
 
-**Author:** Waldemar Szemat <waldemar@szemat.pro>
+**Author:** Waldemar Szemat <hello@szemat.pro>

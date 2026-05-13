@@ -371,6 +371,49 @@ scenario_transient_state_tracked() {
     assert_contains "$out" "active=1" "_bga_transient_active set to 1"
 }
 
+scenario_install_replace() {
+    section "install.sh --replace (writes new.bashrc to target)"
+    local target; target="$(mktemp "${TMPDIR:-/tmp}/bga-install-XXXXXX")"
+    bash "$REPO/install.sh" --replace --target "$target" --no-backup >/dev/null 2>&1
+    if cmp -s "$REPO/new.bashrc" "$target"; then
+        ok   "install.sh --replace: target matches new.bashrc"
+    else
+        fail "install.sh --replace: target differs from new.bashrc"
+    fi
+    rm -f "$target"
+}
+
+scenario_install_append_idempotent() {
+    section "install.sh --append (idempotent + preserves existing content)"
+    local target; target="$(mktemp "${TMPDIR:-/tmp}/bga-install-XXXXXX")"
+    printf '# pre-existing user content\nexport USER_VAR=42\n' > "$target"
+
+    bash "$REPO/install.sh" --append --target "$target" >/dev/null 2>&1
+    local count1; count1="$(grep -c -F "$REPO/new.bashrc" "$target" || true)"
+    bash "$REPO/install.sh" --append --target "$target" >/dev/null 2>&1
+    local count2; count2="$(grep -c -F "$REPO/new.bashrc" "$target" || true)"
+
+    if [ "$count1" = 1 ] && [ "$count2" = 1 ]; then
+        ok   "install.sh --append: source line present exactly once after 2 runs (idempotent)"
+    else
+        fail "install.sh --append: not idempotent (after first run: $count1, after second: $count2)"
+    fi
+    if grep -qF "pre-existing user content" "$target"; then
+        ok   "install.sh --append: pre-existing content preserved"
+    else
+        fail "install.sh --append: pre-existing content was lost"
+    fi
+    rm -f "$target"
+}
+
+scenario_install_help() {
+    section "install.sh --help (prints usage)"
+    local out; out="$(bash "$REPO/install.sh" --help 2>&1)"
+    assert_contains "$out" "Usage:"   "install.sh --help shows 'Usage:'"
+    assert_contains "$out" "--replace" "install.sh --help mentions --replace"
+    assert_contains "$out" "--append"  "install.sh --help mentions --append"
+}
+
 scenario_path_maxdepth() {
     section "BASHGITAWARE_PATH_MAXDEPTH"
     # Build a path that is more than 3 components deep.

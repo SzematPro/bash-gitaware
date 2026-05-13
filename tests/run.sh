@@ -43,6 +43,9 @@ scenario_async_two_render_cache_hit
 scenario_async_exit_trap_installed
 scenario_async_disabled_no_trap
 scenario_transient_state_tracked
+scenario_install_replace
+scenario_install_append_idempotent
+scenario_install_help
 scenario_path_maxdepth
 
 # Performance.

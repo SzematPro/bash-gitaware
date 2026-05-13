@@ -34,7 +34,7 @@ jobs:
           fi
 
       - name: Lint (shellcheck on the generated artifact + scripts)
-        run: shellcheck -x new.bashrc bin/*.sh tests/*.sh
+        run: shellcheck -x new.bashrc bin/*.sh tests/*.sh install.sh
 
       - name: Run tests
         run: bash tests/run.sh

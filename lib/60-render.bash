@@ -94,5 +94,17 @@ __bga_prompt() {
     ps1+="$(__bga_osc_ps1 '133;B')"
 
     PS1="$ps1"
+
+    # M4 transient: record the just-built prompt's physical line count and
+    # exit code so __bga_transient_collapse (bind -x on Enter) can move the
+    # cursor up the right number of rows and pick the matching symbol color.
+    # Line count = count of literal "\n" sequences in the PS1 string + 1.
+    if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ]; then
+        local _ps1_stripped="${ps1//\\n/}"
+        _bga_transient_lines=$(( (${#ps1} - ${#_ps1_stripped}) / 2 + 1 ))
+        _bga_transient_exit="$exit_code"
+        _bga_transient_active=1
+    fi
+
     _bga_timer_start=''      # reset for the next command (must be the last thing here)
 }

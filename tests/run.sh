@@ -34,6 +34,11 @@ scenario_preset_powerline
 scenario_preset_full
 scenario_osc_default
 scenario_osc_disabled
+scenario_transient_basic
+scenario_transient_error_exit
+scenario_transient_disabled
+scenario_transient_first_prompt
+scenario_transient_state_tracked
 scenario_path_maxdepth
 
 # Performance.

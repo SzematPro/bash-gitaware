@@ -222,6 +222,96 @@ scenario_osc_disabled() {
     esac
 }
 
+scenario_transient_basic() {
+    section "transient: collapse prints symbol + typed command (exit 0)"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120
+        source '$REPO/new.bashrc'
+        _bga_transient_lines=3
+        _bga_transient_exit=0
+        _bga_transient_active=1
+        READLINE_LINE='ls -la'
+        __bga_transient_collapse
+    " 2>/dev/null)"
+    # Move up 2 rows (lines - 1 = 2) -> ESC[2A.
+    assert_contains "$out" $'\e[2A' "moves cursor up (\e[2A) for 3-line prompt"
+    # Clear from cursor to end of screen.
+    assert_contains "$out" $'\e[J'  "clears to end of screen (\e[J)"
+    # Bold green for success.
+    assert_contains "$out" $'\e[1;32m' "bold green symbol on exit 0"
+    # The typed command is preserved in scrollback.
+    assert_contains "$out" "ls -la" "preserves the typed command"
+}
+
+scenario_transient_error_exit() {
+    section "transient: red symbol when previous command failed"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120
+        source '$REPO/new.bashrc'
+        _bga_transient_lines=2
+        _bga_transient_exit=1
+        _bga_transient_active=1
+        READLINE_LINE='false'
+        __bga_transient_collapse
+    " 2>/dev/null)"
+    assert_contains "$out" $'\e[1;31m' "bold red symbol on non-zero exit"
+    assert_contains "$out" "false"     "preserves the typed command"
+}
+
+scenario_transient_disabled() {
+    section "BASHGITAWARE_TRANSIENT=0 short-circuits the collapse"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120 BASHGITAWARE_TRANSIENT=0
+        source '$REPO/new.bashrc'
+        _bga_transient_lines=3
+        _bga_transient_exit=0
+        _bga_transient_active=1
+        READLINE_LINE='ls -la'
+        __bga_transient_collapse
+    " 2>/dev/null)"
+    case "$out" in
+        '') ok   "BASHGITAWARE_TRANSIENT=0: empty output" ;;
+        *)  fail "BASHGITAWARE_TRANSIENT=0: produced output: $(printf '%q' "$out")" ;;
+    esac
+}
+
+scenario_transient_first_prompt() {
+    section "transient: no-op until first prompt has been drawn"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120
+        source '$REPO/new.bashrc'
+        # _bga_transient_active stays 0 -- no prompt has been rendered yet.
+        READLINE_LINE='whatever'
+        __bga_transient_collapse
+    " 2>/dev/null)"
+    case "$out" in
+        '') ok   "first prompt: no-op (empty output)" ;;
+        *)  fail "first prompt: should be no-op but got: $(printf '%q' "$out")" ;;
+    esac
+}
+
+scenario_transient_state_tracked() {
+    section "transient: __bga_prompt records lines + exit + active"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120
+        cd /tmp 2>/dev/null
+        source '$REPO/new.bashrc'
+        __bga_prompt
+        printf 'lines=%d exit=%d active=%d' \"\$_bga_transient_lines\" \"\$_bga_transient_exit\" \"\$_bga_transient_active\"
+    " 2>/dev/null)"
+    case "$out" in
+        *"lines=0 "*) fail "_bga_transient_lines should be > 0 after __bga_prompt (got: $out)" ;;
+        *"lines="*)   ok   "_bga_transient_lines set after __bga_prompt ($out)" ;;
+        *)            fail "expected 'lines=N' in output: $(printf '%q' "$out")" ;;
+    esac
+    assert_contains "$out" "active=1" "_bga_transient_active set to 1"
+}
+
 scenario_path_maxdepth() {
     section "BASHGITAWARE_PATH_MAXDEPTH"
     # Build a path that is more than 3 components deep.

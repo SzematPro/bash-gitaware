@@ -28,14 +28,22 @@ Implement transient prompt in `lib/80-transient.bash`:
    occupies (computed from the assembled prompt string, accounting for
    embedded newlines and the terminal width).
 2. On command submit, move the cursor up to the start of that prompt, clear
-   to end of screen, then reprint a minimal form (`❯ ` only, color matching
-   the prompt symbol's success/failure state).
+   to end of screen, then reprint a minimal form: the prompt symbol followed
+   by the typed command (`❯ <command>`), colored by the previous exit code.
+   Including the command keeps the scrollback useful ("which command produced
+   this output") and matches the Powerlevel10k convention; printing the
+   symbol alone would erase the command from scrollback for no gain.
 3. Then run the user's command.
 
-Hook strategy: where available, attach via `bind -x` on the `accept-line`
-widget so the collapse happens *before* the command runs. Where the bind is
-unavailable, fall back to "collapse on the next prompt cycle" (collapse
-happens after the command instead of before, slight visual flicker).
+Hook strategy: `bind -x` carries the collapse function on an auxiliary chord
+(`\C-x\C-t`); the Enter key (`\C-m`) is remapped to a readline macro
+`"\C-x\C-t\C-j"`. The macro runs the collapse and then triggers `accept-line`
+via `\C-j`, which is a separate default-bound key for accept-line — so we do
+not recurse into our own `\C-m` remap. This works on any bash 4.4+ shell
+with a standard readline; the macro is intercepted before readline's own
+post-`bind -x` redraw, so the redraw is harmless. `BASHGITAWARE_TRANSIENT=0`
+skips installation entirely; toggling it after sourcing also short-circuits
+the function at call time.
 
 Disable with `BASHGITAWARE_TRANSIENT=0`.
 

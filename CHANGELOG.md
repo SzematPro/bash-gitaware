@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Transient prompt**: after Enter, the previous prompt collapses to a
+  one-line form `❯ <command>` (or `> <command>` on the ascii tier),
+  colored by that command's exit code. The live prompt stays full and
+  informative; the scrollback stays compact. Implemented via a `bind -x`
+  auxiliary chord (`\C-x\C-t`) plus an Enter remap (`"\C-x\C-t\C-j"`) that
+  collapses, then triggers `accept-line` via a separate readline binding
+  to avoid recursing into the remap. Disable with
+  `BASHGITAWARE_TRANSIENT=0`. See
+  [ADR-0004](docs/adr/ADR-0004-transient-prompt.md).
 - **Presets** via `BASHGITAWARE_PRESET=minimal|default|powerline|full`. The
   preset sets a coherent set of defaults; individual `BASHGITAWARE_*`
   variables still override. `minimal` is ascii-leaning with the commit line
@@ -59,9 +68,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Planned (later milestones)
 
-- M2: OSC 133 semantic prompt marks + OSC 7 cwd reporting.
-- M3: presets (`minimal` / `default` / `powerline` / `full`).
-- M4: transient prompt (previous prompt collapses to a minimal form on submit).
 - M5: async / non-blocking rendering for slow git status and cold-cache
   runtime version commands.
 - M6: vhs demo, `install.sh`, full README rewrite for v2.

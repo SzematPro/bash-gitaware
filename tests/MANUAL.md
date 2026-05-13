@@ -55,12 +55,40 @@ release. Each item should pass on a fresh terminal (no env-var overrides).
 - [ ] `make test` passes on a clean working tree.
 - [ ] `make lint` passes (shellcheck across `lib/` and `bin/`).
 
+## Transient prompt (M4)
+
+After Enter, the previous prompt collapses to a one-line form
+`❯ <typed-command>` (or `> <typed-command>` on the ascii tier), colored by
+that command's exit code. The live prompt stays full and informative; the
+scrollback stays compact. Disable with `BASHGITAWARE_TRANSIENT=0`.
+
+- [ ] Open a fresh terminal, source the bashrc, run a few commands. Each
+      submission collapses the old multi-line prompt to a single
+      `❯ <command>` line in scrollback; the live prompt below is the full
+      multi-line form.
+- [ ] Run a failing command (e.g. `false`). The collapsed line of that
+      command shows the symbol in red.
+- [ ] Press Enter on an empty line at the very first prompt of the
+      session: no visible collapse (no prior prompt to collapse against).
+- [ ] Press Ctrl-C with a half-typed command: the line is discarded, the
+      full prompt stays on screen, no collapse fires. The next Enter
+      collapses as usual.
+- [ ] Type `clear` and press Enter: collapse fires, then `clear` wipes the
+      screen; final state is a clean screen with one full prompt.
+- [ ] Type a command long enough to wrap onto a second physical line, then
+      Enter: the collapse may misalign by a row (known limit -- the
+      recorded line count does not account for input wrapping). The next
+      prompt re-syncs.
+- [ ] Resize the terminal between rendering and submit, then press Enter:
+      same caveat as wrapping; next prompt re-syncs.
+- [ ] Set `BASHGITAWARE_TRANSIENT=0` and re-source: previous prompts stay
+      in scrollback as full multi-line entries, no collapse.
+- [ ] Set `BASHGITAWARE_GLYPHS=ascii` (or `BASHGITAWARE_PRESET=minimal`):
+      the collapsed symbol is `>`, not `❯`.
+
 ## Out of scope until later milestones
 
 These have placeholder modules in `lib/` and are documented in `docs/adr/`;
 they should *not* render or change behaviour yet:
 
-- M2 OSC 133 / OSC 7 -- a terminal with the integration enabled should not
-  start showing prompt marks until M2 lands.
-- M4 transient prompt -- previous prompts should not collapse until M4.
 - M5 async rendering -- the prompt should be fully synchronous until M5.

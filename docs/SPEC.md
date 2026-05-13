@@ -141,11 +141,14 @@ the tests are part of what ships.
    prompt in place — or, as a documented fallback, on the next prompt. Never leave
    a stale background job; never corrupt the terminal. Disable with
    `BASHGITAWARE_ASYNC=0` (the prompt is then fully synchronous).
-10. **Presets.** `BASHGITAWARE_PRESET`: `minimal` (one line, no commit line, no
-    runtime, ascii-leaning), `default` (everything above), `powerline` (colored
-    arrow segments; needs a Powerline/Nerd font), `full` (default plus more
-    verbose git status plus always show user@host). A preset sets defaults that
-    individual `BASHGITAWARE_*` variables still override.
+10. **Presets.** `BASHGITAWARE_PRESET`: `minimal` (ascii glyphs, no commit
+    line, no runtime modules), `default` (current behaviour), `powerline`
+    (Nerd Font glyphs by default; falls back gracefully without them), `full`
+    (commit line on, runtime modules on, user@host always shown). A preset
+    sets defaults; individual `BASHGITAWARE_*` variables still override.
+    A "powerline arrow-segment" render style is planned for a future release;
+    in v2.0.0 the `powerline` preset is a glyph/visual default, not a
+    structural change to PS1.
 11. **Knobs.** `BASHGITAWARE_GLYPHS`, `BASHGITAWARE_NERD_FONT`,
     `BASHGITAWARE_PRESET`, `BASHGITAWARE_COMMIT_LINE`, `BASHGITAWARE_RUNTIME`,
     `BASHGITAWARE_OSC`, `BASHGITAWARE_TRANSIENT`, `BASHGITAWARE_ASYNC`,

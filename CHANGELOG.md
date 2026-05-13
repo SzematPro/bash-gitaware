@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Presets** via `BASHGITAWARE_PRESET=minimal|default|powerline|full`. The
+  preset sets a coherent set of defaults; individual `BASHGITAWARE_*`
+  variables still override. `minimal` is ascii-leaning with the commit line
+  and runtime modules off; `powerline` turns on Nerd Font glyphs by default
+  (the arrow-segment render is planned for a future release); `full` forces
+  the commit line on, runtime modules on, and `user@host` always shown.
 - **OSC 133 semantic prompt marks** (A/B/C/D) and **OSC 7 cwd reporting**.
   Modern terminals (WezTerm, Kitty, VS Code, iTerm2, Ghostty, Konsole,
   Windows Terminal, Warp, ...) use these to support "jump to previous

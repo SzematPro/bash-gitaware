@@ -29,3 +29,37 @@ case $- in
     *i*) ;;
       *) return ;;
 esac
+
+# ---------------------------------------------------------------------------
+# Presets -- BASHGITAWARE_PRESET sets a set of defaults; individual
+# BASHGITAWARE_* variables still override anything a preset sets. Use the
+# ':=' parameter expansion so an explicit user value wins.
+#
+#   minimal   -- ascii glyphs, no last-commit line, no runtime modules.
+#   default   -- current behaviour (no extra defaults).
+#   powerline -- Nerd Font glyphs on by default (works without Nerd glyphs
+#                falling back via the standard tier).
+#   full      -- last-commit line on, runtime modules on, user@host always.
+#
+# Presets affect *defaults only*; setting BASHGITAWARE_GLYPHS=ascii after
+# choosing the 'powerline' preset still wins.
+# ---------------------------------------------------------------------------
+case "${BASHGITAWARE_PRESET:-default}" in
+    minimal)
+        : "${BASHGITAWARE_COMMIT_LINE:=0}"
+        : "${BASHGITAWARE_RUNTIME:=0}"
+        : "${BASHGITAWARE_GLYPHS:=ascii}"
+        ;;
+    default)
+        : ;;
+    powerline)
+        : "${BASHGITAWARE_NERD_FONT:=1}"
+        ;;
+    full)
+        : "${BASHGITAWARE_COMMIT_LINE:=1}"
+        : "${BASHGITAWARE_RUNTIME:=1}"
+        : "${BASHGITAWARE_SHOW_HOST:=always}"
+        ;;
+    *)
+        : ;;
+esac

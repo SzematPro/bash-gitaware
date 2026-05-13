@@ -125,6 +125,65 @@ scenario_ascii_glyphs() {
     rm -rf "$d"
 }
 
+scenario_preset_minimal() {
+    section "BASHGITAWARE_PRESET=minimal"
+    local d; d="$(mktemp_repo)"
+    (cd "$d" && git commit --allow-empty -qm "init") >/dev/null 2>&1
+
+    local out; out="$(bga_render "$d" "BASHGITAWARE_PRESET=minimal")"
+    # minimal sets BASHGITAWARE_GLYPHS=ascii by default.
+    assert_contains "$out" ">"   "minimal: ascii prompt symbol"
+    assert_lacks    "$out" "❯"   "minimal: no unicode prompt symbol"
+    # minimal sets BASHGITAWARE_COMMIT_LINE=0 -- no commit subject line.
+    assert_lacks    "$out" "init" "minimal: no last-commit-subject line"
+
+    # User override still wins: explicitly set unicode glyphs.
+    out="$(bga_render "$d" "BASHGITAWARE_PRESET=minimal" "BASHGITAWARE_GLYPHS=unicode")"
+    assert_contains "$out" "❯"   "minimal + BASHGITAWARE_GLYPHS=unicode: override wins"
+
+    rm -rf "$d"
+}
+
+scenario_preset_default() {
+    section "BASHGITAWARE_PRESET=default"
+    local d; d="$(mktemp_repo)"
+    (cd "$d" && git commit --allow-empty -qm "init") >/dev/null 2>&1
+
+    local out; out="$(bga_render "$d" "BASHGITAWARE_PRESET=default")"
+    assert_contains "$out" "❯"    "default: unicode prompt symbol"
+    assert_contains "$out" "init"  "default: commit line shown"
+
+    rm -rf "$d"
+}
+
+scenario_preset_powerline() {
+    section "BASHGITAWARE_PRESET=powerline"
+    local d; d="$(mktemp_repo)"
+    (cd "$d" && git commit --allow-empty -qm "init") >/dev/null 2>&1
+
+    local out; out="$(bga_render "$d" "BASHGITAWARE_PRESET=powerline")"
+    # powerline sets BASHGITAWARE_NERD_FONT=1 -- the Powerline branch glyph
+    # (U+E0A0, UTF-8: ee 82 a0) appears before the branch name.
+    assert_contains "$out" $'\xee\x82\xa0' "powerline: Nerd Font branch glyph "
+
+    rm -rf "$d"
+}
+
+scenario_preset_full() {
+    section "BASHGITAWARE_PRESET=full"
+    local d; d="$(mktemp_repo)"
+    (cd "$d" && git commit --allow-empty -qm "init") >/dev/null 2>&1
+
+    local out; out="$(bga_render "$d" "BASHGITAWARE_PRESET=full")"
+    # full sets BASHGITAWARE_SHOW_HOST=always -- user@host is shown even
+    # outside SSH/root.
+    assert_contains "$out" "@"     "full: user@host shown (with '@')"
+    # Commit line still shown (default behaviour, full keeps it).
+    assert_contains "$out" "init"  "full: commit line shown"
+
+    rm -rf "$d"
+}
+
 scenario_osc_default() {
     section "OSC 133 + OSC 7 enabled by default"
     local out; out="$(bga_render /tmp)"

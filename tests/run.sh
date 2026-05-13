@@ -28,6 +28,10 @@ scenario_detached_head
 scenario_rebase_state
 scenario_no_color
 scenario_ascii_glyphs
+scenario_preset_minimal
+scenario_preset_default
+scenario_preset_powerline
+scenario_preset_full
 scenario_osc_default
 scenario_osc_disabled
 scenario_path_maxdepth

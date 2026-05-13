@@ -125,6 +125,44 @@ scenario_ascii_glyphs() {
     rm -rf "$d"
 }
 
+scenario_osc_default() {
+    section "OSC 133 + OSC 7 enabled by default"
+    local out; out="$(bga_render /tmp)"
+    # OSC 133;A and 133;B wrap the PS1 content. Escape: ESC ] 1 3 3 ; A BEL.
+    assert_contains "$out" $'\e]133;A\a' "PS1 emits OSC 133;A"
+    assert_contains "$out" $'\e]133;B\a' "PS1 emits OSC 133;B"
+
+    # PS0 (set in lib/70-osc.bash at source time) carries OSC 133;C.
+    local ps0
+    ps0="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120
+        source '$REPO/new.bashrc'
+        printf '%s' \"\$PS0\"
+    " 2>/dev/null)"
+    assert_contains "$ps0" $'\e]133;C\a' "PS0 emits OSC 133;C"
+}
+
+scenario_osc_disabled() {
+    section "BASHGITAWARE_OSC=0 disables all OSC 133"
+    local out; out="$(bga_render /tmp "BASHGITAWARE_OSC=0")"
+    case "$out" in
+        *$'\e]133;'*) fail "BASHGITAWARE_OSC=0: 133 leaked" ;;
+        *)            ok   "BASHGITAWARE_OSC=0: no 133 sequences" ;;
+    esac
+
+    # PS0 stays empty.
+    local ps0
+    ps0="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120 BASHGITAWARE_OSC=0
+        source '$REPO/new.bashrc'
+        printf '%s' \"\$PS0\"
+    " 2>/dev/null)"
+    case "$ps0" in
+        '') ok   "BASHGITAWARE_OSC=0: PS0 stays empty" ;;
+        *)  fail "BASHGITAWARE_OSC=0: PS0 leaked: $(printf '%q' "$ps0")" ;;
+    esac
+}
+
 scenario_path_maxdepth() {
     section "BASHGITAWARE_PATH_MAXDEPTH"
     # Build a path that is more than 3 components deep.

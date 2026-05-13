@@ -311,6 +311,11 @@ __bga_runtime() {
 __bga_prompt() {
     local exit_code=$?
 
+    # OSC 133;D + OSC 7: must be emitted before PS1 is assembled, so the
+    # terminal sees the just-finished command's exit and the new cwd before
+    # the next prompt is drawn. No-op if BASHGITAWARE_OSC=0.
+    __bga_osc_prompt_cycle_start "$exit_code"
+
     # Elapsed wall-clock time of the command that just finished.
     _bga_last_duration=''
     if [ -n "$_bga_timer_start" ]; then
@@ -328,9 +333,12 @@ __bga_prompt() {
 
     local ps1=""
 
+    # OSC 133;A: prompt begin (wrapped in \[ \] for readline width arithmetic).
+    ps1+="$(__bga_osc_ps1 '133;A')"
+
     # Optional OSC window title.
     if [ "$_bga_title" = 1 ]; then
-        ps1="\[\033]0;${debian_chroot:+($debian_chroot) }\u@\h: \w\007\]"
+        ps1+="\[\033]0;${debian_chroot:+($debian_chroot) }\u@\h: \w\007\]"
     fi
 
     # --- Line 1: context ----------------------------------------------------
@@ -387,17 +395,58 @@ __bga_prompt() {
     else                            ps1+="\n${_c_sym_err}${_g_sym}${_R} "
     fi
 
+    # OSC 133;B: prompt end / "user types here". Goes after the prompt symbol
+    # so the terminal-marked cursor position matches where readline puts it.
+    ps1+="$(__bga_osc_ps1 '133;B')"
+
     PS1="$ps1"
     _bga_timer_start=''      # reset for the next command (must be the last thing here)
 }
 
 # ---------------------------------------------------------------------------
-# OSC integration -- placeholder for M2.
-# OSC 133 (semantic prompt marks A/B/C/D) and OSC 7 (cwd as file://) land in M2.
+# OSC integration: OSC 133 (semantic prompt marks) + OSC 7 (cwd reporting).
+#
+# Modern terminals (WezTerm, Kitty, VS Code, iTerm2, Ghostty, Konsole, Windows
+# Terminal, Warp, ...) use these escapes to implement "jump to previous
+# prompt", "select last command output", failed-prompt decorations, and
+# "new tab inherits cwd". Terminals that don't grok them ignore the bytes.
+#
+# Lifecycle per prompt cycle:
+#   * 133;A and 133;B are embedded in PS1 (wrapped in \[ \] for readline).
+#   * 133;C is set via PS0 so it fires exactly once per user command, between
+#     Enter and command execution. The DEBUG trap is not used for this: it
+#     also fires for commands inside PROMPT_COMMAND, which would emit C at
+#     the wrong moments.
+#   * 133;D;<exit> and OSC 7 are emitted from PROMPT_COMMAND, before PS1 is
+#     assembled, via __bga_osc_prompt_cycle_start.
+#
+# Disable all OSC emission with BASHGITAWARE_OSC=0.
 # See docs/adr/ADR-0003-osc-133-and-osc-7-terminal-integration.md.
-# The OSC 0/2 window-title escape already lives inline in 60-render.bash; M2 will
-# centralize all OSC handling here.
 # ---------------------------------------------------------------------------
+
+# Emit a PS1-safe (escape-wrapped) OSC sequence on stdout. Used by __bga_prompt
+# to embed in the PS1 string for 133;A and 133;B.
+__bga_osc_ps1() {
+    [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return
+    printf '\\[\e]%s\a\\]' "$1"
+}
+
+# Called from __bga_prompt at the start of each cycle: emit 133;D;<exit> (the
+# just-finished command's end) and OSC 7 file://hostname/cwd.
+#   $1 = exit code of the just-finished command
+__bga_osc_prompt_cycle_start() {
+    [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return
+    printf '\e]133;D;%s\a' "$1"
+    printf '\e]7;file://%s%s\a' "${HOSTNAME:-localhost}" "$PWD"
+}
+
+# 133;C: command begin. Set via PS0 so it fires exactly once per user command,
+# at the right moment (after Enter, before execution). PS0 is expanded like
+# PS1 but no \[ \] wrappers are needed (the line has been submitted; readline
+# is no longer counting columns).
+if [ "${BASHGITAWARE_OSC:-1}" != 0 ]; then
+    PS0=$'\e]133;C\a'
+fi
 
 # ---------------------------------------------------------------------------
 # Transient prompt -- placeholder for M4.

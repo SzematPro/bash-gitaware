@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **OSC 133 semantic prompt marks** (A/B/C/D) and **OSC 7 cwd reporting**.
+  Modern terminals (WezTerm, Kitty, VS Code, iTerm2, Ghostty, Konsole,
+  Windows Terminal, Warp, ...) use these to support "jump to previous
+  prompt", "select last command output", failed-prompt decorations and
+  "new tab inherits cwd". Disable with `BASHGITAWARE_OSC=0`. OSC 133;C is
+  emitted via `PS0` rather than the DEBUG trap so it fires exactly once per
+  user command at the right moment.
 - v2 spec, plan, ADRs (six) and a render-pipeline diagram in `docs/` (Mermaid
   diagrams render natively on GitHub).
 - Modular source layout under `lib/[0-9][0-9]-*.bash`; the single-file

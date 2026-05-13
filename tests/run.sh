@@ -28,6 +28,8 @@ scenario_detached_head
 scenario_rebase_state
 scenario_no_color
 scenario_ascii_glyphs
+scenario_osc_default
+scenario_osc_disabled
 scenario_path_maxdepth
 
 # Performance.

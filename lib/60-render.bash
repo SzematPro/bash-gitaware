@@ -5,6 +5,11 @@
 __bga_prompt() {
     local exit_code=$?
 
+    # OSC 133;D + OSC 7: must be emitted before PS1 is assembled, so the
+    # terminal sees the just-finished command's exit and the new cwd before
+    # the next prompt is drawn. No-op if BASHGITAWARE_OSC=0.
+    __bga_osc_prompt_cycle_start "$exit_code"
+
     # Elapsed wall-clock time of the command that just finished.
     _bga_last_duration=''
     if [ -n "$_bga_timer_start" ]; then
@@ -22,9 +27,12 @@ __bga_prompt() {
 
     local ps1=""
 
+    # OSC 133;A: prompt begin (wrapped in \[ \] for readline width arithmetic).
+    ps1+="$(__bga_osc_ps1 '133;A')"
+
     # Optional OSC window title.
     if [ "$_bga_title" = 1 ]; then
-        ps1="\[\033]0;${debian_chroot:+($debian_chroot) }\u@\h: \w\007\]"
+        ps1+="\[\033]0;${debian_chroot:+($debian_chroot) }\u@\h: \w\007\]"
     fi
 
     # --- Line 1: context ----------------------------------------------------
@@ -80,6 +88,10 @@ __bga_prompt() {
     if [ "$exit_code" -eq 0 ]; then ps1+="\n${_c_ok}${_g_sym}${_R} "
     else                            ps1+="\n${_c_sym_err}${_g_sym}${_R} "
     fi
+
+    # OSC 133;B: prompt end / "user types here". Goes after the prompt symbol
+    # so the terminal-marked cursor position matches where readline puts it.
+    ps1+="$(__bga_osc_ps1 '133;B')"
 
     PS1="$ps1"
     _bga_timer_start=''      # reset for the next command (must be the last thing here)

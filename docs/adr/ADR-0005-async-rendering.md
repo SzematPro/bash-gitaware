@@ -47,30 +47,60 @@ deliverable:
   behind counts, stash count signal.
 - Cold-cache runtime version commands when no version file is present.
 
-**Lifecycle:**
+**Lifecycle (as implemented):**
 
 1. Each prompt cycle renders immediately with the cheap info plus a subtle
-   placeholder (e.g., a faint dot) where the expensive info will be.
-2. A background subshell (`( … ) &`) computes the expensive info and writes
-   it to a per-shell temp file
-   (`${XDG_RUNTIME_DIR:-/tmp}/bga-${$}.cache`).
-3. The background job best-effort signals the foreground shell (`SIGUSR1`)
-   when finished.
-4. On the next prompt cycle, the cache file is read and the prompt is full.
-   If the user types and submits a command before the background job
-   finishes, that result is discarded and the prompt for the *next* command
-   uses the cache from whatever finishes first.
+   placeholder (a faint ellipsis `…`, or `...` on the ascii tier) where the
+   expensive info will be.
+2. A background subshell (`( … ) &`) computes the expensive info and
+   atomically writes it to a per-shell cache file
+   (`${XDG_RUNTIME_DIR:-/tmp}/bga-${$}.cache`) via a sibling tmpfile + rename.
+3. On the next prompt cycle, the cache file is parsed defensively (no
+   `source` of file content; only four well-known keys are accepted) and the
+   prompt re-renders with full info. If the user types and submits a command
+   before the background job finishes, the missed result is overwritten on
+   the next dispatch and the prompt for the next command picks up whichever
+   cache landed first.
+4. A still-running previous job is sent `SIGTERM` before a new one is
+   dispatched (at most one in flight per shell).
+5. The `EXIT` trap kills any survivor job and removes the cache file.
+
+**What was *not* shipped, and why:**
+
+- **No `SIGUSR1`-based "completion ping"**. The earlier sketch in this ADR
+  mentioned best-effort signalling to wake the foreground shell. In
+  practice, signal handlers that run while readline holds the cursor can
+  fire mid-keystroke; trying to re-render from inside one races readline's
+  own redraw and corrupts whatever the user is typing. The deferred-on-
+  next-prompt path is the honest deliverable: the slow work is never on the
+  critical path of *showing* the prompt, and the user sees the full info
+  the next time they hit Enter -- which is the same UX result without the
+  fragility.
+- **No async path for runtime version commands.** The existing per-
+  `(PWD, VIRTUAL_ENV, CONDA_DEFAULT_ENV)` cache in `lib/50-runtime.bash`
+  already amortises the cold-cache cost across a directory's lifetime:
+  the first prompt after a `cd` pays the ~30-80 ms version command once,
+  every subsequent prompt in the same directory hits the cache and pays
+  nothing. The expensive case async would help with -- the very first
+  prompt after `cd` -- is small enough that the added complexity of
+  async-ifying runtime is not worth it. Documented here so a future
+  contributor does not reopen the question.
 
 Disable with `BASHGITAWARE_ASYNC=0` → fully synchronous, no background job,
-no temp file. Useful in scripts, CI shells, or for anyone who prefers
-predictable timing over snappiness.
+no temp file, no `EXIT` trap. Useful in scripts, CI shells, or for anyone
+who prefers predictable timing over snappiness.
 
 ## Alternatives considered
 
 - **True in-place refresh** via `bind -x`, save cursor, redraw the prompt
-  while the user is typing, restore cursor. Prototyped and abandoned: races
+  while the user is typing, restore cursor. Considered and rejected: races
   with readline's own redraw, breaks completion menus mid-input, corrupts
   the line on terminal resize. The complexity-vs-payoff is bad.
+- **`SIGUSR1`-based "wake the shell when finished".** Considered and
+  rejected for the same reason as above: signal handlers can fire while
+  readline owns the cursor, and any re-render from inside one corrupts the
+  current line. Deferred refresh on the next prompt cycle delivers the
+  same end-state without that fragility.
 - **Long-lived coprocess** (`coproc`) instead of a single-shot subshell per
   prompt. Lower per-prompt overhead, but adds a stateful component to clean
   up on shell exit, to detect when the worker crashes, and to keep in sync
@@ -80,6 +110,11 @@ predictable timing over snappiness.
 - **Drop async entirely; rely on cheap-only info.** Means dirty / ahead /
   behind counters never appear on large repos, defeating the prompt's main
   job. Rejected.
+- **Async runtime version commands.** The existing per-directory cache in
+  `lib/50-runtime.bash` already amortises cold-cache version commands; the
+  one prompt that pays the cost is the first prompt after a `cd`, and the
+  per-prompt cost cap there (~80 ms) is acceptable. Async-ifying runtime
+  would double the moving parts for marginal payoff. Rejected.
 
 ## Consequences
 

@@ -86,9 +86,40 @@ scrollback stays compact. Disable with `BASHGITAWARE_TRANSIENT=0`.
 - [ ] Set `BASHGITAWARE_GLYPHS=ascii` (or `BASHGITAWARE_PRESET=minimal`):
       the collapsed symbol is `>`, not `❯`.
 
+## Async rendering (M5)
+
+Expensive git info (dirty / ahead / behind from `git status --porcelain=v2`)
+is computed in a background subshell and surfaced on the *next* prompt
+cycle. The cheap info (branch, hash, in-progress state, commit subject,
+stash count) renders immediately every prompt. Disable with
+`BASHGITAWARE_ASYNC=0`.
+
+- [ ] `cd` into a clean repo. The first prompt shows the branch and hash;
+      no dirty marker (correct). Press Enter on an empty line. The next
+      prompt is identical (no dirty marker; the cache landed and confirmed
+      "clean").
+- [ ] Touch a file (`echo x > foo`) and press Enter. The first prompt
+      after the change still shows the prior cache (`●` may persist from
+      the prior cycle if the change was just made). Press Enter again.
+      The next prompt shows the updated state, including `●`.
+- [ ] `cd` into a large monorepo (e.g. linux kernel, chromium). The first
+      prompt appears instantly; a faint `…` (or `...` on ascii) trails the
+      branch info while the background job runs. Press Enter. The next
+      prompt has full info; the placeholder is gone.
+- [ ] Set `BASHGITAWARE_ASYNC=0` and re-source. The first prompt in a
+      large repo now takes the full sync time; no placeholder appears; no
+      background job is spawned (verify with `jobs -l`).
+- [ ] Open a fresh shell with async on. `cd` into a repo. Observe the
+      cache file appears at `${XDG_RUNTIME_DIR:-/tmp}/bga-${$}.cache`.
+      Exit the shell. The cache file is removed by the `EXIT` trap.
+- [ ] Run `kill -9` on a still-running async job (find it via `jobs -l`).
+      The next prompt cycle dispatches a new job; the cache eventually
+      lands; no orphans.
+
 ## Out of scope until later milestones
 
 These have placeholder modules in `lib/` and are documented in `docs/adr/`;
 they should *not* render or change behaviour yet:
 
-- M5 async rendering -- the prompt should be fully synchronous until M5.
+(none -- M5 was the last placeholder; subsequent milestones M6/M7 are
+demo/install/CI polish, not behavioural placeholders.)

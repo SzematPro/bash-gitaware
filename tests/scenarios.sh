@@ -294,6 +294,65 @@ scenario_transient_first_prompt() {
     esac
 }
 
+scenario_async_first_render_no_dirty() {
+    section "async (cheap path): first render shows branch but no dirty marker"
+    local d; d="$(mktemp_repo)"
+    (cd "$d" && git commit --allow-empty -qm "init" && printf 'x' > new.txt) >/dev/null 2>&1
+
+    local out; out="$(bga_render "$d" "BASHGITAWARE_ASYNC=1")"
+    assert_contains "$out" "main"        "branch shown via cheap path"
+    assert_lacks    "$out" "●"           "dirty marker absent on first render (async pending)"
+
+    rm -rf "$d"
+}
+
+scenario_async_two_render_cache_hit() {
+    section "async (deferred): second render reads cache and shows dirty"
+    local d; d="$(mktemp_repo)"
+    (cd "$d" && git commit --allow-empty -qm "init" && printf 'x' > new.txt) >/dev/null 2>&1
+
+    # Two-render sequence: first dispatches, wait for the background job,
+    # second reads the cache and renders with full info.
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120 BASHGITAWARE_ASYNC=1
+        cd '$d' 2>/dev/null
+        source '$REPO/new.bashrc'
+        __bga_prompt
+        [ -n \"\$_bga_async_pid\" ] && wait \"\$_bga_async_pid\" 2>/dev/null
+        __bga_prompt
+        printf '%s' \"\${PS1@P}\"
+    " 2>/dev/null)"
+    assert_contains "$out" "●"           "second render picks up dirty marker from cache"
+
+    rm -rf "$d"
+}
+
+scenario_async_exit_trap_installed() {
+    section "async (default): EXIT trap is installed for cleanup"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120 BASHGITAWARE_ASYNC=1
+        source '$REPO/new.bashrc'
+        trap -p EXIT
+    " 2>/dev/null)"
+    assert_contains "$out" "__bga_async_cleanup" "EXIT trap calls __bga_async_cleanup"
+}
+
+scenario_async_disabled_no_trap() {
+    section "BASHGITAWARE_ASYNC=0: no async EXIT trap installed"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120 BASHGITAWARE_ASYNC=0
+        source '$REPO/new.bashrc'
+        trap -p EXIT
+    " 2>/dev/null)"
+    case "$out" in
+        *__bga_async_cleanup*) fail "BASHGITAWARE_ASYNC=0 should NOT install async EXIT trap" ;;
+        *)                     ok   "BASHGITAWARE_ASYNC=0: no async EXIT trap installed" ;;
+    esac
+}
+
 scenario_transient_state_tracked() {
     section "transient: __bga_prompt records lines + exit + active"
     local out

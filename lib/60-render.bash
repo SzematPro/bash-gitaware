@@ -61,6 +61,10 @@ __bga_prompt() {
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
         [ "$_bga_git_dirty"  = 1 ]                && ps1+=" ${_c_dirty}${_g_dirty}${_R}"
         [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_stash}${_g_stash}${_bga_git_stash}${_R}"
+        # M5 async: subtle placeholder while the expensive info is still being
+        # computed in the background. Cleared on the next prompt cycle once
+        # the cache lands.
+        [ "${_bga_async_pending:-0}" = 1 ]        && ps1+=" ${_c_dim}${_g_ell}${_R}"
     fi
 
     # Runtime / version module(s), only when the directory calls for it.

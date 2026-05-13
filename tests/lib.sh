@@ -48,13 +48,21 @@ mktemp_repo() {
 # Render bash-gitaware's PS1 in $1 with optional env vars. Stdout is the
 # expanded PS1 (with ANSI escapes preserved). Stderr is silenced.
 #   bga_render <dir> [VAR=val ...]
+#
+# Note: defaults BASHGITAWARE_ASYNC=0 unless the caller sets it explicitly.
+# Async is a "deferred refresh on the next prompt" path (see ADR-0005); a
+# single-render call returns the cheap-only snapshot, which is correct for
+# the async-specific tests but defeats the assertions of the sync scenarios
+# (dirty marker, ahead/behind counters, ...). Async-specific tests pass
+# "BASHGITAWARE_ASYNC=1" explicitly.
 bga_render() {
     local dir="$1"; shift
-    local kv prelude=""
+    local kv prelude="" has_async=0
     for kv in "$@"; do
-        # Use 'export' so the var reaches __bga_prompt's subshell calls (e.g. __bga_runtime).
+        case "$kv" in BASHGITAWARE_ASYNC=*) has_async=1 ;; esac
         prelude+="export $kv; "
     done
+    [ "$has_async" = 0 ] && prelude="export BASHGITAWARE_ASYNC=0; $prelude"
     bash --norc --noprofile -i -c "
         export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120
         $prelude

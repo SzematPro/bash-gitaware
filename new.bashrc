@@ -177,7 +177,25 @@ esac
 [ "$_bga_root" = 1 ] && _g_sym='#'
 
 # ---------------------------------------------------------------------------
-# Git: collect prompt info with as few subprocesses as possible
+# Git: collect prompt info with as few subprocesses as possible.
+#
+# Split for M5 async:
+#   __bga_git_info_cheap    -- rev-parse + filesystem state + branch label.
+#                              Reads .git/HEAD and .git/refs/heads/<branch> to
+#                              get the branch + short hash without running
+#                              `git status` (which is the expensive part on a
+#                              large repo). At most 2 git subprocesses (one
+#                              for rev-parse, one fallback for packed refs);
+#                              0 outside a repo.
+#   __bga_git_info_full     -- cheap + the full porcelain v2 status, sync.
+#                              Used when BASHGITAWARE_ASYNC=0.
+#   __bga_git_info_expensive_compute
+#                           -- emits "key=value" lines for the expensive
+#                              fields (dirty / ahead / behind). Called by the
+#                              background subshell in lib/85-async.bash.
+#   __bga_git_info          -- entry point used by the renderer. Branches on
+#                              BASHGITAWARE_ASYNC and (when async) consults
+#                              the cache before dispatching a background job.
 # ---------------------------------------------------------------------------
 __bga_git_state() {
     # Reads $_bga_git_dir; sets $_bga_git_state. Filesystem checks only -- no subprocesses.
@@ -197,7 +215,9 @@ __bga_git_state() {
     fi
 }
 
-__bga_git_info() {
+# Cheap part: always sync. No `git status` -- the dirty bit, ahead/behind
+# counts come from the async path (or from __bga_git_info_full).
+__bga_git_info_cheap() {
     _bga_in_git=0
     _bga_git_branch='' _bga_git_hash='' _bga_git_dirty=0
     _bga_git_ahead=0 _bga_git_behind=0 _bga_git_stash=0
@@ -209,38 +229,99 @@ __bga_git_info() {
     _bga_git_dir="${rp%%$'\n'*}"
     case "$rp" in *$'\n'*) _bga_git_top="${rp#*$'\n'}" ;; *) _bga_git_top= ;; esac
 
-    # 1 subprocess: branch, commit oid, ahead/behind, and whether the tree is dirty.
-    local line
-    while IFS= read -r line; do
-        case "$line" in
-            '# branch.head '*) _bga_git_branch="${line#\# branch.head }" ;;
-            '# branch.oid '*)
-                _bga_git_hash="${line#\# branch.oid }"
-                case "$_bga_git_hash" in
-                    '('*) _bga_git_hash= ;;          # "(initial)" -- no commits yet
-                    *)    _bga_git_hash="${_bga_git_hash:0:7}" ;;
-                esac ;;
-            '# branch.ab '*)
-                _bga_git_ahead="${line#\# branch.ab +}"
-                _bga_git_behind="${_bga_git_ahead##*-}"
-                _bga_git_ahead="${_bga_git_ahead%% -*}" ;;
-            '#'*) ;;                                  # other headers (upstream, ...) -- ignore
-            ?*) _bga_git_dirty=1; break ;;            # first changed-path line -- no need to read the rest
+    # Read .git/HEAD to determine branch / detached state. Filesystem-only.
+    local head_path="$_bga_git_dir/HEAD"
+    if [ -r "$head_path" ]; then
+        local head_content=''
+        IFS= read -r head_content < "$head_path" 2>/dev/null
+        case "$head_content" in
+            'ref: refs/heads/'*) _bga_git_branch="${head_content#ref: refs/heads/}" ;;
+            'ref: '*)            _bga_git_branch="${head_content#ref: }" ;;
+            *)
+                # Detached HEAD: the file contains a raw SHA.
+                _bga_git_hash="${head_content:0:7}"
+                _bga_git_branch="detached@${_bga_git_hash}"
+                ;;
         esac
-    done < <(git status --porcelain=v2 --branch 2>/dev/null)
+    fi
 
-    [ "$_bga_git_branch" = "(detached)" ] && _bga_git_branch="detached@${_bga_git_hash}"
+    # Short hash for the branch case: try the loose ref file (filesystem-only),
+    # fall back to a fast `git rev-parse` for packed refs.
+    if [ -n "$_bga_git_branch" ] && [ -z "$_bga_git_hash" ]; then
+        local ref_path="$_bga_git_dir/refs/heads/$_bga_git_branch"
+        if [ -r "$ref_path" ]; then
+            local ref_content=''
+            IFS= read -r ref_content < "$ref_path" 2>/dev/null
+            _bga_git_hash="${ref_content:0:7}"
+        else
+            _bga_git_hash="$(git rev-parse --short HEAD 2>/dev/null)"
+        fi
+    fi
 
-    # 1 subprocess (only if there is a commit): the subject line of HEAD.
+    # Commit subject: kept sync (fast even on large repos -- it only reads HEAD).
     [ -n "$_bga_git_hash" ] && _bga_git_msg="$(git log -1 --pretty=%s 2>/dev/null)"
 
-    # 1 subprocess (only if a stash ref exists): count stashed entries.
+    # Stash count: filesystem-gated, kept sync.
     if [ -f "$_bga_git_dir/refs/stash" ]; then
         _bga_git_stash="$(git stash list 2>/dev/null | wc -l)"
         _bga_git_stash=$(( _bga_git_stash ))
     fi
 
     __bga_git_state
+}
+
+# Full sync info: cheap + the expensive porcelain v2 status. Used when
+# BASHGITAWARE_ASYNC=0.
+__bga_git_info_full() {
+    __bga_git_info_cheap
+    [ "$_bga_in_git" = 1 ] || return
+
+    local line
+    while IFS= read -r line; do
+        case "$line" in
+            '# branch.ab '*)
+                _bga_git_ahead="${line#\# branch.ab +}"
+                _bga_git_behind="${_bga_git_ahead##*-}"
+                _bga_git_ahead="${_bga_git_ahead%% -*}" ;;
+            '#'*) ;;
+            ?*) _bga_git_dirty=1; break ;;
+        esac
+    done < <(git status --porcelain=v2 --branch 2>/dev/null)
+}
+
+# Expensive: compute dirty / ahead / behind and emit them as "key=value" lines
+# on stdout. Called inside the background subshell of lib/85-async.bash; never
+# touches caller state directly.
+__bga_git_info_expensive_compute() {
+    local dirty=0 ahead=0 behind=0 line
+    while IFS= read -r line; do
+        case "$line" in
+            '# branch.ab '*)
+                ahead="${line#\# branch.ab +}"
+                behind="${ahead##*-}"
+                ahead="${ahead%% -*}" ;;
+            '#'*) ;;
+            ?*) dirty=1; break ;;
+        esac
+    done < <(git status --porcelain=v2 --branch 2>/dev/null)
+    printf '_bga_async_dirty=%d\n_bga_async_ahead=%d\n_bga_async_behind=%d\n' \
+        "$dirty" "$ahead" "$behind"
+}
+
+# Entry point used by the renderer. Picks the sync or async path.
+__bga_git_info() {
+    if [ "${BASHGITAWARE_ASYNC:-1}" = 0 ]; then
+        __bga_git_info_full
+        _bga_async_pending=0
+        return
+    fi
+
+    __bga_git_info_cheap
+    if [ "$_bga_in_git" = 1 ]; then
+        __bga_async_apply_or_dispatch
+    else
+        _bga_async_pending=0
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -401,6 +482,10 @@ __bga_prompt() {
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
         [ "$_bga_git_dirty"  = 1 ]                && ps1+=" ${_c_dirty}${_g_dirty}${_R}"
         [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_stash}${_g_stash}${_bga_git_stash}${_R}"
+        # M5 async: subtle placeholder while the expensive info is still being
+        # computed in the background. Cleared on the next prompt cycle once
+        # the cache lands.
+        [ "${_bga_async_pending:-0}" = 1 ]        && ps1+=" ${_c_dim}${_g_ell}${_R}"
     fi
 
     # Runtime / version module(s), only when the directory calls for it.
@@ -569,12 +654,126 @@ if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ] && [[ $- == *i* ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Async rendering -- placeholder for M5.
-# Splits prompt work into cheap (sync) and expensive (async); refreshes the
-# prompt on the next cycle when the slow info is ready. See
-# docs/adr/ADR-0005-async-rendering.md for the deferred-on-next-prompt
-# tradeoff and the limitations accepted.
+# Async / non-blocking rendering -- deferred refresh on the next prompt.
+#
+# Strategy (per ADR-0005): split git work into "cheap" (always sync:
+# rev-parse, filesystem state, branch label via .git/HEAD) and "expensive"
+# (`git status --porcelain=v2` for dirty/ahead/behind). The cheap part runs
+# every prompt; the expensive part runs in a background subshell that writes
+# its result to a per-shell cache file. The NEXT prompt cycle reads the cache
+# and renders the full info. No in-place refresh -- a true in-place redraw
+# fights readline and corrupts the line being edited; the "deferred refresh
+# on next prompt" path is the honest deliverable. ADR-0005 records the
+# tradeoff and what was actually shipped.
+#
+# Knob: BASHGITAWARE_ASYNC=0 -> fully synchronous, no background job, no
+# cache file. The render path then calls __bga_git_info_full directly.
+#
+# Lifecycle:
+#   - __bga_async_init                 (lib/90-hooks.bash, at source time)
+#     Sets the cache path, installs the EXIT trap that cleans up.
+#   - __bga_async_apply_or_dispatch    (lib/30-git.bash __bga_git_info)
+#     Reads cache for the current (PWD, gitdir) key; if hit, populates the
+#     dirty/ahead/behind vars. If miss, dispatches a background job.
+#   - __bga_async_dispatch             (here)
+#     Cancels any in-flight previous job (SIGTERM + wait) and spawns a new
+#     subshell that computes expensive info and atomically writes it to the
+#     cache (via rename of a sibling tmpfile).
+#   - __bga_async_cleanup              (EXIT trap)
+#     Kills any still-running background job and removes the cache file.
+#
+# Cache file:
+#   ${XDG_RUNTIME_DIR:-/tmp}/bga-${$}.cache
+#   Plain key=value lines. Parsed defensively (no `source`): we accept only
+#   four known keys and ignore everything else.
 # ---------------------------------------------------------------------------
+
+_bga_async_pid=''
+_bga_async_cache=''
+_bga_async_pending=0
+
+# Called once at source time from lib/90-hooks.bash.
+__bga_async_init() {
+    [ "${BASHGITAWARE_ASYNC:-1}" = 0 ] && return
+    [[ $- == *i* ]] || return
+    _bga_async_cache="${XDG_RUNTIME_DIR:-/tmp}/bga-${$}.cache"
+    trap '__bga_async_cleanup' EXIT
+}
+
+__bga_async_cleanup() {
+    if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
+        kill -TERM "$_bga_async_pid" 2>/dev/null
+    fi
+    [ -n "$_bga_async_cache" ] && [ -e "$_bga_async_cache" ] && rm -f "$_bga_async_cache"
+}
+
+# Try the cache for the current (PWD, gitdir) key. Hit -> populate the
+# expensive vars, _bga_async_pending=0. Miss -> defaults stay (0,0,0),
+# dispatch a job, _bga_async_pending=1.
+__bga_async_apply_or_dispatch() {
+    local key="${PWD}|${_bga_git_dir}"
+    local cache_key='' dirty='' ahead='' behind=''
+
+    if [ -n "$_bga_async_cache" ] && [ -e "$_bga_async_cache" ]; then
+        local k v
+        # Defensive parse: no `source`; accept only four known keys.
+        while IFS='=' read -r k v; do
+            v="${v#\"}"; v="${v%\"}"
+            case "$k" in
+                _bga_async_key)    cache_key="$v" ;;
+                _bga_async_dirty)  dirty="$v" ;;
+                _bga_async_ahead)  ahead="$v" ;;
+                _bga_async_behind) behind="$v" ;;
+            esac
+        done < "$_bga_async_cache"
+        if [ "$cache_key" = "$key" ]; then
+            # Cache hit: only accept numeric values; reject anything funky.
+            case "$dirty"  in '' | *[!0-9]*) dirty=0  ;; esac
+            case "$ahead"  in '' | *[!0-9]*) ahead=0  ;; esac
+            case "$behind" in '' | *[!0-9]*) behind=0 ;; esac
+            _bga_git_dirty="$dirty"
+            _bga_git_ahead="$ahead"
+            _bga_git_behind="$behind"
+            _bga_async_pending=0
+            return
+        fi
+    fi
+
+    # Cache miss: expensive vars stay at the cheap-path defaults (0,0,0),
+    # mark pending, dispatch a background job to compute and write the cache.
+    _bga_async_pending=1
+    __bga_async_dispatch "$key" "$_bga_git_top"
+}
+
+__bga_async_dispatch() {
+    [ -z "$_bga_async_cache" ] && return
+    local key="$1" top="$2"
+    [ -z "$top" ] && return
+
+    # Cancel a previous in-flight job, if any.
+    if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
+        kill -TERM "$_bga_async_pid" 2>/dev/null
+        wait "$_bga_async_pid" 2>/dev/null
+    fi
+    _bga_async_pid=''
+
+    local cache="$_bga_async_cache"
+    (
+        cd "$top" 2>/dev/null || exit 0
+        local expensive
+        expensive="$(__bga_git_info_expensive_compute)"
+        # Atomic write: write to a sibling tmpfile and rename into place.
+        local tmp="${cache}.tmp.$$"
+        {
+            printf '_bga_async_key="%s"\n' "$key"
+            printf '%s\n' "$expensive"
+        } > "$tmp" 2>/dev/null || exit 0
+        mv -f "$tmp" "$cache" 2>/dev/null
+    ) &
+    _bga_async_pid=$!
+    # Detach from job control so "Done" messages do not leak into the terminal.
+    disown "$_bga_async_pid" 2>/dev/null || true
+}
 
 # ---------------------------------------------------------------------------
 # Command timer (via the DEBUG trap)
@@ -584,6 +783,12 @@ _bga_last_duration=''
 
 __bga_timer_start() { _bga_timer_start="${_bga_timer_start:-$SECONDS}"; }
 trap '__bga_timer_start' DEBUG
+
+# ---------------------------------------------------------------------------
+# Async (M5): initialise the cache path + install the cleanup EXIT trap.
+# A no-op when BASHGITAWARE_ASYNC=0 or in a non-interactive shell.
+# ---------------------------------------------------------------------------
+__bga_async_init
 
 # ---------------------------------------------------------------------------
 # Wire the prompt assembler

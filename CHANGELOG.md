@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Async rendering**: the expensive part of the git info (`git status
+  --porcelain=v2` for the dirty / ahead / behind counters) is computed in
+  a background subshell and surfaced on the *next* prompt cycle, so the
+  prompt appears instantly even on large monorepos. A faint `…`
+  placeholder appears next to the branch info while the background job
+  runs. The cheap info (branch, hash, in-progress state, commit subject,
+  stash count) stays synchronous so the prompt is never information-empty.
+  Disable with `BASHGITAWARE_ASYNC=0` for fully synchronous rendering.
+  See [ADR-0005](docs/adr/ADR-0005-async-rendering.md) for the
+  "deferred-on-next-prompt" tradeoff and what was deliberately not built
+  (signal-based in-place refresh, runtime async).
 - **Transient prompt**: after Enter, the previous prompt collapses to a
   one-line form `❯ <command>` (or `> <command>` on the ascii tier),
   colored by that command's exit code. The live prompt stays full and
@@ -68,8 +79,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Planned (later milestones)
 
-- M5: async / non-blocking rendering for slow git status and cold-cache
-  runtime version commands.
 - M6: vhs demo, `install.sh`, full README rewrite for v2.
 - M7: CI matrix across bash 4.4 / 5.0 / 5.1 / 5.2 / latest x Linux + macOS.
 

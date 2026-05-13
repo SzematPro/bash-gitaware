@@ -5,6 +5,8 @@ do not break on a non-Nerd-Font terminal, OSC 133 semantic prompt marks,
 transient prompt, async rendering. Pure bash 4.4+, zero dependencies,
 ~500 lines of source split across 12 modules.
 
+![demo](demo/demo.gif)
+
 > **What this is.** A `.bashrc` that surfaces the context you actually need
 > (where am I, which branch, dirty?, ahead/behind, runtime+version, last
 > command duration, exit code) without cluttering every prompt, without
@@ -14,8 +16,8 @@ transient prompt, async rendering. Pure bash 4.4+, zero dependencies,
 > a ten-minute read.
 
 Status: v2 release candidates. Tagged `v2.0.0-rc.1` (transient), `v2.0.0-rc.2`
-(async), `v2.0.0-rc.3` follows once the demo + this README are finalized;
-`v2.0.0` lands with the CI matrix and a GitHub Release.
+(async), `v2.0.0-rc.3` (demo + install.sh + README rewrite). `v2.0.0` lands
+with the CI matrix and a GitHub Release (M7).
 
 [Documentation](docs/SPEC.md) · [Decisions](docs/adr/) · [Changelog](CHANGELOG.md)
 · [Repo](https://github.com/SzematPro/bash-gitaware)
@@ -42,8 +44,11 @@ Status: v2 release candidates. Tagged `v2.0.0-rc.1` (transient), `v2.0.0-rc.2`
 
 ## What you see
 
-A typical sequence, rendered as ASCII (a `vhs`-rendered SVG demo lands with
-`v2.0.0-rc.3`):
+The animated demo above shows a typical sequence: enter a clean repo, touch
+a file (dirty marker appears), `git stash` (stash count), a slow command
+(timer), a failed command (red prompt + exit code), leave the repo (simple
+prompt). The same flow in ASCII, for terminals where the GIF is not
+inlined:
 
 ```
 ~/projects/bash-gitaware on main@74fd6cf
@@ -399,7 +404,7 @@ bash-gitaware/
 │   ├── scenarios.sh        rendering scenarios (69 asserts)
 │   ├── perf.sh             80 ms render budget
 │   └── MANUAL.md           interactive checklist
-├── demo/                   vhs tape + generated SVG (lands with v2.0.0-rc.3)
+├── demo/                   vhs tape + generated GIF (`make demo` to regenerate)
 └── .github/workflows/ci.yml
 ```
 

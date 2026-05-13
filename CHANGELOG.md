@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`demo/demo.tape` + `demo/demo.gif`**: a `vhs`-rendered demo showing a
+  typical session (clean repo, dirty marker, stash count, command timer,
+  failure prompt, leave the repo). Regenerate with `make demo` -- requires
+  the `vhs`, `ttyd`, and `ffmpeg` binaries. Output is `.gif` (vhs does not
+  support `.svg` directly); 126 KB at 1280x720, 12 fps.
 - **`install.sh`**: one-shot installer with two modes. `--replace` (default)
   copies `new.bashrc` to `~/.bashrc` after a timestamped backup at
   `~/.bashrc.bak-<unix-ts>`. `--append` writes a `source <repo>/new.bashrc`

@@ -12,9 +12,10 @@ CLAUDE.md
 new.bashrc.tmp
 *.tmp
 
-# Generated demo (M6 will commit demo/demo.svg via `make demo`; the tape itself
-# is checked in. Local renderings or scratch outputs are not.)
-demo/*.gif
+# Generated demo: `demo/demo.gif` IS committed (the canonical render shipped
+# in the repo; regenerate with `make demo`). Other scratch outputs are not.
+demo/*.mp4
+demo/*.webm
 demo/*.png
 
 # Coverage / temp test output

@@ -1,520 +1,438 @@
 # ~/.bashrc: executed by bash(1) for non-login shells.
-# Modern, colorful, Git-aware configuration
+#
+# bash-gitaware -- a modern, git-aware bash prompt.
 # Author: Waldemar Szemat <waldemar@szemat.pro>
+# Repo:   https://github.com/SzematPro/bash-gitaware
+#
+# A clean two-line prompt that surfaces context only when it matters: the
+# repository-relative path, the branch, working-tree status, the runtime/version
+# of the project you are in (Node, Python, Rust, Go), and how long the last
+# command took. Inspired by modern cross-shell prompts; plain bash, no dependencies.
+#
+# Configuration (export before this file is sourced, e.g. from /etc/profile,
+# ~/.profile, or near the top of this file):
+#
+#   BASHGITAWARE_GLYPHS=nerd|unicode|ascii  Force a glyph set. Default: auto --
+#                                           "unicode" if the locale is UTF-8, else "ascii".
+#                                           "nerd" is never auto-selected (a UTF-8 locale does not
+#                                           mean the font has the glyphs): opt in explicitly.
+#   BASHGITAWARE_NERD_FONT=1                 Shorthand for BASHGITAWARE_GLYPHS=nerd.
+#   BASHGITAWARE_COMMIT_LINE=0               Hide the "last commit subject" line. Default: 1 (shown).
+#   BASHGITAWARE_RUNTIME=0                   Disable the runtime/version modules. Default: 1 (enabled).
+#   BASHGITAWARE_TIMER_THRESHOLD=N           Show command duration only if it took >= N seconds. Default: 2.
+#   BASHGITAWARE_PATH_MAXDEPTH=N             Show at most N trailing path components (0 = unlimited). Default: 3.
+#   BASHGITAWARE_SHOW_HOST=auto|always|never Show user@host. "auto" = only over SSH or as root. Default: auto.
+#   NO_COLOR                                 If set (any value), disable all color. https://no-color.org
 
-# If not running interactively, don't do anything
+# If not running interactively, do nothing.
 case $- in
     *i*) ;;
-      *) return;;
+      *) return ;;
 esac
 
-# ============================================================================
-# HISTORY CONFIGURATION
-# ============================================================================
-# don't put duplicate lines or lines starting with space in the history.
-# See bash(1) for more options
+# ---------------------------------------------------------------------------
+# History
+# ---------------------------------------------------------------------------
 HISTCONTROL=ignoreboth
-
-# append to the history file, don't overwrite it
-shopt -s histappend
-
-# for setting history length see HISTSIZE and HISTFILESIZE in bash(1)
 HISTSIZE=10000
 HISTFILESIZE=20000
-
-# check the window size after each command and, if necessary,
-# update the values of LINES and COLUMNS.
+shopt -s histappend
 shopt -s checkwinsize
 
-# If set, the pattern "**" used in a pathname expansion context will
-# match all files and zero or more directories and subdirectories.
-#shopt -s globstar
-
-# make less more friendly for non-text input files, see lesspipe(1)
 [ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
 
-# set variable identifying the chroot you work in (used in the prompt below)
 if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
-    debian_chroot=$(cat /etc/debian_chroot)
+    debian_chroot="$(cat /etc/debian_chroot)"
 fi
 
-# ============================================================================
-# ENVIRONMENT DETECTION
-# ============================================================================
-# SSH detection (run once at shell startup)
-if [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_TTY" ] || [ -n "$SSH_CLIENT" ]; then
-    _is_ssh=1
+# ---------------------------------------------------------------------------
+# Environment detection (computed once, at shell startup)
+# ---------------------------------------------------------------------------
+if [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_TTY:-}" ] || [ -n "${SSH_CLIENT:-}" ]; then
+    _bga_ssh=1
 else
-    _is_ssh=0
+    _bga_ssh=0
 fi
 
-# Container detection (run once at shell startup)
-if [ -f /.dockerenv ] || [ -f /run/.containerenv ] || grep -qsm1 'docker\|lxc\|containerd' /proc/1/cgroup 2>/dev/null; then
-    _is_container=1
+if [ -f /.dockerenv ] || [ -f /run/.containerenv ] \
+   || grep -qsm1 'docker\|lxc\|containerd' /proc/1/cgroup 2>/dev/null; then
+    _bga_container=1
 else
-    _is_container=0
+    _bga_container=0
 fi
 
-# UTF-8 support detection
+# Is the active locale UTF-8?
 case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
-    *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) _utf8=1 ;;
-    *) _utf8=0 ;;
+    *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*) _bga_utf8=1 ;;
+    *) _bga_utf8=0 ;;
 esac
 
-# Terminal title support
-case "$TERM" in
-    xterm*|rxvt*|screen*|tmux*) _set_title=1 ;;
-    *) _set_title=0 ;;
+# Does the terminal understand an OSC window-title escape?
+case "${TERM:-}" in
+    xterm* | rxvt* | screen* | tmux* | alacritty* | foot* | wezterm* | konsole*) _bga_title=1 ;;
+    *) _bga_title=0 ;;
 esac
 
-# ============================================================================
-# COLOR DETECTION
-# ============================================================================
-# Respect NO_COLOR standard (https://no-color.org/)
-if [ "${NO_COLOR+set}" = set ]; then
-    color_prompt=
-else
-    # set a fancy prompt (non-color, unless we know we "want" color)
-    case "$TERM" in
-        xterm-color|*-256color) color_prompt=yes;;
+# Running as root?
+if [ "${EUID:-$(id -u)}" -eq 0 ]; then _bga_root=1; else _bga_root=0; fi
+
+# ---------------------------------------------------------------------------
+# Color palette
+# ---------------------------------------------------------------------------
+_bga_color=0
+if [ "${NO_COLOR+set}" != set ]; then
+    case "${TERM:-}" in
+        *-256color | *-color | xterm* | rxvt* | screen* | tmux* | alacritty* | foot* | wezterm* | konsole* | linux)
+            _bga_color=1 ;;
+        *)
+            if [ -x /usr/bin/tput ] && tput setaf 1 >/dev/null 2>&1; then _bga_color=1; fi ;;
     esac
 fi
 
-# uncomment for a colored prompt, if the terminal has the capability; turned
-# off by default to not distract the user: the focus in a terminal window
-# should be on the output of commands, not on the prompt
-#force_color_prompt=yes
-
-if [ -n "$force_color_prompt" ] && [ "${NO_COLOR+set}" != set ]; then
-    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
-	# We have color support; assume it's compliant with Ecma-48
-	# (ISO/IEC-6429). (Lack of such support is extremely rare, and such
-	# a case would tend to support setf rather than setaf.)
-	color_prompt=yes
-    else
-	color_prompt=
-    fi
-fi
-
-# ============================================================================
-# COLOR DEFINITIONS
-# ============================================================================
-# Modern color palette with 256-color support
-if [ "$color_prompt" = yes ] || { [ "${NO_COLOR+set}" != set ] && [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; }; then
-    # We have color support
-    color_prompt=yes
-
-    # Basic colors
-    RESET='\[\033[0m\]'
-    BOLD='\[\033[1m\]'
-
-    # Standard colors
-    BLACK='\[\033[0;30m\]'
-    RED='\[\033[0;31m\]'
-    GREEN='\[\033[0;32m\]'
-    YELLOW='\[\033[0;33m\]'
-    BLUE='\[\033[0;34m\]'
-    MAGENTA='\[\033[0;35m\]'
-    CYAN='\[\033[0;36m\]'
-    WHITE='\[\033[0;37m\]'
-
-    # Bright colors
-    BRIGHT_BLACK='\[\033[0;90m\]'
-    BRIGHT_RED='\[\033[0;91m\]'
-    BRIGHT_GREEN='\[\033[0;92m\]'
-    BRIGHT_YELLOW='\[\033[0;93m\]'
-    BRIGHT_BLUE='\[\033[0;94m\]'
-    BRIGHT_MAGENTA='\[\033[0;95m\]'
-    BRIGHT_CYAN='\[\033[0;96m\]'
-    BRIGHT_WHITE='\[\033[0;97m\]'
-
-    # Semantic prompt color mappings
-    PROMPT_USER="${BRIGHT_CYAN}"
-    PROMPT_HOST="${BRIGHT_YELLOW}"
-    PROMPT_PATH="${BRIGHT_BLUE}"
-    PROMPT_GIT_BRANCH="${BRIGHT_GREEN}"
-    PROMPT_GIT_DIRTY="${BRIGHT_RED}"
-    PROMPT_GIT_CLEAN="${BRIGHT_GREEN}"
-    PROMPT_GIT_AHEAD="${BRIGHT_YELLOW}"
-    PROMPT_GIT_BEHIND="${BRIGHT_MAGENTA}"
-    PROMPT_GIT_COMMIT="${BRIGHT_CYAN}"
-    PROMPT_GIT_MESSAGE="${BRIGHT_WHITE}"
-    PROMPT_GIT_STASH="${BRIGHT_CYAN}"
-    PROMPT_GIT_STATE="${BRIGHT_RED}"
-    PROMPT_MESSAGE_BOX="${BRIGHT_BLACK}"
-    PROMPT_SUCCESS="${BRIGHT_GREEN}"
-    PROMPT_ERROR="${BRIGHT_RED}"
-    PROMPT_SYMBOL="${BRIGHT_WHITE}"
-    PROMPT_VENV="${BRIGHT_MAGENTA}"
-    PROMPT_TIMER="${BRIGHT_YELLOW}"
-    PROMPT_SSH_HOST="${BRIGHT_YELLOW}"
-    PROMPT_CONTAINER="${BRIGHT_YELLOW}"
+if [ "$_bga_color" = 1 ]; then
+    _R='\[\033[0m\]'
+    _c_dim='\[\033[38;5;244m\]'         # connector words (on / via / took)
+    _c_path='\[\033[1;38;5;75m\]'       # path -- bold steel blue
+    _c_user='\[\033[38;5;79m\]'         # user -- teal
+    _c_host='\[\033[38;5;79m\]'         # host -- teal
+    _c_host_ssh='\[\033[1;38;5;215m\]'  # host over SSH -- bold amber
+    _c_branch='\[\033[1;38;5;176m\]'    # branch -- bold purple
+    _c_hash='\[\033[38;5;244m\]'        # short hash -- grey
+    _c_state='\[\033[1;38;5;203m\]'     # in-progress state (rebase/merge) -- bold red
+    _c_ahead='\[\033[38;5;179m\]'       # ahead -- yellow
+    _c_behind='\[\033[38;5;179m\]'      # behind -- yellow
+    _c_dirty='\[\033[38;5;179m\]'       # dirty marker -- yellow
+    _c_stash='\[\033[38;5;110m\]'       # stash count -- soft blue
+    _c_commit='\[\033[38;5;244m\]'      # "last commit" line -- grey
+    _c_node='\[\033[38;5;114m\]'        # node runtime -- green
+    _c_py='\[\033[38;5;179m\]'          # python runtime -- yellow
+    _c_rust='\[\033[38;5;173m\]'        # rust runtime -- orange
+    _c_go='\[\033[38;5;80m\]'           # go runtime -- cyan
+    _c_tag='\[\033[38;5;215m\]'         # container / chroot tag -- amber
+    _c_timer='\[\033[38;5;179m\]'       # command duration -- yellow
+    _c_err='\[\033[1;38;5;203m\]'       # exit code -- bold red
+    _c_ok='\[\033[1;38;5;114m\]'        # prompt symbol, success -- bold green
+    _c_sym_err='\[\033[1;38;5;203m\]'   # prompt symbol, failure -- bold red
 else
-    color_prompt=
-    RESET=''
-    BOLD=''
-    BRIGHT_BLACK=''
-    BRIGHT_CYAN=''
-    BRIGHT_YELLOW=''
-    BRIGHT_MAGENTA=''
-    PROMPT_USER=''
-    PROMPT_HOST=''
-    PROMPT_PATH=''
-    PROMPT_GIT_BRANCH=''
-    PROMPT_GIT_DIRTY=''
-    PROMPT_GIT_CLEAN=''
-    PROMPT_GIT_AHEAD=''
-    PROMPT_GIT_BEHIND=''
-    PROMPT_GIT_COMMIT=''
-    PROMPT_GIT_MESSAGE=''
-    PROMPT_GIT_STASH=''
-    PROMPT_GIT_STATE=''
-    PROMPT_MESSAGE_BOX=''
-    PROMPT_SUCCESS=''
-    PROMPT_ERROR=''
-    PROMPT_SYMBOL=''
-    PROMPT_VENV=''
-    PROMPT_TIMER=''
-    PROMPT_SSH_HOST=''
-    PROMPT_CONTAINER=''
+    _R=''
+    _c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
+    _c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit=''
+    _c_node='' _c_py='' _c_rust='' _c_go='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
 fi
 
-# ============================================================================
-# SYMBOL DEFINITIONS
-# ============================================================================
-# Unicode symbols with ASCII fallback for non-UTF-8 terminals
-if [ "$_utf8" = 1 ]; then
-    SYM_CLEAN="✓"
-    SYM_DIRTY="✗"
-    SYM_AHEAD="↑"
-    SYM_BEHIND="↓"
-    SYM_STASH="⚑"
-    # Box-drawing characters (rounded corners)
-    BOX_H="─"
-    BOX_V="│"
-    BOX_TL="╭"
-    BOX_TR="╮"
-    BOX_BL="╰"
-    BOX_BR="╯"
+# ---------------------------------------------------------------------------
+# Glyphs -- tiered: nerd > unicode > ascii
+# A UTF-8 locale only tells us the *encoding* works, not that the *font* has the
+# glyphs, so auto-detection never picks "nerd": opt in with BASHGITAWARE_NERD_FONT=1.
+# ---------------------------------------------------------------------------
+if [ -n "${BASHGITAWARE_GLYPHS:-}" ]; then
+    _bga_glyphs="$BASHGITAWARE_GLYPHS"
+elif [ "${BASHGITAWARE_NERD_FONT:-0}" = 1 ]; then
+    _bga_glyphs=nerd
+elif [ "$_bga_utf8" = 1 ]; then
+    _bga_glyphs=unicode
 else
-    SYM_CLEAN="OK"
-    SYM_DIRTY="*"
-    SYM_AHEAD="^"
-    SYM_BEHIND="v"
-    SYM_STASH="S"
-    # ASCII fallback
-    BOX_H="-"
-    BOX_V="|"
-    BOX_TL="+"
-    BOX_TR="+"
-    BOX_BL="+"
-    BOX_BR="+"
+    _bga_glyphs=ascii
 fi
+case "$_bga_glyphs" in nerd | unicode | ascii) ;; *) _bga_glyphs=ascii ;; esac
 
-# ============================================================================
-# COMMAND TIMER
-# ============================================================================
-# Track command execution time using DEBUG trap
-_timer_start=
-_last_duration=
+case "$_bga_glyphs" in
+    nerd)    #  is the Powerline branch glyph -- present in every Nerd Font / Powerline font.
+        _g_branch=$' '
+        _g_dirty='●' _g_ahead='↑' _g_behind='↓' _g_stash='≡' _g_commit='↳' _g_sym='❯' _g_ell='…'
+        ;;
+    unicode)
+        _g_branch=''
+        _g_dirty='●' _g_ahead='↑' _g_behind='↓' _g_stash='≡' _g_commit='↳' _g_sym='❯' _g_ell='…'
+        ;;
+    ascii)
+        _g_branch=''
+        _g_dirty='*' _g_ahead='^' _g_behind='v' _g_stash='s' _g_commit='' _g_sym='>' _g_ell='...'
+        ;;
+esac
+[ "$_bga_root" = 1 ] && _g_sym='#'
 
-__timer_start() {
-    _timer_start=${_timer_start:-$SECONDS}
-}
-trap '__timer_start' DEBUG
+# ---------------------------------------------------------------------------
+# Command timer (via the DEBUG trap)
+# ---------------------------------------------------------------------------
+_bga_timer_start=
+_bga_last_duration=
 
-# ============================================================================
-# GIT FUNCTIONS FOR PROMPT
-# ============================================================================
-# Detect rebase/merge/cherry-pick/bisect/revert state (filesystem checks only)
-__detect_git_state() {
-    _git_state=
-    if [ -d "${_git_dir}/rebase-merge" ]; then
-        local step total
-        step=$(<"${_git_dir}/rebase-merge/msgnum")
-        total=$(<"${_git_dir}/rebase-merge/end")
-        _git_state="REBASE ${step}/${total}"
-    elif [ -d "${_git_dir}/rebase-apply" ]; then
-        local step total
-        step=$(<"${_git_dir}/rebase-apply/next")
-        total=$(<"${_git_dir}/rebase-apply/last")
-        if [ -f "${_git_dir}/rebase-apply/rebasing" ]; then
-            _git_state="REBASE ${step}/${total}"
-        else
-            _git_state="AM ${step}/${total}"
-        fi
-    elif [ -f "${_git_dir}/MERGE_HEAD" ]; then
-        _git_state="MERGING"
-    elif [ -f "${_git_dir}/CHERRY_PICK_HEAD" ]; then
-        _git_state="CHERRY-PICK"
-    elif [ -f "${_git_dir}/REVERT_HEAD" ]; then
-        _git_state="REVERTING"
-    elif [ -f "${_git_dir}/BISECT_LOG" ]; then
-        _git_state="BISECTING"
+__bga_timer_start() { _bga_timer_start="${_bga_timer_start:-$SECONDS}"; }
+trap '__bga_timer_start' DEBUG
+
+# ---------------------------------------------------------------------------
+# Git: collect prompt info with as few subprocesses as possible
+# ---------------------------------------------------------------------------
+__bga_git_state() {
+    # Reads $_bga_git_dir; sets $_bga_git_state. Filesystem checks only -- no subprocesses.
+    _bga_git_state=
+    local d="$_bga_git_dir" s e
+    if [ -d "$d/rebase-merge" ]; then
+        s="$(cat "$d/rebase-merge/msgnum" 2>/dev/null)"; e="$(cat "$d/rebase-merge/end" 2>/dev/null)"
+        _bga_git_state="REBASE ${s:-?}/${e:-?}"
+    elif [ -d "$d/rebase-apply" ]; then
+        s="$(cat "$d/rebase-apply/next" 2>/dev/null)"; e="$(cat "$d/rebase-apply/last" 2>/dev/null)"
+        if [ -f "$d/rebase-apply/rebasing" ]; then _bga_git_state="REBASE ${s:-?}/${e:-?}"
+        else _bga_git_state="AM ${s:-?}/${e:-?}"; fi
+    elif [ -f "$d/MERGE_HEAD" ];        then _bga_git_state="MERGING"
+    elif [ -f "$d/CHERRY_PICK_HEAD" ];  then _bga_git_state="CHERRY-PICK"
+    elif [ -f "$d/REVERT_HEAD" ];       then _bga_git_state="REVERTING"
+    elif [ -f "$d/BISECT_LOG" ];        then _bga_git_state="BISECTING"
     fi
 }
 
-# Consolidated git info: branch, hash, dirty, ahead/behind, stash, commit msg
-# Uses git status --porcelain=v2 --branch (single subprocess for most info)
-__git_prompt_info() {
-    _git_branch=
-    _git_hash=
-    _git_dirty=0
-    _git_ahead=0
-    _git_behind=0
-    _git_stash=0
-    _git_commit_msg=
-    _git_state=
-    _git_dir=
-    _in_git_repo=0
+__bga_git_info() {
+    _bga_in_git=0
+    _bga_git_branch= _bga_git_hash= _bga_git_dirty=0
+    _bga_git_ahead=0 _bga_git_behind=0 _bga_git_stash=0
+    _bga_git_msg= _bga_git_state= _bga_git_dir= _bga_git_top=
 
-    # Get git directory (fast check + needed for state detection)
-    _git_dir="$(git rev-parse --git-dir 2>/dev/null)" || return
-    _in_git_repo=1
+    # 1 subprocess: the git dir and the work-tree root, in one shot.
+    local rp; rp="$(git rev-parse --git-dir --show-toplevel 2>/dev/null)" || return
+    _bga_in_git=1
+    _bga_git_dir="${rp%%$'\n'*}"
+    case "$rp" in *$'\n'*) _bga_git_top="${rp#*$'\n'}" ;; *) _bga_git_top= ;; esac
 
-    # Call 1: git status --porcelain=v2 --branch
-    # Provides: branch name, commit hash, ahead/behind, dirty status
+    # 1 subprocess: branch, commit oid, ahead/behind, and whether the tree is dirty.
     local line
     while IFS= read -r line; do
         case "$line" in
-            '# branch.head '*)
-                _git_branch="${line#\# branch.head }"
-                ;;
+            '# branch.head '*) _bga_git_branch="${line#\# branch.head }" ;;
             '# branch.oid '*)
-                _git_hash="${line#\# branch.oid }"
-                case "$_git_hash" in
-                    '('*) _git_hash= ;;  # (initial) - no commits yet
-                    *) _git_hash="${_git_hash:0:7}" ;;
-                esac
-                ;;
+                _bga_git_hash="${line#\# branch.oid }"
+                case "$_bga_git_hash" in
+                    '('*) _bga_git_hash= ;;          # "(initial)" -- no commits yet
+                    *)    _bga_git_hash="${_bga_git_hash:0:7}" ;;
+                esac ;;
             '# branch.ab '*)
-                # Format: "# branch.ab +N -M"
-                _git_ahead="${line#\# branch.ab +}"
-                _git_behind="${_git_ahead##*-}"
-                _git_ahead="${_git_ahead%% -*}"
-                ;;
-            '#'*) ;;  # skip other headers (e.g. # branch.upstream)
-            ?*)  # any non-empty, non-header line = dirty file
-                _git_dirty=1
-                break  # no need to parse remaining files
-                ;;
+                _bga_git_ahead="${line#\# branch.ab +}"
+                _bga_git_behind="${_bga_git_ahead##*-}"
+                _bga_git_ahead="${_bga_git_ahead%% -*}" ;;
+            '#'*) ;;                                  # other headers (upstream, ...) -- ignore
+            ?*) _bga_git_dirty=1; break ;;            # first changed-path line -- no need to read the rest
         esac
     done < <(git status --porcelain=v2 --branch 2>/dev/null)
 
-    # Handle detached HEAD
-    if [ "$_git_branch" = "(detached)" ]; then
-        _git_branch="detached:${_git_hash}"
+    [ "$_bga_git_branch" = "(detached)" ] && _bga_git_branch="detached@${_bga_git_hash}"
+
+    # 1 subprocess (only if there is a commit): the subject line of HEAD.
+    [ -n "$_bga_git_hash" ] && _bga_git_msg="$(git log -1 --pretty=%s 2>/dev/null)"
+
+    # 1 subprocess (only if a stash ref exists): count stashed entries.
+    if [ -f "$_bga_git_dir/refs/stash" ]; then
+        _bga_git_stash="$(git stash list 2>/dev/null | wc -l)"
+        _bga_git_stash=$(( _bga_git_stash ))
     fi
 
-    # Call 2: commit message (only if we have commits)
-    if [ -n "$_git_hash" ]; then
-        _git_commit_msg="$(git log -1 --pretty=format:'%s' 2>/dev/null)"
-    fi
-
-    # Call 3 (conditional): stash count
-    if [ -f "${_git_dir}/refs/stash" ]; then
-        _git_stash=$(git stash list 2>/dev/null | wc -l)
-        _git_stash=$(( _git_stash ))
-    fi
-
-    # Detect git state (filesystem checks only, no subprocesses)
-    __detect_git_state
+    __bga_git_state
 }
 
-# ============================================================================
-# MODERN PROMPT
-# ============================================================================
-# Build the prompt dynamically each command
-__prompt_command() {
+# ---------------------------------------------------------------------------
+# Path: repo-name + path-within-repo when inside a repo; ~-relative otherwise.
+# Trimmed to the last N components (the dropped prefix becomes an ellipsis).
+# ---------------------------------------------------------------------------
+__bga_path() {
+    local max="${BASHGITAWARE_PATH_MAXDEPTH:-3}"; case "$max" in '' | *[!0-9]*) max=3 ;; esac
+    local lead="" rest=""
+    if [ -n "${_bga_git_top:-}" ] && case "$PWD/" in "$_bga_git_top"/*) true ;; *) false ;; esac; then
+        lead="${_bga_git_top##*/}"                       # repository name
+        rest="${PWD#"$_bga_git_top"}"; rest="${rest#/}"  # path within the repo
+    elif case "$PWD/" in "$HOME"/*) true ;; *) false ;; esac; then
+        lead="~"
+        rest="${PWD#"$HOME"}"; rest="${rest#/}"
+    else
+        lead=""                                          # absolute path with no useful "lead"
+        rest="${PWD#/}"
+    fi
+    [ -z "$rest" ] && { printf '%s' "${lead:-/}"; return; }
+
+    local IFS=/ ; local -a p; read -ra p <<< "$rest"; local n=${#p[@]}
+    if [ "$max" -ne 0 ] && [ "$n" -gt "$max" ]; then
+        local out="" i
+        for (( i = n - max ; i < n ; i++ )); do out="$out/${p[i]}"; done
+        if [ -n "$lead" ]; then printf '%s/%s%s' "$lead" "$_g_ell" "$out"
+        else printf '%s%s' "$_g_ell" "$out"; fi
+        return
+    fi
+    if [ -n "$lead" ]; then printf '%s/%s' "$lead" "$rest"; else printf '/%s' "$rest"; fi
+}
+
+# ---------------------------------------------------------------------------
+# Runtime / version modules -- shown only when the directory (or env) calls for it.
+# Result is cached per (PWD, virtualenv, conda env) so the version commands run
+# once when you cd into a project, not on every prompt.
+# ---------------------------------------------------------------------------
+__bga_runtime() {
+    [ "${BASHGITAWARE_RUNTIME:-1}" = 0 ] && return
+    local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}"
+    if [ "$key" = "${_bga_rt_key:-}" ]; then printf '%s' "${_bga_rt_str:-}"; return; fi
+    _bga_rt_key="$key"; _bga_rt_str=""
+    local out="" v f s
+
+    # --- Python: an active virtualenv / conda env, or a Python project marker ---
+    local pyenv=""
+    if [ -n "${VIRTUAL_ENV:-}" ]; then
+        pyenv="${VIRTUAL_ENV##*/}"
+        case "$pyenv" in
+            .venv | venv | env | .env | virtualenv | .virtualenv)
+                local _vp="${VIRTUAL_ENV%/*}"; pyenv="${_vp##*/}" ;;
+        esac
+    elif [ -n "${CONDA_DEFAULT_ENV:-}" ] && [ "${CONDA_DEFAULT_ENV}" != base ]; then
+        pyenv="conda:${CONDA_DEFAULT_ENV}"
+    fi
+    if [ -n "$pyenv" ] || [ -e "$PWD/pyproject.toml" ] || [ -e "$PWD/setup.py" ] \
+       || [ -e "$PWD/setup.cfg" ] || [ -e "$PWD/requirements.txt" ] || [ -e "$PWD/Pipfile" ] \
+       || [ -e "$PWD/.python-version" ]; then
+        v=""
+        [ -r "$PWD/.python-version" ] && IFS= read -r v < "$PWD/.python-version" 2>/dev/null
+        if [ -z "$v" ]; then
+            if   command -v python3 >/dev/null 2>&1; then v="$(python3 --version 2>&1)"
+            elif command -v python  >/dev/null 2>&1; then v="$(python --version 2>&1)"; fi
+            v="${v#Python }"; v="${v%% *}"
+        fi
+        s="python"; [ -n "$v" ] && s="python $v"; [ -n "$pyenv" ] && s="$s ($pyenv)"
+        out="$out ${_c_dim}via ${_R}${_c_py}${s}${_R}"
+    fi
+
+    # --- Node: a package.json in the current directory ---
+    if [ -e "$PWD/package.json" ]; then
+        v=""
+        for f in .nvmrc .node-version; do
+            [ -r "$PWD/$f" ] && { IFS= read -r v < "$PWD/$f" 2>/dev/null; v="${v#v}"; break; }
+        done
+        [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
+        s="node"; [ -n "$v" ] && s="node $v"
+        out="$out ${_c_dim}via ${_R}${_c_node}${s}${_R}"
+    fi
+
+    # --- Rust: a Cargo.toml in the current directory ---
+    if [ -e "$PWD/Cargo.toml" ]; then
+        v=""; command -v rustc >/dev/null 2>&1 && { v="$(rustc --version 2>/dev/null)"; v="${v#rustc }"; v="${v%% *}"; }
+        s="rust"; [ -n "$v" ] && s="rust $v"
+        out="$out ${_c_dim}via ${_R}${_c_rust}${s}${_R}"
+    fi
+
+    # --- Go: a go.mod in the current directory ---
+    if [ -e "$PWD/go.mod" ]; then
+        v=""; command -v go >/dev/null 2>&1 && { v="$(go env GOVERSION 2>/dev/null)"; v="${v#go}"; }
+        s="go"; [ -n "$v" ] && s="go $v"
+        out="$out ${_c_dim}via ${_R}${_c_go}${s}${_R}"
+    fi
+
+    _bga_rt_str="$out"
+    printf '%s' "$out"
+}
+
+# ---------------------------------------------------------------------------
+# Prompt
+# ---------------------------------------------------------------------------
+__bga_prompt() {
     local exit_code=$?
 
-    # Capture elapsed time before any other work
-    _last_duration=
-    if [ -n "$_timer_start" ]; then
-        local _elapsed=$(( SECONDS - _timer_start ))
-        if [ $_elapsed -ge 2 ]; then
-            if [ $_elapsed -ge 3600 ]; then
-                _last_duration="$((_elapsed / 3600))h$((_elapsed % 3600 / 60))m"
-            elif [ $_elapsed -ge 60 ]; then
-                _last_duration="$((_elapsed / 60))m$((_elapsed % 60))s"
-            else
-                _last_duration="${_elapsed}s"
+    # Elapsed wall-clock time of the command that just finished.
+    _bga_last_duration=
+    if [ -n "$_bga_timer_start" ]; then
+        local e=$(( SECONDS - _bga_timer_start ))
+        local thr="${BASHGITAWARE_TIMER_THRESHOLD:-2}"; case "$thr" in '' | *[!0-9]*) thr=2 ;; esac
+        if [ "$e" -ge "$thr" ]; then
+            if   [ "$e" -ge 3600 ]; then _bga_last_duration="$(( e / 3600 ))h$(( e % 3600 / 60 ))m"
+            elif [ "$e" -ge 60 ];   then _bga_last_duration="$(( e / 60 ))m$(( e % 60 ))s"
+            else                         _bga_last_duration="${e}s"
             fi
         fi
     fi
 
-    # Gather git info (2-3 subprocesses vs previous 7)
-    __git_prompt_info
+    __bga_git_info
 
-    # Initialize PS1 (with terminal title if supported)
-    if [ "$_set_title" = 1 ]; then
-        PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]"
-    else
-        PS1=""
+    local ps1=""
+
+    # Optional OSC window title.
+    if [ "$_bga_title" = 1 ]; then
+        ps1="\[\033]0;${debian_chroot:+($debian_chroot) }\u@\h: \w\007\]"
     fi
 
-    # === Commit message box ===
-    if [ "$_in_git_repo" = 1 ] && [ -n "$_git_commit_msg" ]; then
-        local term_width=${COLUMNS:-80}
+    # --- Line 1: context ----------------------------------------------------
+    [ -n "${debian_chroot:-}" ] && ps1+="${_c_tag}(${debian_chroot})${_R} "
+    [ "$_bga_container" = 1 ]   && ps1+="${_c_tag}[container]${_R} "
 
-        if [ "$term_width" -ge 30 ]; then
-            local msg="$_git_commit_msg"
-            local max_msg_width=$((term_width - 4))
+    # user@host -- shown only when it matters, unless overridden.
+    local show_host="${BASHGITAWARE_SHOW_HOST:-auto}"
+    if [ "$show_host" = always ] || { [ "$show_host" != never ] && { [ "$_bga_ssh" = 1 ] || [ "$_bga_root" = 1 ]; }; }; then
+        ps1+="${_c_user}\u${_R}@"
+        if [ "$_bga_ssh" = 1 ]; then ps1+="${_c_host_ssh}\h${_R} "; else ps1+="${_c_host}\h${_R} "; fi
+    fi
 
-            # Get display width (locale-aware via wc -L, fallback to char length)
-            local msg_display_width
-            msg_display_width=$(printf '%s' "$msg" | wc -L 2>/dev/null) || msg_display_width=0
-            msg_display_width=$(( msg_display_width ))
-            [ "$msg_display_width" -eq 0 ] && [ -n "$msg" ] && msg_display_width=${#msg}
+    # Path (repo-relative when inside a repo).
+    local pwd_str; pwd_str="$(__bga_path)"
+    ps1+="${_c_path}${pwd_str}${_R}"
 
-            # Truncate if message exceeds available width
-            if [ "$msg_display_width" -gt "$max_msg_width" ]; then
-                msg="${msg:0:$((max_msg_width - 3))}..."
-                msg_display_width=$max_msg_width
-            fi
+    # Git: " on [glyph]branch[@hash][ STATE][ ^ahead][ vbehind][ dirty][ stashN]"
+    if [ "$_bga_in_git" = 1 ]; then
+        ps1+=" ${_c_dim}on ${_R}${_c_branch}${_g_branch}${_bga_git_branch}${_R}"
+        if [ -n "$_bga_git_hash" ] && [ "$_bga_git_branch" != "detached@${_bga_git_hash}" ]; then
+            ps1+="${_c_hash}@${_bga_git_hash}${_R}"
+        fi
+        [ -n "$_bga_git_state" ]                  && ps1+=" ${_c_state}${_bga_git_state}${_R}"
+        [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_ahead}${_g_ahead}${_bga_git_ahead}${_R}"
+        [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
+        [ "$_bga_git_dirty"  = 1 ]                && ps1+=" ${_c_dirty}${_g_dirty}${_R}"
+        [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_stash}${_g_stash}${_bga_git_stash}${_R}"
+    fi
 
-            # Top border: ╭─ Commit ───...───╮
-            local label=" Commit"
-            local top_used=$((2 + ${#label}))
-            local top_remaining=$((term_width - top_used - 1))
-            local fill
-            PS1+="${PROMPT_MESSAGE_BOX}${BOX_TL}${BOX_H}${RESET}"
-            PS1+="${PROMPT_GIT_COMMIT}${label}${RESET}"
-            PS1+="${PROMPT_MESSAGE_BOX}"
-            if [ "$top_remaining" -gt 0 ]; then
-                printf -v fill '%*s' "$top_remaining" ''
-                PS1+="${fill// /$BOX_H}"
-            fi
-            PS1+="${BOX_TR}${RESET}\n"
+    # Runtime / version module(s), only when the directory calls for it.
+    local rt; rt="$(__bga_runtime)"
+    [ -n "$rt" ] && ps1+="$rt"
 
-            # Message line: │ message       │
-            PS1+="${PROMPT_MESSAGE_BOX}${BOX_V}${RESET} "
-            PS1+="${PROMPT_GIT_MESSAGE}${msg}${RESET}"
-            local msg_remaining=$((term_width - msg_display_width - 3))
-            if [ "$msg_remaining" -gt 0 ]; then
-                printf -v fill '%*s' "$msg_remaining" ''
-                PS1+="$fill"
-            fi
-            PS1+="${PROMPT_MESSAGE_BOX}${BOX_V}${RESET}\n"
+    # Command duration (if slow), then exit code (on failure only).
+    [ -n "$_bga_last_duration" ] && ps1+=" ${_c_dim}took ${_R}${_c_timer}${_bga_last_duration}${_R}"
+    if [ "$exit_code" -ne 0 ]; then
+        if [ "$_bga_glyphs" = ascii ]; then ps1+=" ${_c_err}exit ${exit_code}${_R}"
+        else ps1+=" ${_c_err}✘${exit_code}${_R}"; fi
+    fi
 
-            # Bottom border: ╰───...───╯
-            printf -v fill '%*s' "$((term_width - 2))" ''
-            PS1+="${PROMPT_MESSAGE_BOX}${BOX_BL}${fill// /$BOX_H}${BOX_BR}${RESET}\n"
-        else
-            # Narrow terminal: show inline
-            PS1+="${PROMPT_GIT_COMMIT}Commit: ${PROMPT_GIT_MESSAGE}${_git_commit_msg}${RESET}\n"
+    # --- Line 2: last commit subject (optional) -----------------------------
+    if [ "${BASHGITAWARE_COMMIT_LINE:-1}" != 0 ] && [ "$_bga_in_git" = 1 ] && [ -n "$_bga_git_msg" ]; then
+        local msg="$_bga_git_msg" w=$(( ${COLUMNS:-80} - 3 ))
+        [ "$w" -lt 12 ] && w=12
+        if [ "${#msg}" -gt "$w" ]; then msg="${msg:0:$(( w - ${#_g_ell} ))}${_g_ell}"; fi
+        if [ -n "$_g_commit" ]; then ps1+="\n${_c_commit}${_g_commit} ${msg}${_R}"
+        else                         ps1+="\n${_c_commit}commit: ${msg}${_R}"
         fi
     fi
 
-    # === Virtual environment indicators ===
-    local venv_info=""
-    if [ -n "$VIRTUAL_ENV" ]; then
-        venv_info+="(${VIRTUAL_ENV##*/}) "
-    fi
-    if [ -n "$CONDA_DEFAULT_ENV" ] && [ "$CONDA_DEFAULT_ENV" != "base" ]; then
-        venv_info+="(conda:${CONDA_DEFAULT_ENV}) "
-    fi
-    if [ -n "$NVM_BIN" ]; then
-        local node_ver="${NVM_BIN%/bin}"
-        node_ver="${node_ver##*/}"
-        venv_info+="(node:${node_ver}) "
-    fi
-    [ -n "$venv_info" ] && PS1+="${PROMPT_VENV}${venv_info}${RESET}"
-
-    # === Debian chroot indicator ===
-    [ -n "${debian_chroot:-}" ] && PS1+="${BRIGHT_BLACK}(${debian_chroot})${RESET} "
-
-    # === Container indicator ===
-    [ "$_is_container" = 1 ] && PS1+="${PROMPT_CONTAINER}[container]${RESET} "
-
-    # === User@Host (SSH: bold yellow hostname) ===
-    if [ "$_is_ssh" = 1 ]; then
-        PS1+="${PROMPT_USER}\u${RESET}@${BOLD}${PROMPT_SSH_HOST}\h${RESET}"
-    else
-        PS1+="${PROMPT_USER}\u${RESET}@${PROMPT_HOST}\h${RESET}"
+    # --- Line 3: the prompt symbol ------------------------------------------
+    if [ "$exit_code" -eq 0 ]; then ps1+="\n${_c_ok}${_g_sym}${_R} "
+    else                            ps1+="\n${_c_sym_err}${_g_sym}${_R} "
     fi
 
-    # === Current directory ===
-    PS1+=":${PROMPT_PATH}\w${RESET}"
-
-    # === Git information: [branch:hash|STATE] status ahead behind stash ===
-    if [ "$_in_git_repo" = 1 ]; then
-        PS1+=" ${PROMPT_GIT_BRANCH}["
-        PS1+="${_git_branch}"
-        if [ -n "$_git_hash" ] && [ "$_git_branch" != "detached:${_git_hash}" ]; then
-            PS1+=":${PROMPT_GIT_COMMIT}${_git_hash}${PROMPT_GIT_BRANCH}"
-        fi
-        if [ -n "$_git_state" ]; then
-            PS1+="|${PROMPT_GIT_STATE}${_git_state}${PROMPT_GIT_BRANCH}"
-        fi
-        PS1+="]${RESET}"
-
-        # Dirty/clean indicator
-        if [ "$_git_dirty" = 1 ]; then
-            PS1+=" ${PROMPT_GIT_DIRTY}${SYM_DIRTY}${RESET}"
-        else
-            PS1+=" ${PROMPT_GIT_CLEAN}${SYM_CLEAN}${RESET}"
-        fi
-
-        # Ahead/behind indicators
-        [ "$_git_ahead" -gt 0 ] 2>/dev/null && PS1+=" ${PROMPT_GIT_AHEAD}${SYM_AHEAD}${_git_ahead}${RESET}"
-        [ "$_git_behind" -gt 0 ] 2>/dev/null && PS1+=" ${PROMPT_GIT_BEHIND}${SYM_BEHIND}${_git_behind}${RESET}"
-
-        # Stash indicator
-        [ "$_git_stash" -gt 0 ] 2>/dev/null && PS1+=" ${PROMPT_GIT_STASH}${SYM_STASH}${_git_stash}${RESET}"
-    fi
-
-    # === Exit code (only on failure) ===
-    [ $exit_code -ne 0 ] && PS1+=" ${PROMPT_ERROR}[X ${exit_code}]${RESET}"
-
-    # === Command duration (only if >= 2 seconds) ===
-    [ -n "$_last_duration" ] && PS1+=" ${PROMPT_TIMER}(${_last_duration})${RESET}"
-
-    # === Prompt symbol (green=success, red=failure) ===
-    if [ $exit_code -eq 0 ]; then
-        PS1+="\n${PROMPT_SUCCESS}>${RESET} "
-    else
-        PS1+="\n${PROMPT_ERROR}>${RESET} "
-    fi
-
-    # Reset timer for next command (must be last to avoid DEBUG trap interference)
-    _timer_start=
+    PS1="$ps1"
+    _bga_timer_start=        # reset for the next command (must be the last thing here)
 }
+PROMPT_COMMAND=__bga_prompt
 
-# Set prompt command
-PROMPT_COMMAND=__prompt_command
-
-# ============================================================================
-# COLOR SUPPORT FOR COMMANDS
-# ============================================================================
-# enable color support of ls and also add handy aliases
+# ---------------------------------------------------------------------------
+# ls / grep colors
+# ---------------------------------------------------------------------------
 if [ -x /usr/bin/dircolors ]; then
-    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    if [ -r ~/.dircolors ]; then eval "$(dircolors -b ~/.dircolors)"; else eval "$(dircolors -b)"; fi
     alias ls='ls --color=auto'
-    #alias dir='dir --color=auto'
-    #alias vdir='vdir --color=auto'
-
     alias grep='grep --color=auto'
     alias fgrep='fgrep --color=auto'
     alias egrep='egrep --color=auto'
 fi
 
-# colored GCC warnings and errors
-#export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
-
-# ============================================================================
-# ALIASES
-# ============================================================================
-# some more ls aliases
+# ---------------------------------------------------------------------------
+# Aliases
+# ---------------------------------------------------------------------------
 alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
 
-# Add an "alert" alias for long running commands.  Use like so:
-#   sleep 10; alert
+# "alert" for long-running commands: `some-long-command; alert`
 alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
 
-# Git aliases for convenience
+# Git shortcuts
 alias gs='git status'
 alias ga='git add'
 alias gc='git commit'
@@ -526,35 +444,24 @@ alias gco='git checkout'
 alias gst='git stash'
 alias gsp='git stash pop'
 
-# ============================================================================
-# BASH COMPLETION
-# ============================================================================
-# Alias definitions.
-# You may want to put all your additions into a separate file like
-# ~/.bash_aliases, instead of adding them here directly.
-# See /usr/share/doc/bash-doc/examples in the bash-doc package.
+# ---------------------------------------------------------------------------
+# User overrides and bash completion
+# ---------------------------------------------------------------------------
+[ -f ~/.bash_aliases ] && . ~/.bash_aliases
 
-if [ -f ~/.bash_aliases ]; then
-    . ~/.bash_aliases
-fi
-
-# enable programmable completion features (you don't need to enable
-# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
-# sources /etc/bash.bashrc).
 if ! shopt -oq posix; then
-  if [ -f /usr/share/bash-completion/bash_completion ]; then
-    . /usr/share/bash-completion/bash_completion
-  elif [ -f /etc/bash_completion ]; then
-    . /etc/bash_completion
-  fi
+    if   [ -f /usr/share/bash-completion/bash_completion ]; then . /usr/share/bash-completion/bash_completion
+    elif [ -f /etc/bash_completion ]; then . /etc/bash_completion
+    fi
 fi
 
-# ============================================================================
-# PATH CONFIGURATION (edit as needed)
-# ============================================================================
-export PATH=~/.npm-global/bin:$PATH
+# ---------------------------------------------------------------------------
+# PATH (edit to taste; idempotent so re-sourcing this file is safe)
+# ---------------------------------------------------------------------------
+case ":$PATH:" in *":$HOME/.npm-global/bin:"*) ;; *) PATH="$HOME/.npm-global/bin:$PATH" ;; esac
+export PATH
 
-# ============================================================================
-# CLEANUP
-# ============================================================================
-unset color_prompt force_color_prompt
+# ---------------------------------------------------------------------------
+# Cleanup
+# ---------------------------------------------------------------------------
+unset _bga_color

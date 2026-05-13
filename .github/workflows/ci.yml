@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   lint-build-test:
-    name: lint, build-freshness, tests
+    name: lint, build-freshness, tests (ubuntu)
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -38,3 +38,53 @@ jobs:
 
       - name: Run tests
         run: bash tests/run.sh
+
+  bash-versions:
+    name: tests on bash ${{ matrix.bash-version }}
+    runs-on: ubuntu-latest
+    container:
+      image: bash:${{ matrix.bash-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        bash-version: ['4.4', '5.0', '5.1', '5.2', 'latest']
+    steps:
+      - name: Install git (bash docker image is minimal Alpine)
+        run: apk add --no-cache git ncurses
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show bash version
+        run: bash --version
+
+      - name: Run tests
+        run: bash tests/run.sh
+
+  macos-tests:
+    name: tests on macos (Homebrew bash)
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Homebrew bash
+        run: brew install bash
+
+      - name: Resolve bash path + show version
+        id: bash
+        run: |
+          if [ -x /opt/homebrew/bin/bash ]; then
+            echo "path=/opt/homebrew/bin/bash" >> "$GITHUB_OUTPUT"
+          elif [ -x /usr/local/bin/bash ]; then
+            echo "path=/usr/local/bin/bash" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Homebrew bash not found"
+            exit 1
+          fi
+          "$(grep -m1 '^path=' "$GITHUB_OUTPUT" | cut -d= -f2)" --version
+
+      - name: Run tests
+        env:
+          BASH_BIN: ${{ steps.bash.outputs.path }}
+        run: "$BASH_BIN" tests/run.sh

@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+(no changes yet)
+
+## [2.0.0] - 2026-05-13
+
 ### Added
 
 - **`demo/demo.tape` + `demo/demo.gif`**: a `vhs`-rendered demo showing a
@@ -71,7 +75,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `BASHGITAWARE_SHOW_HOST`, plus `NO_COLOR` (https://no-color.org).
 - Test suite: scenario tests, performance budget, lib-syntax gate, build-
   freshness gate (`make test` / `bash tests/run.sh`).
-- GitHub Actions CI workflow: shellcheck (`-x`), build-freshness check, tests.
+- GitHub Actions CI workflow: shellcheck (`-x`), build-freshness check,
+  tests. **CI matrix** for v2.0.0: a `bash-versions` job runs the test
+  suite inside `bash:4.4` / `bash:5.0` / `bash:5.1` / `bash:5.2` /
+  `bash:latest` Docker containers (Alpine-based); a `macos-tests` job
+  runs the suite on `macos-latest` with Homebrew bash. The main
+  `lint-build-test` job continues to run lint + freshness + tests on
+  `ubuntu-latest` with the system bash.
 
 ### Changed
 
@@ -79,9 +89,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   running as root (`BASHGITAWARE_SHOW_HOST=always|never` to override).
 - Path is repo-relative inside a git work tree (`repo-name + path-within-repo`)
   and trimmed to the last `BASHGITAWARE_PATH_MAXDEPTH` components by default.
-
-### Changed
-
 - **README rewritten** for v2: the layout is two-line + optional commit
   line (was the v1 box prompt with bracketed `[branch:hash]`); the glyph
   set is tiered (was a single UTF-8/ASCII binary); the install path goes
@@ -99,11 +106,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   box drawing (`BASHGITAWARE_COMMIT_LINE=0` to disable).
 - Locale-only glyph gating. Glyphs now use the tiered detector described in
   [ADR-0002](docs/adr/ADR-0002-tiered-glyph-detection.md).
-
-### Planned (later milestones)
-
-- M6: vhs demo, `install.sh`, full README rewrite for v2.
-- M7: CI matrix across bash 4.4 / 5.0 / 5.1 / 5.2 / latest x Linux + macOS.
 
 ## [1.0.0] - 2026-02-10
 

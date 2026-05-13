@@ -49,8 +49,8 @@ jobs:
       matrix:
         bash-version: ['4.4', '5.0', '5.1', '5.2', 'latest']
     steps:
-      - name: Install git (bash docker image is minimal Alpine)
-        run: apk add --no-cache git ncurses
+      - name: Install git + ncurses (bash docker image is minimal Alpine)
+        run: apk add --no-cache git ncurses shadow
 
       - name: Check out repository
         uses: actions/checkout@v4
@@ -58,8 +58,16 @@ jobs:
       - name: Show bash version
         run: bash --version
 
-      - name: Run tests
-        run: bash tests/run.sh
+      # The test suite assumes a non-root user (the prompt symbol is `#`
+      # under root by design, but the test fixtures assert the `☟`
+      # symbol from the unicode/nerd tier or `>` from ascii). The bash
+      # docker images run as root by default; create a runner user and
+      # hand the workspace over to it before invoking the suite.
+      - name: Create non-root runner + run tests
+        run: |
+          adduser -D -h /home/bgauser bgauser
+          chown -R bgauser:bgauser .
+          su -s /bin/sh -c "cd $(pwd) && bash tests/run.sh" bgauser
 
   macos-tests:
     name: tests on macos (Homebrew bash)

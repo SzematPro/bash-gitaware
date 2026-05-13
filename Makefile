@@ -16,9 +16,9 @@ build:
 test:
 	@if [ -x tests/run.sh ]; then bash tests/run.sh; else echo "no tests yet (M1.4)"; fi
 
-lint:
+lint: build
 	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed"; exit 1; }
-	@shellcheck lib/*.bash bin/*.sh
+	@shellcheck -x new.bashrc bin/*.sh tests/*.sh
 
 check: build
 	@if ! git diff --exit-code -- new.bashrc >/dev/null 2>&1; then \

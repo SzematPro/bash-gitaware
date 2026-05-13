@@ -4,6 +4,7 @@
 # The budget is generous on CI (which is slower than a developer laptop). Async
 # rendering (M5) makes the *perceived* time independent of repo size; this test
 # covers the synchronous path.
+# shellcheck shell=bash
 
 scenario_perf_budget() {
     section "performance budget"

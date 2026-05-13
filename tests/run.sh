@@ -2,6 +2,7 @@
 # tests/run.sh -- orchestrate the bash-gitaware test suite.
 #
 # Run as `make test` from the project root, or directly: `bash tests/run.sh`.
+# shellcheck source-path=SCRIPTDIR
 
 set -uo pipefail
 

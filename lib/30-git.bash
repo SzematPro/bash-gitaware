@@ -4,7 +4,7 @@
 # ---------------------------------------------------------------------------
 __bga_git_state() {
     # Reads $_bga_git_dir; sets $_bga_git_state. Filesystem checks only -- no subprocesses.
-    _bga_git_state=
+    _bga_git_state=''
     local d="$_bga_git_dir" s e
     if [ -d "$d/rebase-merge" ]; then
         s="$(cat "$d/rebase-merge/msgnum" 2>/dev/null)"; e="$(cat "$d/rebase-merge/end" 2>/dev/null)"
@@ -22,9 +22,9 @@ __bga_git_state() {
 
 __bga_git_info() {
     _bga_in_git=0
-    _bga_git_branch= _bga_git_hash= _bga_git_dirty=0
+    _bga_git_branch='' _bga_git_hash='' _bga_git_dirty=0
     _bga_git_ahead=0 _bga_git_behind=0 _bga_git_stash=0
-    _bga_git_msg= _bga_git_state= _bga_git_dir= _bga_git_top=
+    _bga_git_msg='' _bga_git_state='' _bga_git_dir='' _bga_git_top=''
 
     # 1 subprocess: the git dir and the work-tree root, in one shot.
     local rp; rp="$(git rev-parse --git-dir --show-toplevel 2>/dev/null)" || return

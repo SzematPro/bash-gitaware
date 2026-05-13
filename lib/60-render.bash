@@ -6,7 +6,7 @@ __bga_prompt() {
     local exit_code=$?
 
     # Elapsed wall-clock time of the command that just finished.
-    _bga_last_duration=
+    _bga_last_duration=''
     if [ -n "$_bga_timer_start" ]; then
         local e=$(( SECONDS - _bga_timer_start ))
         local thr="${BASHGITAWARE_TIMER_THRESHOLD:-2}"; case "$thr" in '' | *[!0-9]*) thr=2 ;; esac
@@ -82,5 +82,5 @@ __bga_prompt() {
     fi
 
     PS1="$ps1"
-    _bga_timer_start=        # reset for the next command (must be the last thing here)
+    _bga_timer_start=''      # reset for the next command (must be the last thing here)
 }

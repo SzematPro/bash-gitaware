@@ -2,6 +2,7 @@
 #
 # Each function below sets up a state, renders the prompt, and asserts on the
 # expanded PS1 string. Sourced by run.sh; uses helpers from lib.sh.
+# shellcheck shell=bash
 
 scenario_non_git_path() {
     section "non-git path"

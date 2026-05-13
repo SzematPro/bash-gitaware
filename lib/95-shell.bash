@@ -50,8 +50,10 @@ alias gsp='git stash pop'
 # ---------------------------------------------------------------------------
 # User overrides and bash completion
 # ---------------------------------------------------------------------------
+# shellcheck source=/dev/null
 [ -f ~/.bash_aliases ] && . ~/.bash_aliases
 
+# shellcheck source=/dev/null
 if ! shopt -oq posix; then
     if   [ -f /usr/share/bash-completion/bash_completion ]; then . /usr/share/bash-completion/bash_completion
     elif [ -f /etc/bash_completion ]; then . /etc/bash_completion

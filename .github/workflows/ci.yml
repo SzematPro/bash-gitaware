@@ -71,20 +71,15 @@ jobs:
       - name: Install Homebrew bash
         run: brew install bash
 
-      - name: Resolve bash path + show version
-        id: bash
+      - name: Run tests with Homebrew bash
         run: |
           if [ -x /opt/homebrew/bin/bash ]; then
-            echo "path=/opt/homebrew/bin/bash" >> "$GITHUB_OUTPUT"
+            BASH_BIN=/opt/homebrew/bin/bash
           elif [ -x /usr/local/bin/bash ]; then
-            echo "path=/usr/local/bin/bash" >> "$GITHUB_OUTPUT"
+            BASH_BIN=/usr/local/bin/bash
           else
             echo "::error::Homebrew bash not found"
             exit 1
           fi
-          "$(grep -m1 '^path=' "$GITHUB_OUTPUT" | cut -d= -f2)" --version
-
-      - name: Run tests
-        env:
-          BASH_BIN: ${{ steps.bash.outputs.path }}
-        run: "$BASH_BIN" tests/run.sh
+          "$BASH_BIN" --version
+          "$BASH_BIN" tests/run.sh

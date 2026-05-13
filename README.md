@@ -1,629 +1,435 @@
-# Modern Git-Aware Bash Configuration
+# bash-gitaware
 
-**Author:** Waldemar Szemat <waldemar@szemat.pro>
+A modern, modular, git-aware bash prompt. Two-line layout, tiered glyphs that
+do not break on a non-Nerd-Font terminal, OSC 133 semantic prompt marks,
+transient prompt, async rendering. Pure bash 4.4+, zero dependencies,
+~500 lines of source split across 12 modules.
 
-A modern, colorful `.bashrc` configuration with real-time Git integration, environment detection, and visual feedback. Designed for developers who live in the terminal.
+> **What this is.** A `.bashrc` that surfaces the context you actually need
+> (where am I, which branch, dirty?, ahead/behind, runtime+version, last
+> command duration, exit code) without cluttering every prompt, without
+> tofu on terminals that lack fancy glyphs, and without slowing the shell
+> down on a large repo. It is also a small, readable codebase: a SPEC, six
+> ADRs, a render-pipeline diagram, tests, and CI. The whole thing fits in
+> a ten-minute read.
+
+Status: v2 release candidates. Tagged `v2.0.0-rc.1` (transient), `v2.0.0-rc.2`
+(async), `v2.0.0-rc.3` follows once the demo + this README are finalized;
+`v2.0.0` lands with the CI matrix and a GitHub Release.
+
+[Documentation](docs/SPEC.md) · [Decisions](docs/adr/) · [Changelog](CHANGELOG.md)
+· [Repo](https://github.com/SzematPro/bash-gitaware)
 
 ---
 
-## Table of Contents
+## Table of contents
 
-- [Installation](#installation)
-- [Prompt Anatomy](#prompt-anatomy)
-- [Prompt Reference](#prompt-reference)
-  - [Commit Message Box](#1-commit-message-box)
-  - [Virtual Environment Indicators](#2-virtual-environment-indicators)
-  - [Container Indicator](#3-container-indicator)
-  - [User and Host](#4-user-and-host)
-  - [Current Directory](#5-current-directory)
-  - [Git Branch and Hash](#6-git-branch-and-hash)
-  - [Git State](#7-git-state)
-  - [Dirty / Clean Indicator](#8-dirty--clean-indicator)
-  - [Ahead / Behind Remote](#9-ahead--behind-remote)
-  - [Stash Count](#10-stash-count)
-  - [Exit Code](#11-exit-code)
-  - [Command Timer](#12-command-timer)
-  - [Prompt Symbol](#13-prompt-symbol)
-- [Symbols and Fallback](#symbols-and-fallback)
-- [Color Scheme](#color-scheme)
-- [Scenarios and Examples](#scenarios-and-examples)
-- [Git Aliases](#git-aliases)
-- [Customization](#customization)
+- [What you see](#what-you-see)
+- [Install](#install)
+- [Prompt anatomy](#prompt-anatomy)
+- [Configuration](#configuration)
+- [Presets](#presets)
+- [Module reference](#module-reference)
 - [Compatibility](#compatibility)
-- [Troubleshooting](#troubleshooting)
 - [Performance](#performance)
-- [Requirements](#requirements)
+- [Customization](#customization)
+- [Troubleshooting](#troubleshooting)
+- [Repository layout](#repository-layout)
+- [Contributing](#contributing)
 - [License](#license)
 
 ---
 
-## Installation
+## What you see
 
-### 1. Backup your current configuration
+A typical sequence, rendered as ASCII (a `vhs`-rendered SVG demo lands with
+`v2.0.0-rc.3`):
 
-```bash
-cp ~/.bashrc ~/.bashrc.backup
+```
+~/projects/bash-gitaware on main@74fd6cf
+↳ feat(install): add install.sh with --replace / --append modes
+❯ git status
+On branch main
+nothing to commit, working tree clean
+
+~/projects/bash-gitaware on main@74fd6cf
+↳ feat(install): add install.sh with --replace / --append modes
+❯ printf 'x' > note.txt
+
+~/projects/bash-gitaware on main@74fd6cf ●
+↳ feat(install): add install.sh with --replace / --append modes
+❯ git stash
+
+~/projects/bash-gitaware on main@74fd6cf ≡1
+↳ feat(install): add install.sh with --replace / --append modes
+❯ sleep 3; false
+took 3s ✘1
+↳ feat(install): add install.sh with --replace / --append modes
+❯
 ```
 
-### 2. Install
+Outside a git tree, the prompt collapses to its essentials:
 
-**Option A** — Replace entirely (recommended):
-```bash
-cp new.bashrc ~/.bashrc
+```
+~/Documents
+❯
 ```
 
-**Option B** — Merge manually: review `new.bashrc`, then append your custom settings at the end.
+Inside a Node / Python / Rust / Go project, the toolchain shows up next to
+the git block:
 
-### 3. Reload
-
-```bash
-source ~/.bashrc
+```
+~/projects/myapp on main@a1b2c3d via  node v20.11.0
+↳ chore: bump deps
+❯
 ```
 
-Or open a new terminal.
+A non-zero exit colors the prompt symbol red and adds `✘N`:
+
+```
+~/projects/myapp on main@a1b2c3d
+↳ chore: bump deps
+took 4s ✘2
+↳ chore: bump deps
+❯
+```
+
+After `Enter`, the previous prompt collapses to a one-line form in the
+scrollback:
+
+```
+❯ git status
+On branch main
+...
+❯ printf 'x' > note.txt
+❯ git stash
+Saved working directory and index state ...
+❯
+```
 
 ---
 
-## Prompt Anatomy
+## Install
 
-The prompt is built dynamically after every command. It has up to three sections:
+### Quick install (recommended)
 
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮  ┐
-│ fix: resolve null pointer in user authentication                  │  ├─ COMMIT BOX
-╰───────────────────────────────────────────────────────────────────╯  ┘
-(myenv) (conda:ml) (node:v20.11.0) [container] user@host:~/project [main:a1b2c3d|REBASE 3/7] ✗ ↑2 ↓1 ⚑3 [X 1] (14s)
-│         │              │               │       │    │   │    │          │  │  │   │   │      │      │
-│         │              │               │       │    │   │    │          │  │  │   │   │      │      └─ TIMER
-│         │              │               │       │    │   │    │          │  │  │   │   │      └─ EXIT CODE
-│         │              │               │       │    │   │    │          │  │  │   │   └─ STASH COUNT
-│         │              │               │       │    │   │    │          │  │  │   └─ BEHIND REMOTE
-│         │              │               │       │    │   │    │          │  │  └─ AHEAD OF REMOTE
-│         │              │               │       │    │   │    │          │  └─ DIRTY/CLEAN
-│         │              │               │       │    │   │    │          └─ GIT STATE
-│         │              │               │       │    │   │    └─ COMMIT HASH
-│         │              │               │       │    │   └─ GIT BRANCH
-│         │              │               │       │    └─ WORKING DIRECTORY
-│         │              │               │       └─ USER@HOST
-│         │              │               └─ CONTAINER
-│         │              └─ NODE.JS (NVM)
-│         └─ CONDA ENVIRONMENT
-└─ PYTHON VIRTUALENV
->  ← PROMPT SYMBOL (green = success, red = failure)
+```bash
+git clone https://github.com/SzematPro/bash-gitaware ~/.bash-gitaware
+cd ~/.bash-gitaware
+./install.sh            # replaces ~/.bashrc (creates a timestamped backup first)
+exec bash               # or: open a new terminal
 ```
 
-**Every element is conditional** — it only appears when relevant. Outside a git repo, only `user@host:path` and the prompt symbol `>` are shown.
+### Append instead of replace
+
+If you have an existing `~/.bashrc` you want to keep, append a `source` line
+instead:
+
+```bash
+./install.sh --append   # idempotent; safe to run twice
+exec bash
+```
+
+The script:
+
+- Warns (does not refuse) if your `bash` is older than 4.4. macOS ships
+  bash 3.2 by default; install a modern bash with
+  `brew install bash && chsh -s "$(brew --prefix)/bin/bash"`.
+- Backs up `~/.bashrc` to `~/.bashrc.bak-<unix-ts>` before `--replace`.
+  Skip with `--no-backup`.
+- Accepts `--target FILE` for testing (write somewhere other than
+  `$HOME/.bashrc`).
+
+See `./install.sh --help` for all flags.
+
+### Try without installing
+
+```bash
+bash --rcfile new.bashrc -i
+```
+
+A throwaway interactive shell with the prompt loaded; nothing in your dotfiles
+is touched.
 
 ---
 
-## Prompt Reference
+## Prompt anatomy
 
-### 1. Commit Message Box
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ fix: resolve null pointer in user authentication                  │
-╰───────────────────────────────────────────────────────────────────╯
-```
-
-| Detail | Description |
-|---|---|
-| **What** | First line of the most recent `git commit` message |
-| **When** | Inside a git repository with at least one commit |
-| **Box width** | Adapts to terminal width (`$COLUMNS`) |
-| **Long messages** | Truncated with `...` if they exceed the available width |
-| **Narrow terminal** | If terminal is < 30 columns, the box is replaced with inline: `Commit: message` |
-| **Box characters** | Unicode (`╭─│╯`) on UTF-8 terminals, ASCII (`+-\|`) on others |
-
-### 2. Virtual Environment Indicators
+The prompt is **two lines** by default, with an optional middle line for the
+last commit subject:
 
 ```
-(myenv) (conda:ml-project) (node:v20.11.0) user@host:~/path
+[chroot] [container] [user@host ] path[ on branch[@hash][ STATE][ ↑ahead][ ↓behind][ ●][ ≡stash][ via runtime ...][ took duration][ ✘exit]]
+↳ last commit subject
+❯
 ```
 
-Shown **before** `user@host`, following the standard terminal convention.
+Every element is **conditional**. Most prompts use only a small subset of it.
 
-| Indicator | Source | Example | When shown |
-|---|---|---|---|
-| `(name)` | Python virtualenv | `(myenv)` | `$VIRTUAL_ENV` is set |
-| `(conda:name)` | Conda environment | `(conda:ml)` | `$CONDA_DEFAULT_ENV` is set and is not `base` |
-| `(node:version)` | Node.js via NVM | `(node:v20.11.0)` | `$NVM_BIN` is set |
-
-Multiple indicators can appear simultaneously if several environments are active.
-
-### 3. Container Indicator
-
-```
-[container] user@host:~/app
-```
-
-| Detail | Description |
-|---|---|
-| **What** | `[container]` prefix |
-| **When** | Running inside Docker, Podman, or LXC |
-| **Detection** | Checks `/.dockerenv`, `/run/.containerenv`, or `docker`/`lxc`/`containerd` in `/proc/1/cgroup` |
-| **Runs** | Once at shell startup (not per prompt) |
-
-### 4. User and Host
-
-```
-user@hostname           ← local session
-user@hostname           ← SSH session (hostname in bold yellow)
-```
-
-| Detail | Description |
-|---|---|
-| **User** | Current username (cyan) |
-| **Host** | Machine hostname (yellow) |
-| **SSH detection** | If connected via SSH, the hostname is rendered in **bold yellow** to make remote sessions visually distinct |
-| **Detection** | Checks `$SSH_CONNECTION`, `$SSH_TTY`, or `$SSH_CLIENT` (once at startup) |
-
-### 5. Current Directory
-
-```
-user@host:~/projects/myapp
-```
-
-| Detail | Description |
-|---|---|
-| **What** | Full working directory path with `~` for home (blue) |
-| **Format** | Uses bash's `\w` which abbreviates `$HOME` to `~` |
-
-### 6. Git Branch and Hash
-
-```
-[main:a1b2c3d]          ← normal branch
-[detached:a1b2c3d]      ← detached HEAD (no branch)
-[feature/login:e5f6g7h] ← feature branch
-```
-
-| Element | Description |
-|---|---|
-| `[` `]` | Green brackets delimit the git info section |
-| **Branch name** | Current branch (green). Shows `detached:hash` when HEAD is detached |
-| `:` | Separator between branch and hash |
-| **Commit hash** | First 7 characters of the current commit SHA (cyan) |
-| **No commits** | If the repo has no commits yet, the hash is omitted |
-
-### 7. Git State
-
-When git is in the middle of an operation, the state appears after a `|` separator inside the brackets:
-
-```
-[main:a1b2c3d|REBASE 3/7]     ← interactive rebase, step 3 of 7
-[main:a1b2c3d|MERGING]        ← merge in progress
-[main:a1b2c3d|CHERRY-PICK]    ← cherry-pick in progress
-[main:a1b2c3d|REVERTING]      ← revert in progress
-[main:a1b2c3d|BISECTING]      ← git bisect in progress
-[main:a1b2c3d|AM 2/5]         ← git am (apply mailbox), patch 2 of 5
-```
-
-| State | Trigger | Progress shown |
+| Element | When | Notes |
 |---|---|---|
-| `REBASE n/m` | `git rebase` (interactive or non-interactive) | Current step / total steps |
-| `AM n/m` | `git am` (applying patches) | Current patch / total patches |
-| `MERGING` | `git merge` with conflicts | No |
-| `CHERRY-PICK` | `git cherry-pick` with conflicts | No |
-| `REVERTING` | `git revert` with conflicts | No |
-| `BISECTING` | `git bisect` in progress | No |
+| `[chroot]` | `$debian_chroot` is set | Amber tag |
+| `[container]` | Running in Docker / Podman / LXC | Detected once at shell startup via `/.dockerenv`, `/run/.containerenv`, `/proc/1/cgroup` |
+| `user@host` | SSH session OR running as root (or always if `BASHGITAWARE_SHOW_HOST=always`) | Host in bold amber over SSH |
+| `path` | Always | Repo-relative inside a git work tree (`repo-name + path-within-repo`); `~`-relative under `$HOME`; trimmed to the last `BASHGITAWARE_PATH_MAXDEPTH` components (default 3) with a leading `…` |
+| `on branch` | Inside a git work tree | Branch label from `.git/HEAD` (no `git status` needed on the cheap path) |
+| `@hash` | Branch is a real branch (not detached) | First 7 chars of the commit oid |
+| `STATE` | Mid-operation | `REBASE n/m`, `AM n/m`, `MERGING`, `CHERRY-PICK`, `REVERTING`, `BISECTING` — filesystem checks only |
+| `↑N` / `↓N` | Local has unpushed commits / remote has commits we lack | Async — appears on the next prompt cycle on a large repo |
+| `●` | Working tree has changes (tracked or untracked) | Async — same |
+| `≡N` | `git stash` has N entries | Sync, gated by `.git/refs/stash` existing |
+| `via runtime` | Node / Python / Rust / Go project marker in `$PWD` | Cached per `(PWD, VIRTUAL_ENV, CONDA_DEFAULT_ENV)` |
+| `took Ns` | Last command took ≥ `BASHGITAWARE_TIMER_THRESHOLD` seconds (default 2) | Yellow, after the git/runtime block |
+| `✘N` | Last command failed | Bold red, last on the line |
+| `↳ subject` | Optional commit-line; `BASHGITAWARE_COMMIT_LINE=0` to hide | Truncated to `$COLUMNS - 3` with the configured ellipsis |
+| `❯` | Always (the prompt symbol) | Bold green on success, bold red on failure; `>` on the ascii tier; `#` for root |
 
-Detection is done via **filesystem checks only** (no git subprocesses):
-`.git/rebase-merge/`, `.git/rebase-apply/`, `.git/MERGE_HEAD`, `.git/CHERRY_PICK_HEAD`, `.git/REVERT_HEAD`, `.git/BISECT_LOG`.
+While the async path is computing on a large repo, a faint `…` (or `...` on
+ascii) trails the branch info to signal "still working"; it clears on the
+next prompt cycle.
 
-### 8. Dirty / Clean Indicator
+After Enter, the previous prompt collapses to `❯ <typed-command>` (the
+"transient prompt"). Disable with `BASHGITAWARE_TRANSIENT=0`.
 
-Appears right after the `]` bracket:
+---
 
-```
-[main:a1b2c3d] ✓    ← clean: working directory matches HEAD
-[main:a1b2c3d] ✗    ← dirty: uncommitted changes exist
-```
+## Configuration
 
-| Symbol | ASCII fallback | Meaning |
+All settings are environment variables. Export them before `~/.bashrc` is
+sourced (e.g. in `/etc/profile`, `~/.profile`, or near the top of the file
+itself).
+
+| Variable | Default | Effect |
 |---|---|---|
-| `✓` | `OK` | Working directory is **clean** — no staged, unstaged, or untracked changes |
-| `✗` | `*` | Working directory is **dirty** — there are modified, staged, or untracked files |
-
-### 9. Ahead / Behind Remote
-
-Shows how your local branch compares to its upstream tracking branch:
-
-```
-[main:a1b2c3d] ✓ ↑3         ← 3 commits ahead (need to push)
-[main:a1b2c3d] ✓ ↓2         ← 2 commits behind (need to pull)
-[main:a1b2c3d] ✗ ↑5 ↓1      ← diverged: 5 ahead, 1 behind
-```
-
-| Symbol | ASCII fallback | Meaning |
-|---|---|---|
-| `↑N` | `^N` | Local branch is **N commits ahead** of the remote (you have unpushed commits) |
-| `↓N` | `vN` | Local branch is **N commits behind** the remote (remote has commits you don't have) |
-
-- Only shown when the count is > 0
-- If both appear, the branches have **diverged** and may need rebase or merge
-- Not shown if the branch has no upstream tracking branch
-
-### 10. Stash Count
-
-```
-[main:a1b2c3d] ✓ ⚑3    ← 3 stashed changesets
-```
-
-| Symbol | ASCII fallback | Meaning |
-|---|---|---|
-| `⚑N` | `SN` | There are **N stashed changesets** saved with `git stash` |
-
-- Only shown when at least one stash exists
-- Useful reminder that you have saved work waiting to be applied with `git stash pop`
-
-### 11. Exit Code
-
-```
-[main:a1b2c3d] ✓ [X 1]       ← last command failed with exit code 1
-[main:a1b2c3d] ✓ [X 127]     ← command not found (exit code 127)
-[main:a1b2c3d] ✓ [X 130]     ← interrupted with Ctrl+C (128 + signal 2)
-```
-
-| Detail | Description |
-|---|---|
-| **What** | `[X N]` where N is the exit code of the last command (red) |
-| **When** | Only shown when the last command **failed** (exit code != 0) |
-| **Hidden** | Not shown after successful commands (exit code 0) |
-
-Common exit codes:
-| Code | Meaning |
-|---|---|
-| `1` | General error |
-| `2` | Misuse of command / invalid arguments |
-| `126` | Permission denied (not executable) |
-| `127` | Command not found |
-| `128+N` | Killed by signal N (e.g., 130 = SIGINT / Ctrl+C, 137 = SIGKILL, 143 = SIGTERM) |
-
-### 12. Command Timer
-
-```
-[main:a1b2c3d] ✓ (3s)         ← command took 3 seconds
-[main:a1b2c3d] ✓ (1m23s)      ← 1 minute 23 seconds
-[main:a1b2c3d] ✓ (2h5m)       ← 2 hours 5 minutes
-[main:a1b2c3d] ✗ [X 1] (14s)  ← failed after 14 seconds
-```
-
-| Detail | Description |
-|---|---|
-| **What** | `(duration)` in yellow showing how long the last command took |
-| **When** | Only shown when the command took **2 seconds or more** |
-| **Format** | `Ns` for seconds, `NmNs` for minutes, `NhNm` for hours |
-| **Mechanism** | Uses bash `DEBUG` trap to capture start time via `$SECONDS` |
-
-### 13. Prompt Symbol
-
-```
->    ← green: last command succeeded (exit code 0)
->    ← red: last command failed (exit code != 0)
-```
-
-The `>` symbol appears on its own line below the info line. Its color provides instant visual feedback about the previous command's success or failure.
+| `BASHGITAWARE_PRESET` | `default` | Coherent bundle of defaults — `minimal`, `default`, `powerline`, `full`. See [Presets](#presets). |
+| `BASHGITAWARE_GLYPHS` | auto | Force a glyph tier: `nerd`, `unicode`, `ascii`. Auto picks `unicode` on a UTF-8 locale, else `ascii`. **Never auto-picks `nerd`** — a UTF-8 locale does not imply the font has Nerd glyphs. |
+| `BASHGITAWARE_NERD_FONT` | `0` | Shorthand for `BASHGITAWARE_GLYPHS=nerd`. |
+| `BASHGITAWARE_COMMIT_LINE` | `1` | Show the `↳ subject` line below the context line. `0` to hide. |
+| `BASHGITAWARE_RUNTIME` | `1` | Show `via node` / `via python` / `via rust` / `via go` in language projects. `0` to hide. |
+| `BASHGITAWARE_OSC` | `1` | Emit OSC 133 semantic marks (A/B/C/D) and OSC 7 cwd reports. `0` to suppress. |
+| `BASHGITAWARE_TRANSIENT` | `1` | Collapse the previous prompt to `❯ <command>` on submit. `0` to disable. |
+| `BASHGITAWARE_ASYNC` | `1` | Compute the expensive part of `git status` in the background and surface it on the next prompt. `0` to render fully synchronous. |
+| `BASHGITAWARE_TIMER_THRESHOLD` | `2` | Show `took Ns` only when the command took at least N seconds. |
+| `BASHGITAWARE_PATH_MAXDEPTH` | `3` | Trim the path to the last N components, with a leading `…`. `0` for unlimited. |
+| `BASHGITAWARE_SHOW_HOST` | `auto` | `always` / `auto` / `never`. Auto = SSH session or root. |
+| `NO_COLOR` | unset | Standard `NO_COLOR` (https://no-color.org). When set, the prompt renders in plain text. |
 
 ---
 
-## Symbols and Fallback
+## Presets
 
-The prompt auto-detects UTF-8 support via `$LANG`, `$LC_ALL`, or `$LC_CTYPE`. On non-UTF-8 terminals, all symbols gracefully fall back to ASCII equivalents:
+A preset sets a coherent set of defaults; **individual `BASHGITAWARE_*`
+variables still override** anything a preset sets (`:=` parameter expansion,
+not `=`).
 
-| Purpose | UTF-8 | ASCII | Color |
-|---|---|---|---|
-| Clean working directory | `✓` | `OK` | Green |
-| Dirty working directory | `✗` | `*` | Red |
-| Ahead of remote | `↑` | `^` | Yellow |
-| Behind remote | `↓` | `v` | Magenta |
-| Stash count | `⚑` | `S` | Cyan |
-| Box horizontal | `─` | `-` | Gray |
-| Box vertical | `│` | `\|` | Gray |
-| Box corners | `╭╮╰╯` | `++++` | Gray |
-
----
-
-## Color Scheme
-
-Every prompt element uses a semantic color variable, making it easy to retheme:
-
-| Color | Elements |
-|---|---|
-| **Cyan** | Username, commit hash, stash indicator, "Commit" label |
-| **Yellow** | Hostname, ahead indicator, SSH host (bold), timer, container tag |
-| **Blue** | Current directory path |
-| **Green** | Git branch, brackets, clean indicator (`✓`), success prompt (`>`) |
-| **Red** | Dirty indicator (`✗`), exit code, error prompt (`>`), git state |
-| **Magenta** | Behind indicator, virtual environment names |
-| **White** | Commit message text |
-| **Gray** | Commit box borders, chroot indicator |
-
-When `NO_COLOR` environment variable is set (following the [no-color.org](https://no-color.org/) standard), all colors are disabled and the prompt renders in plain text.
-
----
-
-## Scenarios and Examples
-
-### Outside a Git Repository
-
-Only `user@host:path` and the prompt symbol are shown:
-
-```
-user@hostname:~/documents
->
-```
-
-### Clean Repository
-
-All changes committed, in sync with remote:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ feat: add user authentication module                              │
-╰───────────────────────────────────────────────────────────────────╯
-user@hostname:~/projects/myapp [main:a1b2c3d] ✓
->
-```
-
-### Dirty Repository with Unpushed Commits
-
-Modified files exist, 3 commits ahead of remote:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ feat: add user authentication module                              │
-╰───────────────────────────────────────────────────────────────────╯
-user@hostname:~/projects/myapp [main:a1b2c3d] ✗ ↑3
->
-```
-
-### Diverged Branch with Stashes
-
-Local and remote have diverged, stashed work exists:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ refactor: extract validation logic                                │
-╰───────────────────────────────────────────────────────────────────╯
-user@hostname:~/projects/myapp [develop:e5f6a7b] ✗ ↑2 ↓5 ⚑3
->
-```
-
-### Interactive Rebase in Progress
-
-Rebase operation at step 3 of 7:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ fix: handle edge case in parser                                   │
-╰───────────────────────────────────────────────────────────────────╯
-user@hostname:~/projects/myapp [main:a1b2c3d|REBASE 3/7] ✗
->
-```
-
-### Merge Conflict
-
-Merge in progress with unresolved conflicts:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ chore: update dependencies                                        │
-╰───────────────────────────────────────────────────────────────────╯
-user@hostname:~/projects/myapp [main:a1b2c3d|MERGING] ✗
->
-```
-
-### Detached HEAD
-
-Checked out a specific commit or tag:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ release: v2.1.0                                                   │
-╰───────────────────────────────────────────────────────────────────╯
-user@hostname:~/projects/myapp [detached:b8c9d0e] ✓
->
-```
-
-### SSH Session with Python Virtualenv
-
-Connected remotely with an active virtual environment:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ fix: correct API response format                                  │
-╰───────────────────────────────────────────────────────────────────╯
-(venv) user@hostname:~/projects/api [main:a1b2c3d] ✓
->
-```
-
-The hostname appears in **bold yellow** over SSH (not visible in this plain text example).
-
-### Docker Container with Conda
-
-Running inside a container with Conda environment active:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ feat: add training pipeline                                       │
-╰───────────────────────────────────────────────────────────────────╯
-(conda:torch-env) [container] user@hostname:~/ml-project [main:f1e2d3c] ✓
->
-```
-
-### Failed Long-Running Command
-
-Command failed after 14 seconds:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ test: add integration tests                                       │
-╰───────────────────────────────────────────────────────────────────╯
-user@hostname:~/projects/myapp [main:a1b2c3d] ✓ [X 1] (14s)
->
-```
-
-### Everything at Once
-
-All indicators active simultaneously:
-
-```
-╭─ Commit ──────────────────────────────────────────────────────────╮
-│ wip: experimental feature                                         │
-╰───────────────────────────────────────────────────────────────────╯
-(venv) (node:v20.11.0) [container] user@hostname:~/project [feat:c3d4e5f|REBASE 2/5] ✗ ↑1 ↓3 ⚑2 [X 130] (1m5s)
->
-```
-
-Reading left to right:
-1. `(venv)` — Python virtualenv is active
-2. `(node:v20.11.0)` — Node.js v20.11.0 via NVM
-3. `[container]` — Running inside Docker
-4. `user@hostname` — Current user and machine
-5. `:~/project` — Working directory
-6. `[feat:c3d4e5f|REBASE 2/5]` — On branch `feat`, commit `c3d4e5f`, rebasing (step 2 of 5)
-7. `✗` — Working directory has uncommitted changes
-8. `↑1` — 1 commit ahead of remote
-9. `↓3` — 3 commits behind remote
-10. `⚑2` — 2 stashed changesets
-11. `[X 130]` — Last command was interrupted (Ctrl+C)
-12. `(1m5s)` — Last command ran for 1 minute 5 seconds
-
----
-
-## Git Aliases
-
-Included shortcuts for common git operations:
-
-| Alias | Command | Description |
-|---|---|---|
-| `gs` | `git status` | Show working tree status |
-| `ga` | `git add` | Stage files |
-| `gc` | `git commit` | Create a commit |
-| `gp` | `git push` | Push to remote |
-| `gl` | `git log --oneline --graph --decorate --all` | Visual log of all branches |
-| `gd` | `git diff` | Show unstaged changes |
-| `gb` | `git branch` | List or create branches |
-| `gco` | `git checkout` | Switch branches or restore files |
-| `gst` | `git stash` | Stash current changes |
-| `gsp` | `git stash pop` | Apply and remove last stash |
-
----
-
-## Customization
-
-### Change Colors
-
-Edit the semantic color mappings in the `COLOR DEFINITIONS` section of `new.bashrc`:
+| Preset | Glyphs | Commit line | Runtime modules | User@host | Notes |
+|---|---|---|---|---|---|
+| `minimal` | `ascii` | off | off | auto | The cleanest look: ASCII-only, no commit line, no runtime modules. |
+| `default` | auto | on | on | auto | Current behavior with no preset. UTF-8 unicode glyphs on a UTF-8 locale. |
+| `powerline` | `nerd` | on | on | auto | Nerd Font glyphs on by default. Falls back gracefully if the font lacks them. The arrow-segment render style is planned for a future release; in v2 the preset is a glyph default. |
+| `full` | auto | on | on | always | Everything. `user@host` is shown even on a local session. |
 
 ```bash
-PROMPT_USER="${BRIGHT_MAGENTA}"     # Change username color
-PROMPT_GIT_BRANCH="${BRIGHT_CYAN}"  # Change branch color
-PROMPT_TIMER="${BRIGHT_RED}"        # Change timer color
+export BASHGITAWARE_PRESET=minimal
+exec bash
 ```
 
-All available mappings: `PROMPT_USER`, `PROMPT_HOST`, `PROMPT_PATH`, `PROMPT_GIT_BRANCH`, `PROMPT_GIT_DIRTY`, `PROMPT_GIT_CLEAN`, `PROMPT_GIT_AHEAD`, `PROMPT_GIT_BEHIND`, `PROMPT_GIT_COMMIT`, `PROMPT_GIT_MESSAGE`, `PROMPT_GIT_STASH`, `PROMPT_GIT_STATE`, `PROMPT_MESSAGE_BOX`, `PROMPT_SUCCESS`, `PROMPT_ERROR`, `PROMPT_VENV`, `PROMPT_TIMER`, `PROMPT_SSH_HOST`, `PROMPT_CONTAINER`.
+---
 
-### Change Symbols
+## Module reference
 
-Edit the `SYMBOL DEFINITIONS` section:
+The single-file `new.bashrc` is generated from twelve modules under `lib/`.
+Edit the modules, run `make build`, commit the regenerated artifact. CI
+verifies the artifact is current.
 
-```bash
-SYM_CLEAN="ok"     # Replace ✓
-SYM_DIRTY="!!"     # Replace ✗
-SYM_STASH="@"      # Replace ⚑
-```
+| Module | Responsibility |
+|---|---|
+| `lib/00-options.bash` | Read `BASHGITAWARE_*` knobs; apply presets via `${var:=value}` so user overrides win. |
+| `lib/10-detect.bash` | Detect SSH session, container, UTF-8 locale, terminal title support, root, color capability — once at startup, not per prompt. |
+| `lib/20-palette.bash` | 256-color palette + tiered glyph selection (`nerd` > `unicode` > `ascii`). |
+| `lib/30-git.bash` | Cheap (sync) git info: rev-parse + filesystem state + branch label from `.git/HEAD`. Expensive (async) info compute function for the background job. |
+| `lib/40-path.bash` | Repo-relative path inside a git work tree; `~`-relative outside; trim to `BASHGITAWARE_PATH_MAXDEPTH`. |
+| `lib/50-runtime.bash` | Node / Python / Rust / Go detection + version, cached per `(PWD, VIRTUAL_ENV, CONDA_DEFAULT_ENV)`. |
+| `lib/60-render.bash` | `__bga_prompt`: assemble PS1 from parts; emit OSC marks; record the transient state for `lib/80-transient.bash`. |
+| `lib/70-osc.bash` | OSC 133 A/B/C/D semantic marks, OSC 7 cwd, OSC 0/2 window title. `BASHGITAWARE_OSC=0` short-circuits all of them. |
+| `lib/80-transient.bash` | Collapse the previous prompt to `❯ <command>` on Enter, via `bind -x` + a readline macro on `\C-m`. |
+| `lib/85-async.bash` | Spawn the background git-status subshell, parse its cache file defensively, install the EXIT trap. |
+| `lib/90-hooks.bash` | Wire `PROMPT_COMMAND`, the DEBUG trap (command timer), and `__bga_async_init`. |
+| `lib/95-shell.bash` | The non-prompt `.bashrc` bits: history, ls colors, aliases, completion, PATH. |
 
-### Disable Commit Message Box
-
-Comment out the commit box section inside `__prompt_command()` (the block starting with `# === Commit message box ===`).
-
-### Disable Command Timer
-
-Remove or comment out:
-```bash
-trap '__timer_start' DEBUG
-```
-
-### Adjust History Size
-
-```bash
-HISTSIZE=1000        # Number of commands in memory (default: 10000)
-HISTFILESIZE=2000    # Number of commands in history file (default: 20000)
-```
+The build pipeline is `bin/build.sh`: it concatenates `lib/[0-9][0-9]-*.bash`
+(stable sort) with a header line, writes `new.bashrc`, and CI fails the build
+if the artifact in `git` differs from a fresh rebuild.
 
 ---
 
 ## Compatibility
 
-| Requirement | Minimum |
-|---|---|
-| Bash | 4.x or 5.x |
-| Git | 2.11+ (for `--porcelain=v2`) |
-| OS | Linux, macOS, WSL |
-| Terminal | Any (graceful degradation without color/Unicode) |
-| Locale | UTF-8 or ASCII (auto-detected) |
-| Standard | Respects [NO_COLOR](https://no-color.org/) |
+| Platform | Bash | Status |
+|---|---|---|
+| Linux (any distro with a current bash) | 4.4, 5.0, 5.1, 5.2, latest | Supported. CI runs on `ubuntu-latest` today; full version matrix lands with `v2.0.0` (M7). |
+| macOS with a modern bash (Homebrew, MacPorts) | 4.4+ | Supported. macOS ships bash 3.2 by default; install a current bash with `brew install bash`, then `chsh -s "$(brew --prefix)/bin/bash"`. |
+| macOS with stock bash 3.2 | 3.2 | **Not supported.** Several features (`PS0`, parameter transformations) require 4.4+. See [ADR-0006](docs/adr/ADR-0006-bash-only-bash-44-plus.md). |
+| zsh / fish / dash / ksh | — | **Not supported.** bash-gitaware is bash-native by design (`PS0`, `bind -x`, `PROMPT_COMMAND` shape, parameter transformations). |
 
----
-
-## Troubleshooting
-
-### Colors not showing
-- Ensure your terminal supports 256 colors
-- Uncomment `force_color_prompt=yes` in the file to force colors
-- Make sure `NO_COLOR` is not set: `unset NO_COLOR`
-
-### Git information not appearing
-- Verify you are inside a git repository: `git status`
-- Check git version is 2.11+: `git --version`
-
-### Unicode symbols showing as garbled text
-- Check your locale: `echo $LANG` (should contain `UTF-8`)
-- The prompt automatically falls back to ASCII on non-UTF-8 locales
-
-### Commit box looks wrong
-- The box adapts to `$COLUMNS`. Resize the terminal or open a new one
-- Terminals narrower than 30 columns show an inline format instead
+OSC integration (`BASHGITAWARE_OSC=1`, default) targets modern terminals that
+recognize OSC 133 / OSC 7 well-formed sequences: WezTerm, Kitty, VS Code's
+integrated terminal, iTerm2, Ghostty, Konsole, Windows Terminal, Warp, foot,
+Alacritty. Terminals that do not recognize the sequences ignore them — they
+are well-formed OSC and never corrupt the screen.
 
 ---
 
 ## Performance
 
-| Metric | Value |
+The synchronous render path costs **under 30 ms on a CI runner** for a small
+repo with warm caches (measured: ~8 ms on the ubuntu-latest runner across
+50 renders, well under the 80 ms budget).
+
+The async path makes the *perceived* prompt time independent of repo size:
+the cheap info renders immediately, the expensive `git status --porcelain=v2`
+runs in a background subshell, and the prompt re-renders with full info on
+the next cycle.
+
+Subprocess budget per prompt:
+
+| Where | Count |
 |---|---|
-| Git subprocesses per prompt | 3-4 (down from 7) |
-| Environment detection | Once at shell startup |
-| Git state detection | Filesystem checks only (0 subprocesses) |
-| Dirty detection | Early-exit on first dirty file |
-| Box rendering | Mostly pure bash (`printf -v`), `wc -L` for display width |
+| Outside a git tree | `0` git subprocesses |
+| Inside a git tree, cheap path (default) | up to `3` (rev-parse + an optional `rev-parse HEAD` for packed-refs + `git log -1 --pretty=%s`) |
+| Inside a git tree, sync path (`BASHGITAWARE_ASYNC=0`) | up to `4` (the cheap three plus the porcelain v2 status) |
+| Stash | `1` extra when `.git/refs/stash` exists |
+| Runtime version (Node / Python / Rust / Go) | `1` on the first prompt in a directory; `0` thereafter (per-`(PWD, VIRTUAL_ENV, CONDA_DEFAULT_ENV)` cache) |
+
+Subprocesses are the expensive part. Filesystem checks (rebase state, container
+detection, locale detection) cost nothing measurable.
 
 ---
 
-## Requirements
+## Customization
 
-- Bash 4.x or 5.x
-- Git 2.11+
-- Terminal emulator (any modern terminal works)
-- Linux/Unix-like system
+Themes:
 
-## Files
+- The color palette is in `lib/20-palette.bash`, organized by semantic name
+  (`_c_path`, `_c_branch`, `_c_dirty`, ...) rather than raw color codes.
+  Retheme by changing the mappings, not the prompt logic.
+- The glyph sets are in the same file, in three tiers; add or change glyphs
+  per tier and rebuild.
 
-| File | Description |
-|---|---|
-| `new.bashrc` | The configuration file (copy to `~/.bashrc`) |
-| `README.md` | This manual |
-| `LICENSE` | MIT License |
+Layout:
 
-## Reverting
+- The two-line layout is built in `lib/60-render.bash`. Reorder, drop, or add
+  elements there; rebuild with `make build`.
+- A "powerline arrow-segment" structural render is planned but not yet shipped;
+  the `powerline` preset is a glyph default in v2.
+
+To make the build automatic after editing `lib/`:
 
 ```bash
-cp ~/.bashrc.backup ~/.bashrc
-source ~/.bashrc
+make build      # regenerate new.bashrc
+make test       # run the scenario + perf suite
+make lint       # run shellcheck -x
+make check      # build-freshness gate (CI uses this)
 ```
+
+---
+
+## Troubleshooting
+
+**The symbols look broken (tofu, missing-glyph squares).** Your terminal
+font does not have the Nerd Font / Powerline glyphs. The defaults are safe
+(`unicode` tier on UTF-8 locales, `ascii` otherwise), so this usually means
+you set `BASHGITAWARE_NERD_FONT=1` or `BASHGITAWARE_PRESET=powerline`
+without a Nerd Font installed. Fix: `export BASHGITAWARE_GLYPHS=unicode`
+and reload, or install a Nerd Font in your terminal.
+
+**The prompt is misaligned after `Ctrl-C` or a terminal resize.** The
+transient-prompt collapse uses the recorded line count of the just-shown
+prompt; a resize between rendering and submit can put the cursor on the
+wrong row. The next prompt re-syncs. Disable with
+`BASHGITAWARE_TRANSIENT=0` if it bothers you.
+
+**Dirty marker / ahead-behind appears one prompt late on a big repo.**
+That is the async path doing its job. The expensive `git status` runs in
+a background subshell and the full info shows up on the *next* prompt.
+Disable with `BASHGITAWARE_ASYNC=0` for fully synchronous rendering.
+
+**OSC sequences appear as literal text in my terminal.** Your terminal does
+not recognize OSC 133. Disable with `BASHGITAWARE_OSC=0` (or upgrade to a
+terminal that supports it; the list is in [Compatibility](#compatibility)).
+
+**Colors look wrong.** Set `NO_COLOR=1` to disable all color. If the issue
+is a specific element, the semantic palette is in `lib/20-palette.bash`.
+
+**`make check` fails: "new.bashrc is out of date".** You edited `lib/`
+without running `make build`. Run it, then commit the regenerated
+`new.bashrc`.
+
+---
+
+## Repository layout
+
+```
+bash-gitaware/
+├── new.bashrc              the generated single-file artifact (committed)
+├── install.sh              install to ~/.bashrc (--replace or --append)
+├── bin/build.sh            concatenate lib/*.bash into new.bashrc
+├── Makefile                build / test / lint / check / demo
+├── lib/                    canonical source, twelve modules
+│   ├── 00-options.bash
+│   ├── 10-detect.bash
+│   ├── 20-palette.bash
+│   ├── 30-git.bash
+│   ├── 40-path.bash
+│   ├── 50-runtime.bash
+│   ├── 60-render.bash
+│   ├── 70-osc.bash
+│   ├── 80-transient.bash
+│   ├── 85-async.bash
+│   ├── 90-hooks.bash
+│   └── 95-shell.bash
+├── docs/
+│   ├── SPEC.md             what v2 is (and is not)
+│   ├── PLAN.md             milestones (M0..M7)
+│   ├── adr/                six MADR architecture decisions
+│   └── diagrams/           render-pipeline (Mermaid)
+├── tests/
+│   ├── run.sh              orchestrator
+│   ├── lib.sh              assertion helpers
+│   ├── scenarios.sh        rendering scenarios (69 asserts)
+│   ├── perf.sh             80 ms render budget
+│   └── MANUAL.md           interactive checklist
+├── demo/                   vhs tape + generated SVG (lands with v2.0.0-rc.3)
+└── .github/workflows/ci.yml
+```
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Workflow:
+
+1. Edit `lib/[0-9][0-9]-*.bash`.
+2. `make build` — regenerate `new.bashrc`.
+3. `make test` — scenario + perf + freshness suite.
+4. `make lint` — shellcheck `-x`.
+5. Conventional Commits for messages; signed off with the project's identity
+   (`SzematPro`).
+
+For substantive design changes, add an ADR in `docs/adr/` following the MADR
+template (`docs/adr/template.md`).
+
+Security issues: [SECURITY.md](SECURITY.md). The repo has a low-attack-surface
+threat model — branch names, commit subjects, and paths are inserted as data,
+never re-evaluated.
+
+---
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) for details.
+[MIT](LICENSE).
 
-**Author:** Waldemar Szemat <waldemar@szemat.pro>
+---
+
+**Author**: Waldemar Szemat — `waldemar@szemat.pro` ·
+[github.com/SzematPro](https://github.com/SzematPro)

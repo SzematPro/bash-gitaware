@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`install.sh`**: one-shot installer with two modes. `--replace` (default)
+  copies `new.bashrc` to `~/.bashrc` after a timestamped backup at
+  `~/.bashrc.bak-<unix-ts>`. `--append` writes a `source <repo>/new.bashrc`
+  line to the existing `~/.bashrc`, idempotent across reruns. Warns
+  (does not refuse) when `bash` is older than 4.4; prints the macOS
+  upgrade path. Flags: `--no-backup`, `--target FILE`, `--help`.
 - **Async rendering**: the expensive part of the git info (`git status
   --porcelain=v2` for the dirty / ahead / behind counters) is computed in
   a background subshell and surfaced on the *next* prompt cycle, so the
@@ -68,6 +74,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   running as root (`BASHGITAWARE_SHOW_HOST=always|never` to override).
 - Path is repo-relative inside a git work tree (`repo-name + path-within-repo`)
   and trimmed to the last `BASHGITAWARE_PATH_MAXDEPTH` components by default.
+
+### Changed
+
+- **README rewritten** for v2: the layout is two-line + optional commit
+  line (was the v1 box prompt with bracketed `[branch:hash]`); the glyph
+  set is tiered (was a single UTF-8/ASCII binary); the install path goes
+  through `install.sh` (was a manual `cp`); the configuration surface is
+  the `BASHGITAWARE_*` env vars + presets (was a partial subset). The new
+  README documents the actual v2 anatomy, module layout, configuration
+  matrix, presets, compatibility matrix, performance budget,
+  troubleshooting (incl. the "tofu on non-Nerd-Font terminal" story), and
+  contributing flow.
 
 ### Removed
 

@@ -1,0 +1,21 @@
+# Editor / OS detritus
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Per-clone tooling state (do NOT commit)
+.claude/
+CLAUDE.md
+
+# Build leftovers
+new.bashrc.tmp
+*.tmp
+
+# Generated demo (M6 will commit demo/demo.svg via `make demo`; the tape itself
+# is checked in. Local renderings or scratch outputs are not.)
+demo/*.gif
+demo/*.png
+
+# Coverage / temp test output
+tests/.tmp/

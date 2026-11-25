@@ -84,7 +84,7 @@ __bga_config_load() {
     # symlink there, so a symlinked config in such a directory is refused.
     if [ ! -O "$f" ] || [ -n "$(find -L "$f" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ] \
        || [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) ! -perm -1000 2>/dev/null)" ] \
-       || { [ -L "$f" ] && [ -n "$(find -L "${f%/*}" -maxdepth 0 -perm -002 2>/dev/null)" ]; }; then
+       || { [ -L "$f" ] && [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]; }; then
         __bga_config_warn "$f: owned or writable by other users, ignored"; return 0
     fi
     local line k v n=0 var q=\'

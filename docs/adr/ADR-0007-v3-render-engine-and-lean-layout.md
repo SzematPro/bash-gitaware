@@ -22,7 +22,7 @@ corruption, quadratic idioms, and differences between glibc and musl.
 
 ### Layout (Lean)
 
-```
+```text
 ❯ make test
 ...output...
   ✘1 · 3s

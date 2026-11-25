@@ -18,7 +18,7 @@ test:
 
 lint: build
 	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed"; exit 1; }
-	@shellcheck -x new.bashrc bin/*.sh tests/*.sh
+	@shellcheck -x new.bashrc bin/*.sh bin/bga install.sh tests/*.sh
 
 check: build
 	@if ! git diff --exit-code -- new.bashrc >/dev/null 2>&1; then \

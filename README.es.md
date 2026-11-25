@@ -1,0 +1,114 @@
+# bash-gitaware
+
+Un prompt de bash que conoce git y no estorba. Bash puro 4.4+, sin más
+dependencias que git.
+
+![demo](demo/demo.gif)
+
+[English](README.md) · [Migrar desde v2](docs/MIGRATION.md) ·
+[Decisiones](docs/adr/) · [Changelog](CHANGELOG.md) · [Seguridad](SECURITY.md)
+
+## Qué se ve
+
+```text
+❯ make test
+...output...
+  ✘1 · 3s
+~/src/project  main ● ↑1                              python 3.12
+❯ _
+```
+
+- Línea 1: la ruta (relativa a la raíz dentro de un repositorio) y git. Git
+  muestra la rama, el estado de rebase o merge, una marca de cambios sin
+  commitear, los commits adelante/atrás y los stashes. Los runtimes
+  (Python, Node, Rust, Go) se alinean a la derecha.
+- Línea 2: el símbolo del prompt, en rojo después de un fallo.
+- Tras un comando que falló o superó el umbral de tiempo, queda una línea
+  de resultado (`  ✘1 · 3s`) en el historial de la terminal.
+- Al pulsar Enter, el prompt se colapsa a `❯ <comando>`, así el historial
+  queda compacto.
+
+La parte costosa de `git status` corre en segundo plano. En un repositorio
+de 100.000 archivos el prompt tarda unos 11 ms.
+
+## Instalación
+
+```bash
+git clone https://github.com/SzematPro/bash-gitaware ~/.bash-gitaware
+cd ~/.bash-gitaware
+./install.sh            # asks: append to ~/.bashrc or replace it, theme, glyphs
+exec bash
+```
+
+Con `./install.sh --yes` se usan los valores por defecto sin preguntas, y
+`./install.sh --uninstall` deshace la instalación.
+
+## Configuración
+
+La configuración está en `~/.config/bash-gitaware/config`. El archivo es
+`clave = valor` en texto plano y nunca se ejecuta con `source`. Se cambia
+con `bga`:
+
+```bash
+bga config set theme light      # aware, light, contrast
+bga config set style classic    # the v2 three-line layout
+bga theme preview contrast
+bga doctor                      # checks your setup
+bga reload                      # applies changes to this shell
+```
+
+| Clave | Valores | Por defecto |
+|---|---|---|
+| `style` | `lean`, `classic` | `lean` |
+| `theme` | `aware`, `light`, `contrast` | `aware` |
+| `glyphs` | `nerd`, `unicode`, `ascii` | automático (`unicode` en UTF-8) |
+| `clock` | `0`, `1` | `0` |
+| `commit_line` | `0`, `1` | `0` en Lean, `1` en classic |
+| `path_maxdepth` | número (`0` significa sin límite) | `3` |
+| `timer_threshold` | segundos | `2` |
+| `show_host` | `auto`, `always`, `never` | `auto` (por SSH o como root) |
+| `mode` | `auto`, `plain`, `full` | `auto` |
+
+Cada clave también funciona como variable de entorno (`BASHGITAWARE_THEME`,
+etc.), que tiene prioridad sobre el archivo. Se respeta `NO_COLOR`. La
+lista completa está en [docs/MIGRATION.md](docs/MIGRATION.md).
+
+## Modo plain
+
+En una terminal "dumb", sin tty, o cuando están definidas `CI`, `AGENT` o
+`AI_AGENT`, el prompt es una sola línea ASCII sin secuencias de escape:
+`project (main *) [exit 1] $`. Con `mode = full` siempre se obtiene el
+prompt completo.
+
+## Seguridad
+
+El prompt muestra texto que viene de repositorios que quizás acabas de
+descargar: nombres de rama, asuntos de commit, nombres de directorio,
+archivos de versión. Ese texto siempre se muestra y nunca se ejecuta, y se
+le quitan las secuencias de escape de terminal. Las llamadas a git del
+propio prompt nunca ejecutan hooks, fsmonitor, filtros definidos en el
+repositorio ni descargas diferidas, y cada una tiene un límite de tiempo.
+Ver [SECURITY.md](SECURITY.md) y
+[ADR-0008](docs/adr/ADR-0008-v3-git-worker-trust-and-state.md).
+
+## Compatibilidad
+
+| Plataforma | bash | Estado |
+|---|---|---|
+| Linux, glibc o musl | 4.4, 5.0, 5.1, 5.2, 5.3 | Probado en CI |
+| macOS | bash 5.x de Homebrew | Probado en CI (el bash 3.2 de serie es demasiado viejo) |
+
+## Desarrollo
+
+```bash
+make build      # lib/*.bash -> new.bashrc
+make test       # the test suite
+make lint       # shellcheck
+```
+
+El código está en `lib/` y los registros de diseño en `docs/adr/`. Las
+pruebas manuales están en `tests/MANUAL.md`.
+
+## Licencia
+
+MIT. Copyright (c) 2024-2026 Waldemar Szemat (SzematPro).

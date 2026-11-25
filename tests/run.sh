@@ -147,6 +147,7 @@ scenario_width_engine_linear
 scenario_theme_depths
 scenario_theme_tokens_complete
 scenario_theme_contrast
+scenario_doc_parity
 
 # Lean layout.
 scenario_lean_layout

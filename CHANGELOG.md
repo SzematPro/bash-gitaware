@@ -102,7 +102,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Configurable knobs: `BASHGITAWARE_GLYPHS`, `BASHGITAWARE_NERD_FONT`,
   `BASHGITAWARE_COMMIT_LINE`, `BASHGITAWARE_RUNTIME`,
   `BASHGITAWARE_TIMER_THRESHOLD`, `BASHGITAWARE_PATH_MAXDEPTH`,
-  `BASHGITAWARE_SHOW_HOST`, plus `NO_COLOR` (https://no-color.org).
+  `BASHGITAWARE_SHOW_HOST`, plus `NO_COLOR` (<https://no-color.org>).
 - Test suite: scenario tests, performance budget, lib-syntax gate, build-
   freshness gate (`make test` / `bash tests/run.sh`).
 - GitHub Actions CI workflow: shellcheck (`-x`), build-freshness check,

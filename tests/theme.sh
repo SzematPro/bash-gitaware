@@ -52,3 +52,11 @@ scenario_theme_contrast() {
         assert_contains "$out" $'\e[' "theme '$t' renders with colors"
     done
 }
+
+scenario_doc_parity() {
+    section "docs: English and Spanish user docs in step (bin/check-doc-parity.py)"
+    if ! command -v python3 >/dev/null 2>&1; then skip "doc parity (needs python3)"; return; fi
+    local out rc; out="$(python3 -I "$REPO/bin/check-doc-parity.py" "$REPO" 2>&1)"; rc=$?
+    if [ "$rc" = 0 ]; then ok "README.md and README.es.md match in structure"
+    else fail "doc parity: ${out//$'\n'/ }"; fi
+}

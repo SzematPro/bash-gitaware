@@ -9,7 +9,7 @@ milestone that touches `lib/`.
 
 ## Target layout
 
-```
+```text
 lib/00-options.bash    read & normalize BASHGITAWARE_* knobs; apply presets
 lib/10-detect.bash     ssh / container / utf8 / title / root / color capability (once)
 lib/20-palette.bash    color palette + tiered glyph sets

@@ -78,8 +78,8 @@ Exit gate: SR4 (installer, file permissions, CLI input).
 |---|---|---|---|---|
 | T4.1 | S1 | Light and high-contrast themes | `light` (4.5:1 on white, muted tokens 3:1) and `contrast` (7:1 on black for every token) in `lib/19-theme.bash`; `bin/check-contrast.py` checks all themes in the suite; it also caught Aware's `hash` token at 2.79:1, now 3:1 or better | done |
 | T4.2 | S2 | Powerline variant | With `nerd` glyphs, thin Powerline separators (U+E0B1 left, U+E0B3 right) instead of plain spacing; themes stay foreground-only; `BASHGITAWARE_POWERLINE=0` / `powerline = 0` turns it off; no Nerd Font: unchanged layout (`tests/lean.sh`) | done |
-| T4.3 | R11 | Bilingual docs | README, configuration guide and FAQ in English and Spanish; a CI check fails when the two diverge in sections or code blocks | todo |
-| T4.4 | R11 | Docs lint in CI | markdownlint-cli2 0.24.0 (with MD060 off) and lychee 0.24.2 (`anchor-only` fragments) run in CI | todo |
+| T4.3 | R11 | Bilingual docs | README rewritten for v3 in English and Spanish (`README.es.md`) with the same structure; `bin/check-doc-parity.py` compares headings, code blocks, table rows and links, in the suite and in CI; configuration guide and FAQ are folded into the READMEs and `docs/MIGRATION.md` | done |
+| T4.4 | R11 | Docs lint in CI | `docs` CI job: markdownlint-cli2-action v25.0.0 (MD060, MD038, MD013 off, MD024 siblings only), lychee-action v2.9.0 offline with `anchor-only` fragments, parity and contrast checks; markdownlint run locally with 0 errors; lychee not run locally (relative links checked by script) | done |
 | T4.5 | S4 | New demo | A vhs tape shows the ledger, the transient prompt and the themes; the GIF is under 400 KB | todo |
 | T4.6 | all | Migration guide from v2 | `docs/MIGRATION.md`: every v2 knob mapped (all kept), new knobs and config keys, deliberate behavior changes, install/uninstall | done |
 | T4.7 | all | Release 3.0.0 | One release commit, a tag, CHANGELOG; pushed only after the owner confirms | todo |

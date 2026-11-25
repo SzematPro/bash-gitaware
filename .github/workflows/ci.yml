@@ -34,7 +34,7 @@ jobs:
           fi
 
       - name: Lint (shellcheck on the generated artifact + scripts)
-        run: shellcheck -x new.bashrc bin/*.sh tests/*.sh install.sh
+        run: shellcheck -x new.bashrc bin/*.sh bin/bga tests/*.sh install.sh
 
       - name: Run tests
         run: bash tests/run.sh
@@ -91,3 +91,21 @@ jobs:
           fi
           "$BASH_BIN" --version
           "$BASH_BIN" tests/run.sh
+
+  docs:
+    name: docs (markdownlint, links, en/es parity)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v25.0.0
+      - name: Link check
+        uses: lycheeverse/lychee-action@v2.9.0
+        with:
+          args: --offline --no-progress README.md README.es.md docs SECURITY.md CHANGELOG.md
+          fail: true
+      - name: English / Spanish parity
+        run: python3 -I bin/check-doc-parity.py .
+      - name: Theme contrast
+        run: python3 -I bin/check-contrast.py lib/19-theme.bash

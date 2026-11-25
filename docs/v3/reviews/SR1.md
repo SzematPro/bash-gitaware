@@ -22,13 +22,14 @@
 Regression tests: `tests/security.sh` (special files, window title,
 fsmonitor, transient line, C1 in the C locale) and `tests/hooks.sh` (comment
 and `&`). Each one was checked against the code before the fix:
-#1, #3, #4, #7 and #9 fail there, and #2 fails on bash 4.4.
+numbers 1, 3, 4, 7 and 9 fail there, and #2 fails on bash 4.4.
 
 Backport: #1, #2, #3 and #7 also affect the released v2.0.1.
 
 ## Follow-up: hostile `.git/config` (automated review, same day)
 
 The fsmonitor fix was incomplete. Each of these was reproduced with a canary:
+
 - clean/process filter drivers ran on stale stat data;
 - `gpg.program` ran for a forged signed commit when `log.showSignature` was set;
 - a filter in a submodule's config ran.

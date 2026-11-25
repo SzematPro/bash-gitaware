@@ -5,7 +5,7 @@
 If you find a security issue in bash-gitaware, please report it privately
 rather than opening a public issue. Email:
 
-**waldemar@szemat.pro**
+**<waldemar@szemat.pro>**
 
 Please include:
 

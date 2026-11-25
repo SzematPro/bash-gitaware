@@ -48,10 +48,12 @@ The relevant risks and how we treat them:
   only numeric values are accepted.
 - **Hostile `.git` directories.** `git clone` never copies `.git/config`,
   but an archive can ship a whole `.git`. Git settings that name commands
-  could then run on every prompt. bash-gitaware forces `core.fsmonitor` and
-  `log.showSignature` off, neutralizes filter drivers defined in the
-  repository's own config, does not look inside submodules, and skips
-  `git status` when the repository config uses `include`. The user's own
+  and hooks could then run on every prompt. bash-gitaware runs git with
+  `--no-optional-locks`, `core.hooksPath=/dev/null`, `core.fsmonitor` and
+  `log.showSignature` off and no lazy fetching; neutralizes filter drivers
+  defined in the repository's own config; does not look inside submodules;
+  and shows only the branch when the repository config uses `include` or is
+  a partial clone. The user's own
   `~/.gitconfig` is trusted. `BASHGITAWARE_TRUST_REPO_CONFIG=1` turns these
   checks off for users who rely on repository-local filters. Running git
   commands by hand in such a directory is still as risky as git itself

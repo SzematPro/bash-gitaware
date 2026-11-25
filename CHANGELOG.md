@@ -14,12 +14,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   copies `.git/config`, but an extracted archive can ship one. The prompt's
   own git calls could then run commands named there on every `cd`:
   `core.fsmonitor`, clean/process filter drivers (any freshly extracted tree
-  has stale stat data), `gpg.program` for a forged signed commit with
-  `log.showSignature`, and the same settings inside submodules. Now
-  `core.fsmonitor` and `log.showSignature` are forced off, filter drivers
-  defined in the repository's own config are neutralized, `git status` skips
-  submodule contents (`--ignore-submodules=dirty`), and a repository config
-  that uses `include`/`includeIf` makes the prompt skip `git status`. Users
+  has stale stat data), the `post-index-change` hook, `gpg.program` for a
+  forged signed commit with `log.showSignature`, a lazy fetch in a partial
+  clone, and the same settings inside submodules. Every git call the prompt
+  makes now runs with `--no-optional-locks`, `core.hooksPath=/dev/null`,
+  `core.fsmonitor` and `log.showSignature` off and `GIT_NO_LAZY_FETCH=1`;
+  filter drivers defined in the repository's own config are neutralized
+  (git itself lists them); `git status` skips submodule contents; and a
+  repository config that uses `include`/`includeIf` or is a partial clone
+  makes the prompt show only the branch. Users
   whose repositories legitimately define local filters (git-crypt,
   `git lfs install --local`) can set `BASHGITAWARE_TRUST_REPO_CONFIG=1`.
 - **Prompt hang.** A version file or `.git` file that is a symlink to

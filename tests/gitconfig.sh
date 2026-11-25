@@ -105,3 +105,31 @@ scenario_gitconfig_parser_edge_cases() {
     if [ -e "$d/PWNED" ]; then fail "config.worktree driver ran"; else ok "config.worktree driver not run"; fi
     rm -rf "$d"
 }
+
+scenario_gitconfig_hooks_and_partial_clone() {
+    section "hostile .git: hooks, partial clones and odd commondir"
+    local d
+    # post-index-change runs when status rewrites the index.
+    d="$(_gc_repo)"; rm -f "$d/.gitattributes"
+    printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$d" > "$d/.git/hooks/post-index-change"
+    chmod +x "$d/.git/hooks/post-index-change"
+    _gc_render_both "$d"
+    if [ -e "$d/PWNED" ]; then fail "post-index-change hook ran"; else ok "post-index-change hook not run"; fi
+    rm -rf "$d"
+    # A partial clone would lazily fetch missing objects (core.sshCommand...):
+    # fail closed, keep the branch, drop everything else.
+    d="$(_gc_repo)"
+    git -C "$d" config extensions.partialClone origin
+    git -C "$d" config remote.origin.promisor true
+    local out; out="$(bga_render "$d")"
+    assert_contains "$out" "main" "partial clone: branch still shown"
+    assert_lacks    "$out" "init" "partial clone: no git log (commit subject not shown)"
+    rm -rf "$d"
+    # A commondir that does not lead to a config file fails closed.
+    d="$(_gc_repo)"
+    git -C "$d" config filter.x.clean "touch '$d/PWNED'; cat"
+    printf 'nowhere\n' > "$d/.git/commondir"
+    _gc_render_both "$d"
+    if [ -e "$d/PWNED" ]; then fail "odd commondir: filter ran"; else ok "odd commondir: fails closed"; fi
+    rm -rf "$d"
+}

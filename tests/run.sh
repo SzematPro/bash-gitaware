@@ -32,6 +32,8 @@ source "$HERE/theme.sh"
 source "$HERE/lean.sh"
 # shellcheck source=cli.sh
 source "$HERE/cli.sh"
+# shellcheck source=install.sh
+source "$HERE/install.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -76,6 +78,9 @@ scenario_transient_state_tracked
 scenario_install_replace
 scenario_install_append_idempotent
 scenario_install_help
+scenario_install_tamper_check
+scenario_install_uninstall
+scenario_install_interactive
 scenario_path_maxdepth
 scenario_runtime_cache
 

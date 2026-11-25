@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-11-25
+
+### Security
+
+- **Another bypass of the `.git` trust check.** Command substitution strips
+  trailing newlines, so a repository path ending in a newline lost it and
+  named a sibling directory. The background status job then ran
+  `git status` in that sibling, without checking its config, so its filter
+  drivers ran. The `rev-parse` output is now captured with a sentinel, must
+  have exactly three newline-terminated lines, and the background job runs
+  in the shell's own directory instead of a re-derived path.
+
 ## [2.0.3] - 2026-11-25
 
 ### Security

@@ -75,6 +75,7 @@ scenario_gitconfig_hooks_and_partial_clone
 scenario_gitconfig_linked_worktree
 scenario_gitconfig_long_commondir
 scenario_gitconfig_newline_paths
+scenario_gitconfig_trailing_newline_path
 scenario_gitconfig_trust_knob
 
 # Performance.

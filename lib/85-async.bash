@@ -115,7 +115,8 @@ __bga_async_dispatch() {
 
     local cache="$_bga_async_cache"
     (
-        cd "$top" 2>/dev/null || exit 0
+        # Run in the shell's own directory, the one the trust check validated,
+        # never in a path re-derived from parsed output.
         local expensive
         expensive="$(__bga_git_info_expensive_compute)"
         # Atomic write: write to a sibling tmpfile and rename into place.

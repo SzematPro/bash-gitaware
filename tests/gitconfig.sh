@@ -245,3 +245,22 @@ scenario_gitconfig_fifo_no_hang() {
                    *) ok "watchdog fallback: prompt returns (${out##*$'\n'}s)" ;; esac
     rm -rf "$base"
 }
+
+scenario_gitconfig_trust_cache() {
+    section "trust check: cached per repository, invalidated by a config change"
+    local d; d="$(_gc_repo)"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=1 BASHGITAWARE_MODE=full
+        cd '$d'; source '$REPO/new.bashrc'
+        __bga_prompt; a=\"\${_bga_git_args[*]}\"
+        git config filter.x.clean 'touch $d/PWNED; cat'
+        touch -t 203001010000 .git/config
+        __bga_prompt; b=\"\${_bga_git_args[*]}\"
+        printf 'a=%s\nb=%s\n' \"\$a\" \"\$b\"" 2>/dev/null)"
+    assert_lacks    "${out%%$'\n'b=*}" "filter.x.clean=" "first prompt: no filter to neutralize"
+    assert_contains "$out" "b=--no-optional-locks"$'' "second prompt computed args"
+    case "$out" in *$'\n'b=*filter.x.clean=*) ok "config change invalidates the cache" ;;
+        *) fail "stale trust cache: $(printf '%q' "$out")" ;; esac
+    rm -rf "$d"
+}

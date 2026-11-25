@@ -44,7 +44,7 @@ __bga_prompt() {
     local ps1="" nl=0   # nl: number of "\n" line breaks added (transient)
 
     # OSC 133;A: prompt begin (wrapped in \[ \] for readline width arithmetic).
-    ps1+="$(__bga_osc_ps1 '133;A')"
+    __bga_osc_ps1 '133;A'; ps1+="$REPLY"
 
     # Optional OSC window title.
     local REPLY
@@ -67,7 +67,7 @@ __bga_prompt() {
     fi
 
     # Path (repo-relative when inside a repo).
-    local pwd_str; pwd_str="$(__bga_path)"
+    local pwd_str; __bga_path; pwd_str="$REPLY"
     __bga_ps1_lit "$pwd_str"; ps1+="${_c_path}${REPLY}${_R}"
 
     # Git: " on [glyph]branch[@hash][ STATE][ ^ahead][ vbehind][ dirty][ stashN]"
@@ -120,7 +120,7 @@ __bga_prompt() {
 
     # OSC 133;B: prompt end / "user types here". Goes after the prompt symbol
     # so the terminal-marked cursor position matches where readline puts it.
-    ps1+="$(__bga_osc_ps1 '133;B')"
+    __bga_osc_ps1 '133;B'; ps1+="$REPLY"
 
     PS1="$ps1"
 
@@ -142,7 +142,7 @@ __bga_prompt() {
 # No colors, no escape sequences, one line; untrusted text still escaped.
 __bga_prompt_plain() {
     local exit_code="$1" ps1="" REPLY
-    __bga_ps1_lit "$(__bga_path)"; ps1="$REPLY"
+    __bga_path; __bga_ps1_lit "$REPLY"; ps1="$REPLY"
     if [ "$_bga_in_git" = 1 ]; then
         __bga_ps1_lit "$_bga_git_branch"; ps1+=" ($REPLY"
         [ "$_bga_git_dirty" = 1 ] && ps1+=" *"

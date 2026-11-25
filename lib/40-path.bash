@@ -2,6 +2,7 @@
 # ---------------------------------------------------------------------------
 # Path: repo-name + path-within-repo when inside a repo; ~-relative otherwise.
 # Trimmed to the last N components (the dropped prefix becomes an ellipsis).
+# Sets REPLY (no subshell).
 # ---------------------------------------------------------------------------
 __bga_path() {
     local max="${BASHGITAWARE_PATH_MAXDEPTH:-3}"; case "$max" in '' | *[!0-9]*) max=3 ;; esac
@@ -16,7 +17,7 @@ __bga_path() {
         lead=""                                          # absolute path with no useful "lead"
         rest="${PWD#/}"
     fi
-    [ -z "$rest" ] && { printf '%s' "${lead:-/}"; return; }
+    [ -z "$rest" ] && { REPLY="${lead:-/}"; return; }
 
     # Keep the last $max components, cutting from the right with parameter
     # expansion (no here-string: it writes a temp file before bash 5.1).
@@ -28,10 +29,10 @@ __bga_path() {
             i=$(( i + 1 ))
         done
         if [ -n "$r" ]; then
-            if [ -n "$lead" ]; then printf '%s/%s%s' "$lead" "$_g_ell" "$out"
-            else printf '%s%s' "$_g_ell" "$out"; fi
+            if [ -n "$lead" ]; then REPLY="$lead/$_g_ell$out"
+            else REPLY="$_g_ell$out"; fi
             return
         fi
     fi
-    if [ -n "$lead" ]; then printf '%s/%s' "$lead" "$rest"; else printf '/%s' "$rest"; fi
+    if [ -n "$lead" ]; then REPLY="$lead/$rest"; else REPLY="/$rest"; fi
 }

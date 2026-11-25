@@ -50,7 +50,7 @@ Exit gate: SR2 (escape sequences, width engine fed hostile input).
 
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
-| T2.1 | R5 | Fast path | The cheap git info (branch, hash, state) comes from at most two forks, measured under 20 ms on a repo with 100k files | todo |
+| T2.1 | R5 | Fast path | One git call per prompt (`rev-parse`); the trust check's `git config` reruns only when a config file is newer than a marker in the state dir; OSC and path helpers return through REPLY instead of subshells. 100k-file repo: 18 ms to 13 ms per prompt with async (sync status alone is ~77 ms, which is why it runs in the worker) | done |
 | T2.2 | R5 | Background worker | Dirty state and ahead/behind are computed in a worker with a timeout; results go to the state directory from T0.3; no "Done" messages leak to the terminal; stale results are discarded | todo |
 | T2.3 | R5 | Timeout helper | Works on bash 4.4 without `timeout(1)`; kills the whole process group; tested with a hung git | todo |
 | T2.4 | S3 | Pending indicator (spike first) | A spike decides between redrawing in the background and a static glyph that changes on the next prompt; the result is written down as ADR-0008 before anything is built | todo |

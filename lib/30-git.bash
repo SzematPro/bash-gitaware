@@ -148,6 +148,7 @@ __bga_git_info_cheap() {
 # repositories that rely on local filters (git-crypt, `git lfs install --local`).
 # ---------------------------------------------------------------------------
 _bga_git_args=()
+_bga_trust_key='' _bga_trust_rc=0 _bga_trust_args=()
 
 # Every git call has a hard time limit: a FIFO or a /dev/tty symlink planted
 # anywhere git reads (.git/config, HEAD, index, packed-refs, .gitattributes,
@@ -197,9 +198,30 @@ __bga_git_trust() {
     [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" = 1 ] && return 0
     # The common dir comes from `git rev-parse --git-common-dir`, so this is
     # the config file git itself loads. Fail closed if it is missing.
-    local gd="${_bga_git_common:-}" cfg names name rc
+    local gd="${_bga_git_common:-}" wt="${_bga_git_dir:-.git}/config.worktree" key m
     [ -n "$gd" ] && [ -f "$gd/config" ] || return 1
-    for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
+    # Cache per repository: reuse the last verdict while neither config file
+    # is newer than our marker (test -nt is a builtin: no fork). The key also
+    # records whether config.worktree exists, so creating it invalidates.
+    key="$gd|"; [ -f "$wt" ] && key+=wt
+    m="${_bga_state_dir:+$_bga_state_dir/trust}"
+    if [ -n "$m" ] && [ "$key" = "${_bga_trust_key:-}" ] && [ -f "$m" ] \
+       && ! [ "$gd/config" -nt "$m" ] && ! { [ -f "$wt" ] && [ "$wt" -nt "$m" ]; }; then
+        _bga_git_args=("${_bga_trust_args[@]}")
+        return "$_bga_trust_rc"
+    fi
+    __bga_git_trust_scan "$gd" "$wt"; local rc=$?
+    _bga_trust_key="$key" _bga_trust_rc="$rc"
+    _bga_trust_args=("${_bga_git_args[@]}")
+    [ -n "$m" ] && : > "$m" 2>/dev/null
+    return "$rc"
+}
+
+# The uncached check: list the repository's filter drivers and the settings
+# that make us fail closed, with git itself.
+__bga_git_trust_scan() {
+    local gd="$1" wt="$2" cfg names name rc
+    for cfg in "$gd/config" "$wt"; do
         [ -f "$cfg" ] || continue
         names="$(__bga_gitrun 1 config --file "$cfg" --no-includes --name-only \
                  --get-regexp '^(filter|include|includeif)\.|^extensions\.partialclone$|^remote\..*\.promisor$' 2>/dev/null)"
@@ -215,6 +237,7 @@ __bga_git_trust() {
             _bga_git_args+=(-c "filter.$name.clean=" -c "filter.$name.process=" -c "filter.$name.smudge=")
         done
     done
+    return 0
 }
 
 __bga_git_status_safe() {

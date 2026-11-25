@@ -697,6 +697,7 @@ __bga_git_info_cheap() {
 # repositories that rely on local filters (git-crypt, `git lfs install --local`).
 # ---------------------------------------------------------------------------
 _bga_git_args=()
+_bga_trust_key='' _bga_trust_rc=0 _bga_trust_args=()
 
 # Every git call has a hard time limit: a FIFO or a /dev/tty symlink planted
 # anywhere git reads (.git/config, HEAD, index, packed-refs, .gitattributes,
@@ -746,9 +747,30 @@ __bga_git_trust() {
     [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" = 1 ] && return 0
     # The common dir comes from `git rev-parse --git-common-dir`, so this is
     # the config file git itself loads. Fail closed if it is missing.
-    local gd="${_bga_git_common:-}" cfg names name rc
+    local gd="${_bga_git_common:-}" wt="${_bga_git_dir:-.git}/config.worktree" key m
     [ -n "$gd" ] && [ -f "$gd/config" ] || return 1
-    for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
+    # Cache per repository: reuse the last verdict while neither config file
+    # is newer than our marker (test -nt is a builtin: no fork). The key also
+    # records whether config.worktree exists, so creating it invalidates.
+    key="$gd|"; [ -f "$wt" ] && key+=wt
+    m="${_bga_state_dir:+$_bga_state_dir/trust}"
+    if [ -n "$m" ] && [ "$key" = "${_bga_trust_key:-}" ] && [ -f "$m" ] \
+       && ! [ "$gd/config" -nt "$m" ] && ! { [ -f "$wt" ] && [ "$wt" -nt "$m" ]; }; then
+        _bga_git_args=("${_bga_trust_args[@]}")
+        return "$_bga_trust_rc"
+    fi
+    __bga_git_trust_scan "$gd" "$wt"; local rc=$?
+    _bga_trust_key="$key" _bga_trust_rc="$rc"
+    _bga_trust_args=("${_bga_git_args[@]}")
+    [ -n "$m" ] && : > "$m" 2>/dev/null
+    return "$rc"
+}
+
+# The uncached check: list the repository's filter drivers and the settings
+# that make us fail closed, with git itself.
+__bga_git_trust_scan() {
+    local gd="$1" wt="$2" cfg names name rc
+    for cfg in "$gd/config" "$wt"; do
         [ -f "$cfg" ] || continue
         names="$(__bga_gitrun 1 config --file "$cfg" --no-includes --name-only \
                  --get-regexp '^(filter|include|includeif)\.|^extensions\.partialclone$|^remote\..*\.promisor$' 2>/dev/null)"
@@ -764,6 +786,7 @@ __bga_git_trust() {
             _bga_git_args+=(-c "filter.$name.clean=" -c "filter.$name.process=" -c "filter.$name.smudge=")
         done
     done
+    return 0
 }
 
 __bga_git_status_safe() {
@@ -838,6 +861,7 @@ __bga_git_info() {
 # ---------------------------------------------------------------------------
 # Path: repo-name + path-within-repo when inside a repo; ~-relative otherwise.
 # Trimmed to the last N components (the dropped prefix becomes an ellipsis).
+# Sets REPLY (no subshell).
 # ---------------------------------------------------------------------------
 __bga_path() {
     local max="${BASHGITAWARE_PATH_MAXDEPTH:-3}"; case "$max" in '' | *[!0-9]*) max=3 ;; esac
@@ -852,7 +876,7 @@ __bga_path() {
         lead=""                                          # absolute path with no useful "lead"
         rest="${PWD#/}"
     fi
-    [ -z "$rest" ] && { printf '%s' "${lead:-/}"; return; }
+    [ -z "$rest" ] && { REPLY="${lead:-/}"; return; }
 
     # Keep the last $max components, cutting from the right with parameter
     # expansion (no here-string: it writes a temp file before bash 5.1).
@@ -864,12 +888,12 @@ __bga_path() {
             i=$(( i + 1 ))
         done
         if [ -n "$r" ]; then
-            if [ -n "$lead" ]; then printf '%s/%s%s' "$lead" "$_g_ell" "$out"
-            else printf '%s%s' "$_g_ell" "$out"; fi
+            if [ -n "$lead" ]; then REPLY="$lead/$_g_ell$out"
+            else REPLY="$_g_ell$out"; fi
             return
         fi
     fi
-    if [ -n "$lead" ]; then printf '%s/%s' "$lead" "$rest"; else printf '/%s' "$rest"; fi
+    if [ -n "$lead" ]; then REPLY="$lead/$rest"; else REPLY="/$rest"; fi
 }
 
 # ---------------------------------------------------------------------------
@@ -992,7 +1016,7 @@ __bga_prompt() {
     local ps1="" nl=0   # nl: number of "\n" line breaks added (transient)
 
     # OSC 133;A: prompt begin (wrapped in \[ \] for readline width arithmetic).
-    ps1+="$(__bga_osc_ps1 '133;A')"
+    __bga_osc_ps1 '133;A'; ps1+="$REPLY"
 
     # Optional OSC window title.
     local REPLY
@@ -1015,7 +1039,7 @@ __bga_prompt() {
     fi
 
     # Path (repo-relative when inside a repo).
-    local pwd_str; pwd_str="$(__bga_path)"
+    local pwd_str; __bga_path; pwd_str="$REPLY"
     __bga_ps1_lit "$pwd_str"; ps1+="${_c_path}${REPLY}${_R}"
 
     # Git: " on [glyph]branch[@hash][ STATE][ ^ahead][ vbehind][ dirty][ stashN]"
@@ -1068,7 +1092,7 @@ __bga_prompt() {
 
     # OSC 133;B: prompt end / "user types here". Goes after the prompt symbol
     # so the terminal-marked cursor position matches where readline puts it.
-    ps1+="$(__bga_osc_ps1 '133;B')"
+    __bga_osc_ps1 '133;B'; ps1+="$REPLY"
 
     PS1="$ps1"
 
@@ -1090,7 +1114,7 @@ __bga_prompt() {
 # No colors, no escape sequences, one line; untrusted text still escaped.
 __bga_prompt_plain() {
     local exit_code="$1" ps1="" REPLY
-    __bga_ps1_lit "$(__bga_path)"; ps1="$REPLY"
+    __bga_path; __bga_ps1_lit "$REPLY"; ps1="$REPLY"
     if [ "$_bga_in_git" = 1 ]; then
         __bga_ps1_lit "$_bga_git_branch"; ps1+=" ($REPLY"
         [ "$_bga_git_dirty" = 1 ] && ps1+=" *"
@@ -1192,11 +1216,11 @@ __bga_prompt_lean() {
     case "$cols" in '' | *[!0-9]*) cols=80 ;; esac
     local sep=' · '; [ "$_bga_glyphs" = ascii ] && sep=' | '
 
-    ps1+="$(__bga_osc_ps1 '133;A')"
+    __bga_osc_ps1 '133;A'; ps1+="$REPLY"
     __bga_title_ps1; ps1+="$REPLY"
 
     # --- Left: tags, user@host, path, git -------------------------------------
-    path="$(__bga_path)"
+    __bga_path; path="$REPLY"
     __bga_lean_left "$path"
     __bga_width "$_bga_lr"; local wl="$REPLY"
     # Too wide even without the right block: keep only the last component.
@@ -1251,7 +1275,7 @@ __bga_prompt_lean() {
     fi
     if [ "$exit_code" -eq 0 ]; then ps1+="\\n${_c_ok}${_g_sym}${_R} "
     else                            ps1+="\\n${_c_sym_err}${_g_sym}${_R} "; fi
-    ps1+="$(__bga_osc_ps1 '133;B')"
+    __bga_osc_ps1 '133;B'; ps1+="$REPLY"
     PS1="$ps1"
 
     if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ]; then
@@ -1282,11 +1306,13 @@ __bga_prompt_lean() {
 # See docs/adr/ADR-0003-osc-133-and-osc-7-terminal-integration.md.
 # ---------------------------------------------------------------------------
 
-# Emit a PS1-safe (escape-wrapped) OSC sequence on stdout. Used by __bga_prompt
+# Build a PS1-safe (escape-wrapped) OSC sequence in REPLY. Used by __bga_prompt
 # to embed in the PS1 string for 133;A and 133;B.
+# Sets REPLY (no subshell: this runs twice per prompt).
 __bga_osc_ps1() {
-    [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return
-    printf '\\[\e]%s\a\\]' "$1"
+    REPLY=''
+    [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return 0
+    printf -v REPLY '\\[\e]%s\a\\]' "$1"
 }
 
 # Called from __bga_prompt at the start of each cycle: emit 133;D;<exit> (the

@@ -106,6 +106,7 @@ scenario_gitconfig_long_commondir
 scenario_gitconfig_newline_paths
 scenario_gitconfig_trailing_newline_path
 scenario_gitconfig_fifo_no_hang
+scenario_gitconfig_trust_cache
 scenario_gitconfig_trust_knob
 
 # Coexistence with the user's hooks.

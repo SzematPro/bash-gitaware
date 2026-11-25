@@ -75,11 +75,11 @@ __bga_prompt_lean() {
     case "$cols" in '' | *[!0-9]*) cols=80 ;; esac
     local sep=' · '; [ "$_bga_glyphs" = ascii ] && sep=' | '
 
-    ps1+="$(__bga_osc_ps1 '133;A')"
+    __bga_osc_ps1 '133;A'; ps1+="$REPLY"
     __bga_title_ps1; ps1+="$REPLY"
 
     # --- Left: tags, user@host, path, git -------------------------------------
-    path="$(__bga_path)"
+    __bga_path; path="$REPLY"
     __bga_lean_left "$path"
     __bga_width "$_bga_lr"; local wl="$REPLY"
     # Too wide even without the right block: keep only the last component.
@@ -134,7 +134,7 @@ __bga_prompt_lean() {
     fi
     if [ "$exit_code" -eq 0 ]; then ps1+="\\n${_c_ok}${_g_sym}${_R} "
     else                            ps1+="\\n${_c_sym_err}${_g_sym}${_R} "; fi
-    ps1+="$(__bga_osc_ps1 '133;B')"
+    __bga_osc_ps1 '133;B'; ps1+="$REPLY"
     PS1="$ps1"
 
     if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ]; then

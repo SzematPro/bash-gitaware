@@ -424,7 +424,7 @@ __bga_git_info_cheap() {
     # path ending in a newline would otherwise lose it and name a different
     # directory. Exactly three newline-terminated lines, else no git info: a
     # newline inside any path would shift the fields onto a decoy.
-    local rp; rp="$(git rev-parse --git-dir --git-common-dir --show-toplevel 2>/dev/null && printf x)" || return
+    local rp; rp="$(__bga_gitrun 1 rev-parse --git-dir --git-common-dir --show-toplevel 2>/dev/null && printf x)" || return
     rp="${rp%x}"
     local nls="${rp//[!$'\n']/}"
     [ "${#nls}" = 3 ] || return
@@ -459,17 +459,22 @@ __bga_git_info_cheap() {
         if __bga_read_line "$ref_path"; then
             _bga_git_hash="${REPLY:0:7}"
         else
-            [ "$_bga_git_untrusted" = 1 ] || _bga_git_hash="$(__bga_git rev-parse --short HEAD 2>/dev/null)"
+            if [ "$_bga_git_untrusted" = 0 ]; then
+                _bga_git_hash="$(__bga_git rev-parse --short HEAD 2>/dev/null)" || __bga_git_check_timeout $?
+            fi
         fi
     fi
 
     # Commit subject: kept sync (fast even on large repos -- it only reads HEAD).
-    [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ] && _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null)"
+    if [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ]; then
+        _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null)" || __bga_git_check_timeout $?
+    fi
 
     # Stash count: filesystem-gated, kept sync.
     if [ -f "$_bga_git_dir/refs/stash" ] && [ "$_bga_git_untrusted" = 0 ]; then
-        _bga_git_stash="$(__bga_git stash list 2>/dev/null | wc -l)"
-        _bga_git_stash=$(( _bga_git_stash ))
+        local sl; sl="$(__bga_git stash list 2>/dev/null)" || __bga_git_check_timeout $?
+        _bga_git_stash=0
+        [ -n "$sl" ] && { sl="${sl//[!$'\n']/}"; _bga_git_stash=$(( ${#sl} + 1 )); }
     fi
 
     __bga_git_state
@@ -506,8 +511,46 @@ __bga_git_info_cheap() {
 # ---------------------------------------------------------------------------
 _bga_git_args=()
 
+# Every git call has a hard time limit: a FIFO or a /dev/tty symlink planted
+# anywhere git reads (.git/config, HEAD, index, packed-refs, .gitattributes,
+# ...) would otherwise block the prompt for good, and Ctrl-C only restarts
+# it. git also gets /dev/null as stdin. Checking file types first cannot work:
+# git opens too many paths. timeout(1) (coreutils or BusyBox; gtimeout from
+# Homebrew coreutils) is used when present, else a background watchdog.
+if command -v timeout >/dev/null 2>&1; then _bga_tmo=timeout
+elif command -v gtimeout >/dev/null 2>&1; then _bga_tmo=gtimeout
+else _bga_tmo=''
+fi
+
+# __bga_gitrun <seconds> <git args...>
+__bga_gitrun() {
+    local lim="$1"; shift
+    if [ -n "$_bga_tmo" ]; then
+        GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 "$_bga_tmo" -s KILL "$lim" git "$@" </dev/null
+        return
+    fi
+    local p w rc
+    GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git "$@" </dev/null &
+    p=$!
+    { sleep "$lim"; kill -KILL "$p"; } >/dev/null 2>&1 &
+    w=$!
+    wait "$p"; rc=$?
+    kill "$w" >/dev/null 2>&1
+    return "$rc"
+}
+
+# A call killed by the time limit (exit 124 or 137) means something in the
+# repository blocks reads: mark it untrusted so the rest of this prompt skips
+# git instead of waiting out each limit in turn.
+__bga_git_check_timeout() {
+    case "$1" in 124 | 137) _bga_git_untrusted=1 ;; esac
+    return 0
+}
+
+# Prompt git calls: 1 second each. git status alone gets more: 3 s in the
+# sync path, 10 s in the async job (_bga_status_limit, set with `local`).
 __bga_git() {
-    GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git "${_bga_git_args[@]}" "$@"
+    __bga_gitrun "${_bga_git_limit:-1}" "${_bga_git_args[@]}" "$@"
 }
 
 __bga_git_trust() {
@@ -520,7 +563,7 @@ __bga_git_trust() {
     [ -n "$gd" ] && [ -f "$gd/config" ] || return 1
     for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
         [ -f "$cfg" ] || continue
-        names="$(git config --file "$cfg" --no-includes --name-only \
+        names="$(__bga_gitrun 1 config --file "$cfg" --no-includes --name-only \
                  --get-regexp '^(filter|include|includeif)\.|^extensions\.partialclone$|^remote\..*\.promisor$' 2>/dev/null)"
         rc=$?
         [ "$rc" = 1 ] && continue          # no match
@@ -537,6 +580,7 @@ __bga_git_trust() {
 }
 
 __bga_git_status_safe() {
+    local _bga_git_limit="${_bga_status_limit:-3}"
     [ "${_bga_git_untrusted:-0}" = 1 ] && return 0
     __bga_git status --porcelain=v2 --branch --ignore-submodules=dirty 2>/dev/null
 }
@@ -580,6 +624,7 @@ __bga_git_info_full() {
 # on stdout. Called inside the background subshell of lib/85-async.bash; never
 # touches caller state directly.
 __bga_git_info_expensive_compute() {
+    local _bga_status_limit=10
     __bga_git_status_parse
     printf '_bga_async_dirty=%d\n_bga_async_ahead=%d\n_bga_async_behind=%d\n' \
         "$_bga_st_dirty" "$_bga_st_ahead" "$_bga_st_behind"

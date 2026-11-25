@@ -204,3 +204,44 @@ scenario_gitconfig_trailing_newline_path() {
     if [ -e "$base/PWNED" ]; then fail "sibling repo's filter ran"; else ok "sibling repo's filter not run"; fi
     rm -rf "$base"
 }
+
+# Render in a repo whose $2 (path under .git) is a FIFO; $3 = extra shell code
+# run after sourcing (e.g. to force the watchdog fallback). Prints the elapsed
+# whole seconds, or HANG.
+_gc_fifo_render() {
+    local base="$1" what="$2" extra="${3-}"
+    local TIMEFORMAT=%0R t
+    t="$( { time timeout 15 bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=0
+        cd '$base/r' || exit 1
+        source '$REPO/new.bashrc'
+        $extra
+        __bga_prompt" </dev/null >/dev/null 2>&1 || echo HANG >&2; } 2>&1 )"
+    printf '%s' "$t"
+}
+
+scenario_gitconfig_fifo_no_hang() {
+    section "hostile .git: a FIFO where git reads cannot hang the prompt"
+    local base what out
+    for what in config HEAD index packed-refs; do
+        base="$(mktemp -d "${TMPDIR:-/tmp}/bga-gc-XXXXXX")"
+        git init -q -b main "$base/r"
+        git -C "$base/r" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+        : > "$base/r/f"
+        rm -f "$base/r/.git/$what"; mkfifo "$base/r/.git/$what"
+        out="$(_gc_fifo_render "$base" "$what")"
+        case "$out" in *HANG*) fail "FIFO .git/$what hangs the prompt" ;;
+                       *) if [ "${out##*$'\n'}" -le 8 ]; then ok "FIFO .git/$what: prompt returns (${out##*$'\n'}s)"
+                          else fail "FIFO .git/$what: prompt took ${out}s"; fi ;; esac
+        rm -rf "$base"
+    done
+    # Same with the watchdog fallback used when timeout(1) is missing.
+    base="$(mktemp -d "${TMPDIR:-/tmp}/bga-gc-XXXXXX")"
+    git init -q -b main "$base/r"
+    git -C "$base/r" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+    rm -f "$base/r/.git/config"; mkfifo "$base/r/.git/config"
+    out="$(_gc_fifo_render "$base" config "_bga_tmo=''")"
+    case "$out" in *HANG*) fail "watchdog fallback: FIFO hangs the prompt" ;;
+                   *) ok "watchdog fallback: prompt returns (${out##*$'\n'}s)" ;; esac
+    rm -rf "$base"
+}

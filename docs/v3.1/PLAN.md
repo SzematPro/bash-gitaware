@@ -19,7 +19,7 @@
 | T5.4 | M1 | Drop the `PATH` entry | `new.bashrc` never changes `PATH` with any setting (test compares `PATH` before and after sourcing) | done |
 | T5.5 | M1 | Installer writes the key | Interactive installer asks (default 0 for append, 1 for replace); `--yes` writes the mode's default; re-running keeps an existing value; `--uninstall` unchanged (`tests/install.sh`, interactive path through `script`) | done |
 | T5.6 | M1 | Doctor notice | `bga doctor` prints a notice (exit 0) when `shell_defaults` is unset, with the `bga config set` line to fix it; no notice once set (`tests/cli.sh`) | done |
-| T5.7 | M1 | Startup budget check | Startup median with the module off is not higher than with it on; both under 100 ms on the matrix (`tests/perf.sh` measures both) | todo |
+| T5.7 | M1 | Startup budget check | Startup median with the module off is not higher than with it on; both under 100 ms on the matrix (`tests/perf.sh` measures both) | done |
 | T5.8 | M1 | ADR-0010: shell defaults | `docs/adr/ADR-0010-shell-defaults-module.md`: what is in the module, why off, the migration rule, the 4.0 flip, the `PATH` removal | todo |
 | T5.9 | M1 | Docs | README (EN/ES) "Shell defaults" section with the alias list; `docs/MIGRATION.md` 3.0 to 3.1 section; CHANGELOG `[Unreleased]`; parity check green | todo |
 

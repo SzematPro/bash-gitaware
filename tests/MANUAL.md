@@ -101,15 +101,19 @@ Colors are left out.
 
 ## `bga` and the installer
 
-- [ ] `bga doctor` in a normal terminal: every line is `ok` or `info`, and
-      it exits 0. `bga config set theme 'bad value'` is refused (exit 2).
-      Write `theme = bad value` into the config file by hand: `doctor`
-      prints `FAIL config` with `config:1: invalid value for 'theme'` and
-      exits 1.
+- [ ] `bga doctor` in a normal terminal: every line is `ok`, `info` or
+      `note`, and it exits 0. With `shell_defaults` unset there is a
+      `note shell-defaults` line with the command to choose; after
+      `bga config set shell_defaults 0` it reads `info shell-defaults off`.
+- [ ] `bga config set theme 'bad value'` is refused (exit 2). Write
+      `theme = bad value` by hand as the only line of the config file:
+      `doctor` prints `FAIL config` with `config:1: invalid value for
+      'theme'` and exits 1.
 - [ ] `bga config list`, `get`, `set`, `unset` round-trip a value; comments
       in the config file are kept.
-- [ ] `./install.sh` in a terminal asks for mode, theme and glyphs; a new
-      shell picks them up. `./install.sh --uninstall` removes the block, and
+- [ ] `./install.sh` in a terminal asks for mode, theme, glyphs and shell
+      defaults; a new shell picks them up, and the config file has
+      `shell_defaults = 0` or `1` as answered. `./install.sh --uninstall` removes the block, and
       a second `--uninstall` changes nothing.
 
 ## Build pipeline

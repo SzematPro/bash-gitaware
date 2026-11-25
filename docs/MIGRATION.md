@@ -77,7 +77,9 @@ reported with its line number and skipped.
 
 ## Install and uninstall
 
-`./install.sh` now asks a few questions on a terminal (`--yes` skips them).
+`./install.sh` now asks a few questions on a terminal. A mode flag
+(`--append`, `--replace`) or `--yes` skips them; `--yes` alone means
+replace mode, after a backup.
 `./install.sh --uninstall` reverses an install.
 
 ## Upgrading from 3.0 to 3.1

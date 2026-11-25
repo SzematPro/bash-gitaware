@@ -15,7 +15,7 @@ policy file. 3.0.0 also left three loose ends:
 
 - `lib/95-shell.bash` runs on every load and is not documented. The locked
   decision says it should be an optional module, off by default. It sets
-  history options, evaluates `dircolors` and `lesspipe`, defines 17 aliases
+  history options, evaluates `dircolors` and `lesspipe`, defines 18 aliases
   (`ls`, `grep`, `ll`, `gs`, `gc`, `gp`, `alert`, ...), sources
   `~/.bash_aliases` and bash-completion, and adds `~/.npm-global/bin` to
   `PATH`.

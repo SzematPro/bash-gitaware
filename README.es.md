@@ -40,7 +40,8 @@ cd ~/.bash-gitaware
 exec bash
 ```
 
-Con `./install.sh --yes` se usan los valores por defecto sin preguntas, y
+Con `./install.sh --yes` se usan los valores por defecto sin preguntas
+(modo replace, con copia de seguridad de `~/.bashrc`), y
 `./install.sh --uninstall` deshace la instalación.
 
 ## Configuración
@@ -78,18 +79,21 @@ lista completa está en [docs/MIGRATION.md](docs/MIGRATION.md).
 
 bash-gitaware también puede aplicar lo que trae un `~/.bashrc` estándar de
 Debian/Ubuntu: opciones de historial (`HISTCONTROL=ignoreboth`,
-`HISTSIZE=10000`, `HISTFILESIZE=20000`, `histappend`), colores para `ls` y
-`grep`, los alias `ll`, `la`, `l` y `alert`, los alias de git `gs`, `ga`,
-`gc`, `gp`, `gl`, `gd`, `gb`, `gco`, `gst` y `gsp`, `~/.bash_aliases` y
-bash-completion.
+`HISTSIZE=10000`, `HISTFILESIZE=20000`, `histappend`), los alias `ll`,
+`la`, `l` y `alert`, los alias de git `gs`, `ga`, `gc`, `gp`, `gl`, `gd`,
+`gb`, `gco`, `gst` y `gsp`, y `~/.bash_aliases`. Si el sistema los tiene
+(`/usr/bin/dircolors`, `/usr/bin/lesspipe`, las rutas de bash-completion de
+Debian), también aplica colores para `ls`/`grep`, `lesspipe` y el
+autocompletado.
 
 ```bash
 bga config set shell_defaults 0    # prompt only
 bga config set shell_defaults 1    # prompt plus the settings above
 ```
 
-El instalador escribe esta clave: `0` cuando añade la carga a tu
-`~/.bashrc` y `1` cuando lo sustituye. Si la clave no está definida (una
+El instalador escribe esta clave. Por defecto escribe `0` cuando añade la
+carga a tu `~/.bashrc` y `1` cuando lo sustituye; en una terminal lo
+pregunta, y conserva el valor si ya lo habías definido. Si la clave no está definida (una
 instalación de 3.0), los ajustes siguen activos y `bga doctor` te pide que
 elijas. bash-gitaware nunca cambia tu `PATH`. Más detalles en
 [ADR-0010](docs/adr/ADR-0010-shell-defaults-module.md).

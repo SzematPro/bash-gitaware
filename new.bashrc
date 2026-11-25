@@ -54,6 +54,7 @@ __bga_config_valid() {
         glyphs)       case "$2" in nerd | unicode | ascii) ;; *) return 1 ;; esac ;;
         show_host)    case "$2" in auto | always | never) ;; *) return 1 ;; esac ;;
         mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
+        theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
         nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config)
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)
@@ -176,6 +177,20 @@ if [ "${NO_COLOR+set}" != set ]; then
     esac
 fi
 
+# Color depth for themes (lib/19-theme.bash): 24 (COLORTERM says so), 256, 16,
+# or 0 (no color, NO_COLOR included).
+_bga_depth=0
+if [ "$_bga_color" = 1 ]; then
+    case "${COLORTERM:-}" in
+        truecolor | 24bit) _bga_depth=24 ;;
+        *)
+            case "${TERM:-}" in
+                *-256color | *-direct | alacritty* | foot* | wezterm* | kitty* | *ghostty*) _bga_depth=256 ;;
+                *) _bga_depth=16 ;;
+            esac ;;
+    esac
+fi
+
 # ---------------------------------------------------------------------------
 # Plain mode: a one-line ASCII prompt with no escape sequences, for dumb
 # terminals, CI logs and automated agents. Generic signals only:
@@ -196,7 +211,7 @@ esac
 if [ "$_bga_plain" = 1 ]; then
     # Every decoration that emits escapes or extra lines is off by default;
     # an explicit BASHGITAWARE_* setting still wins.
-    _bga_color=0 _bga_title=0
+    _bga_color=0 _bga_depth=0 _bga_title=0
     : "${BASHGITAWARE_OSC:=0}" "${BASHGITAWARE_TRANSIENT:=0}" "${BASHGITAWARE_ASYNC:=0}"
     : "${BASHGITAWARE_GLYPHS:=ascii}" "${BASHGITAWARE_COMMIT_LINE:=0}"
 fi
@@ -395,38 +410,95 @@ __bga_width() {
 }
 
 # ---------------------------------------------------------------------------
+# Themes and semantic color tokens (v3 T1.4, ADR-0007).
+#
+# Segment code never writes a color escape. It uses tokens: _c_<name> (wrapped
+# in \[ \] for PS1) and _cr_<name> (raw, for text printed directly, such as the
+# transient line). A theme is a table with one row per token:
+#
+#   <token> <rrggbb> <xterm-256 index> <16-color SGR> <bold 0|1>
+#
+# __bga_theme_apply resolves the table for the terminal's color depth
+# (_bga_depth from lib/10-detect.bash): 24-bit, 256, 16, or 0 (no color,
+# including NO_COLOR). The 256 indices are the nearest xterm-256 colors to
+# the hex value, precomputed. Pick a theme with BASHGITAWARE_THEME or
+# `theme = ...` in the config file; unknown names fall back to aware.
+# ---------------------------------------------------------------------------
+
+# Aware: the signature theme. Calm blues and violets for structure, warm
+# amber for "needs attention", green/red only for success/failure.
+_bga_theme_aware='
+dim      6c7591  66 90 0
+path     6fa8ff  75 94 1
+user     5ccfe6  80 36 0
+host     5ccfe6  80 36 0
+host_ssh ff9f5a 215 33 1
+branch   b48cf2 141 95 1
+hash     5c6582  60 90 0
+state    ff6b81 204 91 1
+ahead    5ccfe6  80 96 0
+behind   5ccfe6  80 96 0
+dirty    e6b450 179 93 0
+stash    8fb0d9 110 94 0
+commit   6c7591  66 90 0
+node     8ccf7e 114 92 0
+py       e6b450 179 93 0
+rust     f29e74 216 33 0
+go       5ccfe6  80 96 0
+tag      ff9f5a 215 33 0
+timer    e6b450 179 93 0
+err      ff6b81 204 91 1
+ok       8ccf7e 114 92 1
+sym_err  ff6b81 204 91 1
+'
+
+# Static defaults (no color) so every token exists even before a theme
+# applies; __bga_theme_apply overwrites them.
+_R='' _Rr=''
+_c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
+_c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit='' _c_node=''
+_c_py='' _c_rust='' _c_go='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
+_cr_ok='' _cr_sym_err=''
+
+# Every token a theme must define (the test suite checks each theme).
+_bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash commit node py rust go tag timer err ok sym_err'
+
+__bga_theme_apply() {
+    local name="${1:-aware}" table var line tok sgr
+    local IFS=$' \t\n' -
+    set -f                       # word splitting below must not glob
+    var="_bga_theme_$name"
+    [ -n "${!var+set}" ] || var=_bga_theme_aware
+    table="${!var}"
+    for tok in $_bga_theme_tokens; do printf -v "_c_$tok" '%s' ''; printf -v "_cr_$tok" '%s' ''; done
+    _R='' _Rr=''
+    [ "${_bga_depth:-0}" = 0 ] && return 0
+    _R='\[\033[0m\]' _Rr=$'\e[0m'
+    # One row per line; split with parameter expansion (no here-documents:
+    # they write a temp file before bash 5.1, ruling R-3).
+    table="${table#$'\n'}"
+    while [ -n "$table" ]; do
+        line="${table%%$'\n'*}"
+        case "$table" in *$'\n'*) table="${table#*$'\n'}" ;; *) table='' ;; esac
+        # shellcheck disable=SC2086  # intentional split of a fixed-format row
+        set -- $line
+        [ "$#" = 5 ] || continue
+        case "$_bga_depth" in
+            24)  sgr="38;2;$(( 16#${2:0:2} ));$(( 16#${2:2:2} ));$(( 16#${2:4:2} ))" ;;
+            256) sgr="38;5;$3" ;;
+            *)   sgr="$4" ;;
+        esac
+        [ "$5" = 1 ] && sgr="1;$sgr"
+        printf -v "_c_$1" '\\[\\033[%sm\\]' "$sgr"
+        printf -v "_cr_$1" '\e[%sm' "$sgr"
+    done
+}
+
+# ---------------------------------------------------------------------------
 # Color palette
 # ---------------------------------------------------------------------------
-if [ "$_bga_color" = 1 ]; then
-    _R='\[\033[0m\]'
-    _c_dim='\[\033[38;5;244m\]'         # connector words (on / via / took)
-    _c_path='\[\033[1;38;5;75m\]'       # path -- bold steel blue
-    _c_user='\[\033[38;5;79m\]'         # user -- teal
-    _c_host='\[\033[38;5;79m\]'         # host -- teal
-    _c_host_ssh='\[\033[1;38;5;215m\]'  # host over SSH -- bold amber
-    _c_branch='\[\033[1;38;5;176m\]'    # branch -- bold purple
-    _c_hash='\[\033[38;5;244m\]'        # short hash -- grey
-    _c_state='\[\033[1;38;5;203m\]'     # in-progress state (rebase/merge) -- bold red
-    _c_ahead='\[\033[38;5;179m\]'       # ahead -- yellow
-    _c_behind='\[\033[38;5;179m\]'      # behind -- yellow
-    _c_dirty='\[\033[38;5;179m\]'       # dirty marker -- yellow
-    _c_stash='\[\033[38;5;110m\]'       # stash count -- soft blue
-    _c_commit='\[\033[38;5;244m\]'      # "last commit" line -- grey
-    _c_node='\[\033[38;5;114m\]'        # node runtime -- green
-    _c_py='\[\033[38;5;179m\]'          # python runtime -- yellow
-    _c_rust='\[\033[38;5;173m\]'        # rust runtime -- orange
-    _c_go='\[\033[38;5;80m\]'           # go runtime -- cyan
-    _c_tag='\[\033[38;5;215m\]'         # container / chroot tag -- amber
-    _c_timer='\[\033[38;5;179m\]'       # command duration -- yellow
-    _c_err='\[\033[1;38;5;203m\]'       # exit code -- bold red
-    _c_ok='\[\033[1;38;5;114m\]'        # prompt symbol, success -- bold green
-    _c_sym_err='\[\033[1;38;5;203m\]'   # prompt symbol, failure -- bold red
-else
-    _R=''
-    _c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
-    _c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit=''
-    _c_node='' _c_py='' _c_rust='' _c_go='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
-fi
+# Tokens come from the theme (lib/19-theme.bash); no literal colors here.
+__bga_theme_apply "${BASHGITAWARE_THEME:-aware}"
 
 # ---------------------------------------------------------------------------
 # Glyphs -- tiered: nerd > unicode > ascii
@@ -1099,12 +1171,10 @@ __bga_transient_collapse() {
     local up=$(( ${_bga_transient_lines:-1} - 1 ))
     [ "$up" -lt 0 ] && up=0
 
-    local color reset
-    reset=$'\e[0m'
-    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then
-        color=$'\e[1;32m'
-    else
-        color=$'\e[1;31m'
+    # Theme tokens (raw form): empty without color, so NO_COLOR is honored.
+    local color reset="${_Rr:-}"
+    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then color="${_cr_ok:-}"
+    else color="${_cr_sym_err:-}"
     fi
 
     local sym="${_g_sym:-❯}" REPLY

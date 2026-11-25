@@ -26,6 +26,8 @@ source "$HERE/config.sh"
 source "$HERE/gitconfig.sh"
 # shellcheck source=width.sh
 source "$HERE/width.sh"
+# shellcheck source=theme.sh
+source "$HERE/theme.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -120,6 +122,10 @@ scenario_plain_mode_escaping
 # Width engine.
 scenario_width_engine
 scenario_width_engine_linear
+
+# Themes.
+scenario_theme_depths
+scenario_theme_tokens_complete
 
 # Shell-state independence.
 scenario_shell_state_independence

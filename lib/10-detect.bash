@@ -43,6 +43,20 @@ if [ "${NO_COLOR+set}" != set ]; then
     esac
 fi
 
+# Color depth for themes (lib/19-theme.bash): 24 (COLORTERM says so), 256, 16,
+# or 0 (no color, NO_COLOR included).
+_bga_depth=0
+if [ "$_bga_color" = 1 ]; then
+    case "${COLORTERM:-}" in
+        truecolor | 24bit) _bga_depth=24 ;;
+        *)
+            case "${TERM:-}" in
+                *-256color | *-direct | alacritty* | foot* | wezterm* | kitty* | *ghostty*) _bga_depth=256 ;;
+                *) _bga_depth=16 ;;
+            esac ;;
+    esac
+fi
+
 # ---------------------------------------------------------------------------
 # Plain mode: a one-line ASCII prompt with no escape sequences, for dumb
 # terminals, CI logs and automated agents. Generic signals only:
@@ -63,7 +77,7 @@ esac
 if [ "$_bga_plain" = 1 ]; then
     # Every decoration that emits escapes or extra lines is off by default;
     # an explicit BASHGITAWARE_* setting still wins.
-    _bga_color=0 _bga_title=0
+    _bga_color=0 _bga_depth=0 _bga_title=0
     : "${BASHGITAWARE_OSC:=0}" "${BASHGITAWARE_TRANSIENT:=0}" "${BASHGITAWARE_ASYNC:=0}"
     : "${BASHGITAWARE_GLYPHS:=ascii}" "${BASHGITAWARE_COMMIT_LINE:=0}"
 fi

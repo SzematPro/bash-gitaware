@@ -48,12 +48,10 @@ __bga_transient_collapse() {
     local up=$(( ${_bga_transient_lines:-1} - 1 ))
     [ "$up" -lt 0 ] && up=0
 
-    local color reset
-    reset=$'\e[0m'
-    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then
-        color=$'\e[1;32m'
-    else
-        color=$'\e[1;31m'
+    # Theme tokens (raw form): empty without color, so NO_COLOR is honored.
+    local color reset="${_Rr:-}"
+    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then color="${_cr_ok:-}"
+    else color="${_cr_sym_err:-}"
     fi
 
     local sym="${_g_sym:-❯}" REPLY

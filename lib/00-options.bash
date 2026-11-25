@@ -52,6 +52,7 @@ __bga_config_valid() {
         glyphs)       case "$2" in nerd | unicode | ascii) ;; *) return 1 ;; esac ;;
         show_host)    case "$2" in auto | always | never) ;; *) return 1 ;; esac ;;
         mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
+        theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
         nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config)
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)

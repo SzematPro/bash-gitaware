@@ -6,7 +6,7 @@
 
 scenario_sandbox_clean() {
     section "sandbox: no inherited prompt state"
-    local left; left="$(bash --norc --noprofile -c 'compgen -v | grep -E "^(_bga_|_BGA_|BASHGITAWARE_|NO_COLOR$)"')"
+    local left; left="$(bash --norc --noprofile -c 'compgen -v | grep -E "^(_bga_|_BGA_|BASHGITAWARE_|NO_COLOR$|COLORTERM$)"')"
     if [ -z "$left" ]; then ok "child shells inherit no _bga_/BASHGITAWARE_ variables"
     else fail "inherited prompt state: ${left//$'\n'/ }"; fi
 }
@@ -246,7 +246,7 @@ scenario_transient_basic() {
     # Clear from cursor to end of screen.
     assert_contains "$out" $'\e[J'  "clears to end of screen (\e[J)"
     # Bold green for success.
-    assert_contains "$out" $'\e[1;32m' "bold green symbol on exit 0"
+    assert_contains "$out" $'\e[1;38;5;114m' "theme 'ok' color on exit 0 (Aware, 256 colors)"
     # The typed command is preserved in scrollback.
     assert_contains "$out" "ls -la" "preserves the typed command"
 }
@@ -263,7 +263,7 @@ scenario_transient_error_exit() {
         READLINE_LINE='false'
         __bga_transient_collapse
     " 2>/dev/null)"
-    assert_contains "$out" $'\e[1;31m' "bold red symbol on non-zero exit"
+    assert_contains "$out" $'\e[1;38;5;204m' "theme 'sym_err' color on non-zero exit (Aware, 256 colors)"
     assert_contains "$out" "false"     "preserves the typed command"
 }
 

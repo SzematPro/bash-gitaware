@@ -40,11 +40,12 @@ assert_lacks() {
 # exports some _bga_* variables; BASHGITAWARE_* knobs would change renders).
 # Child shells only inherit exported variables, so unsetting them here keeps
 # every render in the suite deterministic. NO_COLOR is dropped for the same
-# reason; scenarios that need it set it explicitly.
+# reason, and so is COLORTERM (it selects 24-bit colors); scenarios that need
+# them set them explicitly.
 sandbox_scrub() {
     local v
     for v in $(compgen -v); do
-        case "$v" in _bga_* | _BGA_* | BASHGITAWARE_* | NO_COLOR) unset "$v" ;; esac
+        case "$v" in _bga_* | _BGA_* | BASHGITAWARE_* | NO_COLOR | COLORTERM) unset "$v" ;; esac
     done
 }
 

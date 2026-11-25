@@ -173,7 +173,12 @@ fi
 # ---------------------------------------------------------------------------
 want_theme='' want_glyphs='' want_sd=''
 # shell_defaults already in the config file (kept on a re-run), or empty.
-cur_sd="$("$script_dir/bin/bga" config get shell_defaults 2>/dev/null)" || cur_sd=''
+# Not for --uninstall: bin/bga sources new.bashrc, and uninstall skips the
+# tamper check, so it must not run repository code.
+cur_sd=''
+if [ "$mode" != uninstall ]; then
+    cur_sd="$("$script_dir/bin/bga" config get shell_defaults 2>/dev/null)" || cur_sd=''
+fi
 case "$cur_sd" in 0 | 1) ;; *) cur_sd='' ;; esac
 # The mode's default: replace takes over the file that had these settings,
 # append leaves the user's own ~/.bashrc in charge of them.
@@ -293,12 +298,15 @@ case "$mode" in
 esac
 
 # Store the interactive choices in the config file.
-if [ -n "$want_theme" ]; then "$script_dir/bin/bga" config set theme "$want_theme"; fi
-if [ -n "$want_glyphs" ]; then "$script_dir/bin/bga" config set glyphs "$want_glyphs"; fi
-# Not fatal: the install itself is done, and an unset key keeps 3.0 behavior.
+# Not fatal: the install itself is done (an unset key keeps 3.0 behavior).
+store() {
+    "$script_dir/bin/bga" config set "$1" "$2" \
+        || printf 'install: could not store %s; run: %s/bin/bga config set %s %s\n' "$1" "$script_dir" "$1" "$2" >&2
+}
+if [ -n "$want_theme" ]; then store theme "$want_theme"; fi
+if [ -n "$want_glyphs" ]; then store glyphs "$want_glyphs"; fi
 if [ "$want_sd" != "$cur_sd" ]; then
-    "$script_dir/bin/bga" config set shell_defaults "$want_sd" \
-        || printf 'install: could not store shell_defaults; run: %s/bin/bga config set shell_defaults %s\n' "$script_dir" "$want_sd" >&2
+    store shell_defaults "$want_sd"
 fi
 
 # ---------------------------------------------------------------------------

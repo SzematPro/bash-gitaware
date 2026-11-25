@@ -105,9 +105,17 @@ scenario_install_shell_defaults() {
     assert_contains "$out" "shell_defaults = 1" "re-run keeps an existing value"
     assert_lacks    "$out" "shell_defaults = 0" "re-run does not add a second value"
     # A config that cannot be written does not fail the install.
-    out="$(BASHGITAWARE_CONFIG=/nonexistent/bga-cfg bash "$c/repo/install.sh" --append --target "$c/rc-n" 2>&1)"; rc=$?
+    # A path through a regular file cannot be created, not even by root.
+    : > "$c/not-a-dir"
+    out="$(BASHGITAWARE_CONFIG="$c/not-a-dir/cfg" bash "$c/repo/install.sh" --append --target "$c/rc-n" 2>&1)"; rc=$?
     if [ "$rc" = 0 ]; then ok "unwritable config: install still succeeds"; else fail "unwritable config failed the install ($rc)"; fi
     assert_contains "$out" "could not store shell_defaults" "unwritable config: warning with the fix"
     assert_contains "$(cat "$c/rc-n" 2>/dev/null)" "new.bashrc" "unwritable config: source line written"
+    # --uninstall skips the tamper check, so it must not run repository code
+    # (bin/bga sources new.bashrc) to read shell_defaults.
+    bash "$c/repo/install.sh" --append --target "$c/rc-u" >/dev/null 2>&1
+    printf 'touch %q\n' "$c/PWNED_UNINST" >> "$c/repo/new.bashrc"; chmod o+w "$c/repo/new.bashrc"
+    BASHGITAWARE_CONFIG="$c/cfg-u" bash "$c/repo/install.sh" --uninstall --target "$c/rc-u" >/dev/null 2>&1
+    if [ -e "$c/PWNED_UNINST" ]; then fail "--uninstall ran new.bashrc"; else ok "--uninstall does not run new.bashrc"; fi
     rm -rf "$c"
 }

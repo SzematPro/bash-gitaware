@@ -100,6 +100,8 @@ scenario_runtime_new_runtimes
 scenario_runtime_no_exec
 scenario_runtime_hostile_version_files
 scenario_runtime_key_validation
+scenario_runtime_sr6_version_files
+scenario_runtime_sr6_c1_bytes
 scenario_progress_osc94
 scenario_vimode_setup
 scenario_vimode_pty

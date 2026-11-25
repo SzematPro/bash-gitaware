@@ -85,3 +85,45 @@ scenario_runtime_key_validation() {
     assert_contains "$out" "r=node,go" "valid list applied"
     rm -rf "$dir"
 }
+
+scenario_runtime_sr6_version_files() {
+    section "runtimes: version files that try to hang or leak (SR6)"
+    local d out rc t0; d="$(mktemp -d "${TMPDIR:-/tmp}/bga-rt-XXXXXX")"
+    mkdir -p "$d/nul" "$d/leak" "$d/repo/pkg" "$d/odd"
+    # F2: a file of NUL bytes used to be read to the end on every prompt.
+    dd if=/dev/zero of="$d/nul/.ruby-version" bs=1048576 count=64 2>/dev/null
+    t0=$SECONDS
+    out="$(run_bounded 20 bga_render "$d/nul")"; rc=$?
+    if [ "$rc" = 124 ]; then fail "NUL version file: prompt hung"
+    elif [ $(( SECONDS - t0 )) -le 3 ]; then ok "64 MB NUL version file: prompt is immediate"
+    else fail "NUL version file: prompt took $(( SECONDS - t0 ))s"; fi
+    # F3: a symlink out of the repository is not followed.
+    printf 'https://user:SECRET123@example.com\n' > "$d/secret"
+    ln -s "$d/secret" "$d/leak/.ruby-version"
+    out="$(bga_render "$d/leak")"
+    assert_lacks "$out" "SECRET123" "symlink to a file outside: content not shown"
+    assert_contains "$(_rt_visible "$out")" "ruby" "symlink outside: runtime still shown, without a version"
+    # ... but a symlink inside the repository (monorepo .nvmrc) works.
+    git -C "$d/repo" init -q 2>/dev/null
+    printf '20.1.0\n' > "$d/repo/.nvmrc"; printf '{}\n' > "$d/repo/pkg/package.json"
+    ln -s ../.nvmrc "$d/repo/pkg/.nvmrc"
+    out="$(_rt_visible "$(bga_render "$d/repo/pkg")")"
+    assert_contains "$out" "node 20.1.0" "symlink inside the repository: followed"
+    # Values must look like a version: first word, at most 32 characters.
+    printf '3.12.1 3.11.7\n' > "$d/odd/.python-version"
+    out="$(_rt_visible "$(bga_render "$d/odd")")"
+    assert_contains "$out" "python 3.12.1" "several versions: the first one shown"
+    printf '%s\n' "$(printf 'x%.0s' $(seq 1 40))" > "$d/odd/.python-version"
+    out="$(_rt_visible "$(bga_render "$d/odd")")"
+    assert_lacks "$out" "xxxxxxxxxx" "overlong version not shown"
+    rm -rf "$d"
+}
+
+scenario_runtime_sr6_c1_bytes() {
+    section "escaping: raw C1 bytes outside a UTF-8 locale (SR6 F4)"
+    local out
+    out="$(LANG=C LC_ALL=C bash --norc --noprofile -i -c "source '$REPO/new.bashrc'; __bga_ps1_lit \$'a\\x9b2Jb'; printf '%s' \"\$REPLY\"; __bga_term_safe \$'c\\x9bd'; printf ' %s' \"\$REPLY\"" 2>/dev/null)"
+    if [ "$out" = 'a?2Jb c?d' ]; then ok "C locale: lone 0x9B (CSI) replaced"; else fail "C locale: got '$(printf '%s' "$out" | od -c | head -2 | tr -s ' ')'"; fi
+    out="$(LANG=C.UTF-8 LC_ALL=C.UTF-8 bash --norc --noprofile -i -c "source '$REPO/new.bashrc'; __bga_ps1_lit 'ğé'; printf '%s' \"\$REPLY\"" 2>/dev/null)"
+    assert_contains "$out" "ğé" "UTF-8 locale: characters with continuation bytes 0x80-0x9F kept"
+}

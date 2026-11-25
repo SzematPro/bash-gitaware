@@ -27,16 +27,28 @@ __bga_rt_add() {
     __bga_ps1_lit "$2"; _bga_rt_str+=" ${_c_dim}via ${_R}${!tok}${REPLY}${_R}"
 }
 
-# Value of "key=value" line $2 in file $1 (first 50 lines, 256 bytes each)
-# into REPLY. Plain reads: the file is never sourced.
+# Value of "key=value" line $2 in file $1 (first 50 lines of the first 12 KB;
+# one bounded read, NUL-terminated as in __bga_read_line) into REPLY, checked
+# like a version file value. Plain reads: the file is never sourced.
 __bga_rt_kv() {
-    local line n=0
+    local buf line n=0 v
     REPLY=''
+    __bga_link_inside "$1" || return 1
     [ -f "$1" ] && [ -r "$1" ] || return 1
-    while [ "$n" -lt 50 ] && IFS= read -r -n 256 line; do
+    IFS= read -r -d '' -n 12288 buf < "$1" 2>/dev/null
+    while [ -n "$buf" ] && [ "$n" -lt 50 ]; do
+        line="${buf%%$'\n'*}"
+        if [ "$line" = "$buf" ]; then buf=''; else buf="${buf#*$'\n'}"; fi
         n=$(( n + 1 )); line="${line%$'\r'}"
-        case "$line" in "$2="*) REPLY="${line#"$2="}"; return 0 ;; esac
-    done < "$1" 2>/dev/null
+        case "$line" in
+            "$2="*)
+                v="${line#"$2="}"
+                local LC_ALL=C
+                [ -n "$v" ] && [ "${#v}" -le 32 ] || return 1
+                case "$v" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@/:-]*) return 1 ;; esac
+                REPLY="$v"; return 0 ;;
+        esac
+    done
     return 1
 }
 
@@ -64,7 +76,7 @@ __bga_runtime() {
        || [ -e "$PWD/setup.cfg" ] || [ -e "$PWD/requirements.txt" ] || [ -e "$PWD/Pipfile" ] \
        || [ -e "$PWD/.python-version" ]; }; then
         v=""
-        __bga_read_line "$PWD/.python-version" && v="$REPLY"
+        __bga_read_version "$PWD/.python-version" && v="$REPLY"
         if [ -z "$v" ]; then
             if   command -v python3 >/dev/null 2>&1; then v="$(python3 --version 2>&1)"
             elif command -v python  >/dev/null 2>&1; then v="$(python --version 2>&1)"; fi
@@ -78,7 +90,7 @@ __bga_runtime() {
     if __bga_rt_on node && [ -e "$PWD/package.json" ]; then
         v=""
         for f in .nvmrc .node-version; do
-            __bga_read_line "$PWD/$f" && { v="${REPLY#v}"; break; }
+            __bga_read_version "$PWD/$f" && { v="${REPLY#v}"; break; }
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"
@@ -101,7 +113,7 @@ __bga_runtime() {
 
     # --- Ruby: .ruby-version or a Gemfile (version file only) ---
     if __bga_rt_on ruby && { [ -e "$PWD/.ruby-version" ] || [ -e "$PWD/Gemfile" ]; }; then
-        __bga_read_line "$PWD/.ruby-version"; v="${REPLY#ruby-}"
+        __bga_read_version "$PWD/.ruby-version"; v="${REPLY#ruby-}"
         s="ruby"; [ -n "$v" ] && s="ruby $v"
         __bga_rt_add ruby "$s"
     fi
@@ -119,7 +131,7 @@ __bga_runtime() {
     # --- Java: .java-version (jenv) or java=... in .sdkmanrc ---
     if __bga_rt_on java && { [ -e "$PWD/.java-version" ] || [ -e "$PWD/.sdkmanrc" ]; }; then
         v=''
-        if __bga_read_line "$PWD/.java-version" && [ -n "$REPLY" ]; then v="$REPLY"
+        if __bga_read_version "$PWD/.java-version"; then v="$REPLY"
         elif __bga_rt_kv "$PWD/.sdkmanrc" java; then v="$REPLY"; fi
         s="java"; [ -n "$v" ] && s="java $v"
         __bga_rt_add java "$s"

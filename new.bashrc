@@ -397,6 +397,7 @@ __bga_ps1_lit() {
     local s="$1" bs=\\ dl='$' bt='`'
     s="${s//[[:cntrl:]]/?}"
     case "$s" in *$'\xc2'*) __bga_strip_c1 "$s"; s="$REPLY" ;; esac
+    if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$s"; s="$REPLY"; fi
     if shopt -q promptvars; then
         s="${s//"$bs"/"$bs$bs"}"
         s="${s//"$dl"/"$bs$dl"}"
@@ -412,6 +413,7 @@ __bga_ps1_lit() {
 __bga_term_safe() {
     REPLY="${1//[[:cntrl:]]/?}"
     case "$REPLY" in *$'\xc2'*) __bga_strip_c1 "$REPLY" ;; esac
+    if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$REPLY"; fi
 }
 
 # C1 controls (U+0080-U+009F, UTF-8 bytes C2 80-9F; C2 9B is CSI) are only
@@ -423,16 +425,57 @@ __bga_strip_c1() {
     REPLY="${1//$'\xc2'[$'\x80'-$'\x9f']/?}"
 }
 
+# Outside a UTF-8 locale the terminal may be 8-bit, where a lone byte 0x9B is
+# CSI. In UTF-8 those bytes are continuation bytes of normal characters, so
+# this runs only when the locale is not UTF-8 (SR6 F4).
+__bga_strip_c1_raw() {
+    local LC_ALL=C
+    REPLY="${1//[$'\x80'-$'\x9f']/?}"
+}
+
 # Read the first line of a small file into REPLY (at most 256 bytes). Only
 # regular files: a cloned repo can ship .python-version -> /dev/zero, /dev/tty
 # or a FIFO, and an unbounded `read` there hangs every prompt. Returns 1 (and
 # empties REPLY) for anything else.
+# -d '': bash drops NUL bytes without counting them against -n, so a file
+# of NULs (cheap to ship: git stores it compressed) was read to the end on
+# every prompt, and Ctrl-C did not stop it (SR6 F2). A NUL now ends the read.
 __bga_read_line() {
     REPLY=''
     [ -f "$1" ] && [ -r "$1" ] || return 1
-    IFS= read -r -n 256 REPLY < "$1" 2>/dev/null
+    IFS= read -r -d '' -n 256 REPLY < "$1" 2>/dev/null
+    REPLY="${REPLY%%$'\n'*}"
     REPLY="${REPLY%$'\r'}"
     return 0
+}
+
+# A version from version file $1 into REPLY, or return 1. A symlink is
+# followed only to a file inside the repository (or the current directory
+# outside one): a cloned repo could point .ruby-version at
+# ~/.git-credentials and show it in the prompt (SR6 F3). The value must look
+# like a version: its first word, at most 32 characters of [A-Za-z0-9._+@/:-].
+# True if $1 is not a symlink, or is one whose target is inside the
+# repository (the current directory outside one). One readlink fork, only
+# for symlinks; the result is cached with the runtimes per directory.
+__bga_link_inside() {
+    [ -L "$1" ] || return 0
+    local t top="${_bga_git_top:-$PWD}"
+    command -v readlink >/dev/null 2>&1 || return 1
+    t="$(readlink -f -- "$1" 2>/dev/null)" || return 1
+    case "$t" in "${top%/}"/*) return 0 ;; esac
+    return 1
+}
+
+__bga_read_version() {
+    REPLY=''
+    __bga_link_inside "$1" || return 1
+    __bga_read_line "$1" || return 1
+    local v="$REPLY" LC_ALL=C
+    v="${v#"${v%%[![:blank:]]*}"}"; v="${v%%[[:blank:]]*}"
+    REPLY=''
+    [ -n "$v" ] && [ "${#v}" -le 32 ] || return 1
+    case "$v" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@/:-]*) return 1 ;; esac
+    REPLY="$v"
 }
 
 # ---------------------------------------------------------------------------
@@ -1173,16 +1216,28 @@ __bga_rt_add() {
     __bga_ps1_lit "$2"; _bga_rt_str+=" ${_c_dim}via ${_R}${!tok}${REPLY}${_R}"
 }
 
-# Value of "key=value" line $2 in file $1 (first 50 lines, 256 bytes each)
-# into REPLY. Plain reads: the file is never sourced.
+# Value of "key=value" line $2 in file $1 (first 50 lines of the first 12 KB;
+# one bounded read, NUL-terminated as in __bga_read_line) into REPLY, checked
+# like a version file value. Plain reads: the file is never sourced.
 __bga_rt_kv() {
-    local line n=0
+    local buf line n=0 v
     REPLY=''
+    __bga_link_inside "$1" || return 1
     [ -f "$1" ] && [ -r "$1" ] || return 1
-    while [ "$n" -lt 50 ] && IFS= read -r -n 256 line; do
+    IFS= read -r -d '' -n 12288 buf < "$1" 2>/dev/null
+    while [ -n "$buf" ] && [ "$n" -lt 50 ]; do
+        line="${buf%%$'\n'*}"
+        if [ "$line" = "$buf" ]; then buf=''; else buf="${buf#*$'\n'}"; fi
         n=$(( n + 1 )); line="${line%$'\r'}"
-        case "$line" in "$2="*) REPLY="${line#"$2="}"; return 0 ;; esac
-    done < "$1" 2>/dev/null
+        case "$line" in
+            "$2="*)
+                v="${line#"$2="}"
+                local LC_ALL=C
+                [ -n "$v" ] && [ "${#v}" -le 32 ] || return 1
+                case "$v" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@/:-]*) return 1 ;; esac
+                REPLY="$v"; return 0 ;;
+        esac
+    done
     return 1
 }
 
@@ -1210,7 +1265,7 @@ __bga_runtime() {
        || [ -e "$PWD/setup.cfg" ] || [ -e "$PWD/requirements.txt" ] || [ -e "$PWD/Pipfile" ] \
        || [ -e "$PWD/.python-version" ]; }; then
         v=""
-        __bga_read_line "$PWD/.python-version" && v="$REPLY"
+        __bga_read_version "$PWD/.python-version" && v="$REPLY"
         if [ -z "$v" ]; then
             if   command -v python3 >/dev/null 2>&1; then v="$(python3 --version 2>&1)"
             elif command -v python  >/dev/null 2>&1; then v="$(python --version 2>&1)"; fi
@@ -1224,7 +1279,7 @@ __bga_runtime() {
     if __bga_rt_on node && [ -e "$PWD/package.json" ]; then
         v=""
         for f in .nvmrc .node-version; do
-            __bga_read_line "$PWD/$f" && { v="${REPLY#v}"; break; }
+            __bga_read_version "$PWD/$f" && { v="${REPLY#v}"; break; }
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"
@@ -1247,7 +1302,7 @@ __bga_runtime() {
 
     # --- Ruby: .ruby-version or a Gemfile (version file only) ---
     if __bga_rt_on ruby && { [ -e "$PWD/.ruby-version" ] || [ -e "$PWD/Gemfile" ]; }; then
-        __bga_read_line "$PWD/.ruby-version"; v="${REPLY#ruby-}"
+        __bga_read_version "$PWD/.ruby-version"; v="${REPLY#ruby-}"
         s="ruby"; [ -n "$v" ] && s="ruby $v"
         __bga_rt_add ruby "$s"
     fi
@@ -1265,7 +1320,7 @@ __bga_runtime() {
     # --- Java: .java-version (jenv) or java=... in .sdkmanrc ---
     if __bga_rt_on java && { [ -e "$PWD/.java-version" ] || [ -e "$PWD/.sdkmanrc" ]; }; then
         v=''
-        if __bga_read_line "$PWD/.java-version" && [ -n "$REPLY" ]; then v="$REPLY"
+        if __bga_read_version "$PWD/.java-version"; then v="$REPLY"
         elif __bga_rt_kv "$PWD/.sdkmanrc" java; then v="$REPLY"; fi
         s="java"; [ -n "$v" ] && s="java $v"
         __bga_rt_add java "$s"

@@ -108,3 +108,52 @@ scenario_security_async_cache_private() {
     if [ -z "$left" ]; then ok "cache dir removed at exit"; else fail "cache leftovers: $left"; fi
     rm -rf "$tmp"
 }
+
+# Run __bga_state_dir_init in an interactive child with the given env and
+# print "<state dir>|<mode>", or REFUSED.
+_sec_state_dir() {
+    env -u XDG_RUNTIME_DIR "$@" bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=0
+        source '$REPO/new.bashrc'
+        if __bga_state_dir_init; then
+            printf '%s|' \"\$_bga_state_dir\"
+            stat -c '%a' \"\$_bga_state_dir\" 2>/dev/null || stat -f '%Lp' \"\$_bga_state_dir\"
+            __bga_state_dir_cleanup
+        else
+            printf 'REFUSED'
+        fi
+    " 2>/dev/null
+}
+
+scenario_security_state_dir() {
+    section "security: state directory placement"
+    local tmp; tmp="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
+    local priv="$tmp/xdg" open="$tmp/open" link="$tmp/link" out
+    mkdir -m 700 "$priv" "$tmp/t"; mkdir -m 777 "$open"; ln -s "$priv" "$link"
+
+    out="$(_sec_state_dir XDG_RUNTIME_DIR="$priv" TMPDIR="$tmp/t")"
+    case "$out" in "$priv"/bga.*\|700) ok "private XDG_RUNTIME_DIR is used" ;; *) fail "private XDG not used (got: $out)" ;; esac
+
+    out="$(_sec_state_dir XDG_RUNTIME_DIR="$open" TMPDIR="$tmp/t")"
+    case "$out" in "$tmp/t"/bga.*\|700) ok "world-writable XDG_RUNTIME_DIR is refused" ;; *) fail "open XDG accepted (got: $out)" ;; esac
+
+    out="$(_sec_state_dir XDG_RUNTIME_DIR="$link" TMPDIR="$tmp/t")"
+    case "$out" in "$tmp/t"/bga.*\|700) ok "symlinked XDG_RUNTIME_DIR is refused" ;; *) fail "symlinked XDG accepted (got: $out)" ;; esac
+
+    out="$(_sec_state_dir TMPDIR="$tmp/missing")"
+    assert_contains "$out" "REFUSED" "no usable base directory -> refused"
+
+    local left; left="$(find "$priv" "$tmp/t" -mindepth 1 2>/dev/null)"
+    if [ -z "$left" ]; then ok "state dirs removed by cleanup"; else fail "leftovers: $left"; fi
+    rm -rf "$tmp"
+}
+
+scenario_async_without_state_dir_falls_back() {
+    section "async: no state directory -> synchronous, dirty still shown"
+    local d; d="$(mktemp_repo)"
+    git -C "$d" commit --allow-empty -qm init; : > "$d/f"
+    local out; out="$(TMPDIR="$d/missing" XDG_RUNTIME_DIR='' bga_render "$d" BASHGITAWARE_ASYNC=1)"
+    assert_contains "$out" "●" "dirty marker shown without async cache"
+    assert_lacks    "$out" "…" "no stuck pending indicator"
+    rm -rf "$d"
+}

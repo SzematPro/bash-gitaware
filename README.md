@@ -381,10 +381,11 @@ bash-gitaware/
 ├── install.sh              install to ~/.bashrc (--replace or --append)
 ├── bin/build.sh            concatenate lib/*.bash into new.bashrc
 ├── Makefile                build / test / lint / check / demo
-├── lib/                    canonical source, thirteen modules
+├── lib/                    canonical source, fourteen modules
 │   ├── 00-options.bash
 │   ├── 10-detect.bash
 │   ├── 15-escape.bash
+│   ├── 16-state.bash
 │   ├── 20-palette.bash
 │   ├── 30-git.bash
 │   ├── 40-path.bash

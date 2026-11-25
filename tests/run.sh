@@ -61,6 +61,8 @@ scenario_security_control_chars
 scenario_security_special_chars
 scenario_security_promptvars_off
 scenario_security_async_cache_private
+scenario_security_state_dir
+scenario_async_without_state_dir_falls_back
 
 # Performance.
 scenario_perf_budget

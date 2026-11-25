@@ -133,7 +133,9 @@ __bga_git_info_expensive_compute() {
 
 # Entry point used by the renderer. Picks the sync or async path.
 __bga_git_info() {
-    if [ "${BASHGITAWARE_ASYNC:-1}" = 0 ]; then
+    # Sync when async is off, or when it could not start (no safe state
+    # directory, non-interactive shell): otherwise "pending" never clears.
+    if [ "${BASHGITAWARE_ASYNC:-1}" = 0 ] || [ -z "${_bga_async_cache:-}" ]; then
         __bga_git_info_full
         _bga_async_pending=0
         return

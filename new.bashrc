@@ -148,6 +148,49 @@ __bga_term_safe() {
 }
 
 # ---------------------------------------------------------------------------
+# Private per-shell state directory.
+#
+# __bga_state_dir_init creates (once per shell) a fresh directory for caches
+# and worker results and stores it in _bga_state_dir, or leaves it empty and
+# returns 1 when no safe location exists. The directory is made with mktemp -d
+# (mode 0700, a name nobody can predict) under:
+#   1. $XDG_RUNTIME_DIR, only if it is a real directory (not a symlink) that we
+#      own and that group and others cannot write;
+#   2. otherwise ${TMPDIR:-/tmp}.
+# The result is checked again (a directory, not a symlink, owned by us, mode
+# 0700) before use, so a planted path is refused instead of trusted.
+# ---------------------------------------------------------------------------
+_bga_state_dir=''
+
+# True when $1 is a real directory owned by us that group/others cannot write.
+__bga_dir_private() {
+    [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] || return 1
+    [ -z "$(find "$1" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]
+}
+
+__bga_state_dir_init() {
+    [ -n "$_bga_state_dir" ] && [ -d "$_bga_state_dir" ] && return 0
+    _bga_state_dir=''
+    local base="${XDG_RUNTIME_DIR:-}" d
+    if [ -z "$base" ] || ! __bga_dir_private "$base"; then base="${TMPDIR:-/tmp}"; fi
+    d="$(umask 077 && mktemp -d "${base%/}/bga.XXXXXXXX" 2>/dev/null)" || return 1
+    # mktemp -d gives 0700; anything else means a hostile or broken mktemp.
+    if ! __bga_dir_private "$d" || [ -n "$(find "$d" -maxdepth 0 ! -perm 700 2>/dev/null)" ]; then
+        return 1
+    fi
+    _bga_state_dir="$d"
+}
+
+# Remove the state directory and everything we put in it. Only touches the
+# directory this shell created.
+__bga_state_dir_cleanup() {
+    [ -n "$_bga_state_dir" ] && [ -d "$_bga_state_dir" ] && [ ! -L "$_bga_state_dir" ] || return 0
+    rm -f "$_bga_state_dir"/* 2>/dev/null
+    rmdir "$_bga_state_dir" 2>/dev/null
+    _bga_state_dir=''
+}
+
+# ---------------------------------------------------------------------------
 # Color palette
 # ---------------------------------------------------------------------------
 if [ "$_bga_color" = 1 ]; then
@@ -347,7 +390,9 @@ __bga_git_info_expensive_compute() {
 
 # Entry point used by the renderer. Picks the sync or async path.
 __bga_git_info() {
-    if [ "${BASHGITAWARE_ASYNC:-1}" = 0 ]; then
+    # Sync when async is off, or when it could not start (no safe state
+    # directory, non-interactive shell): otherwise "pending" never clears.
+    if [ "${BASHGITAWARE_ASYNC:-1}" = 0 ] || [ -z "${_bga_async_cache:-}" ]; then
         __bga_git_info_full
         _bga_async_pending=0
         return
@@ -745,12 +790,10 @@ _bga_async_pending=0
 __bga_async_init() {
     [ "${BASHGITAWARE_ASYNC:-1}" = 0 ] && return
     [[ $- == *i* ]] || return
-    # Private per-shell directory: a predictable name in a shared /tmp would
-    # let another local user plant a symlink that the cache write follows.
-    # XDG_RUNTIME_DIR is per-user (0700) when set; mktemp -d makes 0700 too.
-    local base="${XDG_RUNTIME_DIR:-}"
-    if [ -z "$base" ] || [ ! -d "$base" ] || [ ! -O "$base" ]; then base="${TMPDIR:-/tmp}"; fi
-    _bga_async_dir="$(mktemp -d "$base/bga.XXXXXXXX" 2>/dev/null)" || { _bga_async_dir=''; return; }
+    # Private per-shell directory (lib/16-state.bash): never a predictable
+    # name in a shared /tmp. No safe directory -> async stays off.
+    __bga_state_dir_init || return
+    _bga_async_dir="$_bga_state_dir"
     _bga_async_cache="$_bga_async_dir/cache"
     trap '__bga_async_cleanup' EXIT
 }
@@ -759,10 +802,7 @@ __bga_async_cleanup() {
     if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
         kill -TERM "$_bga_async_pid" 2>/dev/null
     fi
-    if [ -n "${_bga_async_dir:-}" ] && [ -d "$_bga_async_dir" ]; then
-        rm -f "$_bga_async_dir"/cache "$_bga_async_dir"/cache.tmp.* 2>/dev/null
-        rmdir "$_bga_async_dir" 2>/dev/null
-    fi
+    __bga_state_dir_cleanup
 }
 
 # Try the cache for the current (PWD, gitdir) key. Hit -> populate the

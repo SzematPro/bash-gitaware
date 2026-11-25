@@ -139,16 +139,24 @@ check_acl() {
     fi
 }
 
-# Every ancestor directory up to / must not let others swap the path:
-# world-writable is only fine with the sticky bit and a root or own owner.
+# Every ancestor directory up to / must not let others swap the path: owned
+# by root or you; group-writable only by your primary group; writable by
+# others only with the sticky bit (like /tmp); no ACL write grants.
 check_ancestors() {
-    local d="$1" uid gid m me; me="$(id -u)"
+    local d="$1" uid gid m me mygid; me="$(id -u)"; mygid="$(id -g)"
     while :; do
         d="$(dirname -- "$d")"
         read -r uid gid m <<< "$(perm_of "$d")"
-        if [ $(( 8#$m & 2 )) -ne 0 ] && { [ $(( 8#$m & 512 )) -eq 0 ] || { [ "$uid" != 0 ] && [ "$uid" != "$me" ]; }; }; then
-            printf 'install: refusing: ancestor directory %s is writable by any user\n' "$d" >&2; return 1
+        if [ "$uid" != 0 ] && [ "$uid" != "$me" ]; then
+            printf 'install: refusing: ancestor %s is owned by uid %s\n' "$d" "$uid" >&2; return 1
         fi
+        if [ $(( 8#$m & 16 )) -ne 0 ] && [ "$gid" != "$mygid" ] && [ $(( 8#$m & 512 )) -eq 0 ]; then
+            printf 'install: refusing: ancestor %s is writable by group %s\n' "$d" "$gid" >&2; return 1
+        fi
+        if [ $(( 8#$m & 2 )) -ne 0 ] && [ $(( 8#$m & 512 )) -eq 0 ]; then
+            printf 'install: refusing: ancestor %s is writable by any user\n' "$d" >&2; return 1
+        fi
+        check_acl "$d" || return 1
         [ "$d" = / ] && return 0
     done
 }

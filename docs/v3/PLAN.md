@@ -80,7 +80,7 @@ Exit gate: SR4 (installer, file permissions, CLI input).
 | T4.2 | S2 | Powerline variant | With `nerd` glyphs, thin Powerline separators (U+E0B1 left, U+E0B3 right) instead of plain spacing; themes stay foreground-only; `BASHGITAWARE_POWERLINE=0` / `powerline = 0` turns it off; no Nerd Font: unchanged layout (`tests/lean.sh`) | done |
 | T4.3 | R11 | Bilingual docs | README rewritten for v3 in English and Spanish (`README.es.md`) with the same structure; `bin/check-doc-parity.py` compares headings, code blocks, table rows and links, in the suite and in CI; configuration guide and FAQ are folded into the READMEs and `docs/MIGRATION.md` | done |
 | T4.4 | R11 | Docs lint in CI | `docs` CI job: markdownlint-cli2-action v25.0.0 (MD060, MD038, MD013 off, MD024 siblings only), lychee-action v2.9.0 offline with `anchor-only` fragments, parity and contrast checks; markdownlint run locally with 0 errors; lychee not run locally (relative links checked by script) | done |
-| T4.5 | S4 | New demo | A vhs tape shows the ledger, the transient prompt and the themes; the GIF is under 400 KB | todo |
+| T4.5 | S4 | New demo | `demo/demo.tape` rerecorded with vhs: Lean prompt, dirty mark, node runtime on the right, transient collapse, result line, theme switch with bga; GIF 103 KB. Recording found two bugs (config in /tmp refused, runtimes gone after reload), fixed in 3553aec | done |
 | T4.6 | all | Migration guide from v2 | `docs/MIGRATION.md`: every v2 knob mapped (all kept), new knobs and config keys, deliberate behavior changes, install/uninstall | done |
 | T4.7 | all | Release 3.0.0 | One release commit, a tag, CHANGELOG; pushed only after the owner confirms | todo |
 

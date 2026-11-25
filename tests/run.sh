@@ -14,6 +14,8 @@ source "$HERE/lib.sh"
 source "$HERE/scenarios.sh"
 # shellcheck source=perf.sh
 source "$HERE/perf.sh"
+# shellcheck source=gitconfig.sh
+source "$HERE/gitconfig.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -59,6 +61,16 @@ scenario_security_control_chars
 scenario_security_special_chars
 scenario_security_promptvars_off
 scenario_security_async_cache_private
+scenario_security_special_files
+scenario_security_window_title
+scenario_security_fsmonitor
+scenario_security_transient_line
+scenario_security_c1_in_c_locale
+scenario_gitconfig_filter_driver
+scenario_gitconfig_include_skips_status
+scenario_gitconfig_forged_signature
+scenario_gitconfig_submodule_filter
+scenario_gitconfig_trust_knob
 
 # Performance.
 scenario_perf_budget

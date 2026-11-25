@@ -20,6 +20,7 @@
 __bga_ps1_lit() {
     local s="$1" bs=\\ dl='$' bt='`'
     s="${s//[[:cntrl:]]/?}"
+    case "$s" in *$'\xc2'*) __bga_strip_c1 "$s"; s="$REPLY" ;; esac
     if shopt -q promptvars; then
         s="${s//"$bs"/"$bs$bs"}"
         s="${s//"$dl"/"$bs$dl"}"
@@ -34,4 +35,24 @@ __bga_ps1_lit() {
 # outside PS1, e.g. the OSC 7 cwd report). Sets REPLY.
 __bga_term_safe() {
     REPLY="${1//[[:cntrl:]]/?}"
+    case "$REPLY" in *$'\xc2'*) __bga_strip_c1 "$REPLY" ;; esac
+}
+
+# C1 controls (U+0080-U+009F, UTF-8 bytes C2 80-9F; C2 9B is CSI) are only
+# [[:cntrl:]] in a UTF-8 locale. A shell in the C locale talking to a UTF-8
+# terminal would pass them through, so match the bytes under LC_ALL=C.
+__bga_strip_c1() {
+    local LC_ALL=C
+    REPLY="${1//$'\xc2'[$'\x80'-$'\x9f']/?}"
+}
+
+# Read the first line of a small file into REPLY (at most 256 bytes). Only
+# regular files: a cloned repo can ship .python-version -> /dev/zero, /dev/tty
+# or a FIFO, and an unbounded `read` there hangs every prompt.
+__bga_read_line() {
+    REPLY=''
+    [ -f "$1" ] && [ -r "$1" ] || return 1
+    IFS= read -r -n 256 REPLY < "$1" 2>/dev/null
+    REPLY="${REPLY%$'\r'}"
+    return 0
 }

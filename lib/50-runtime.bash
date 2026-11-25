@@ -26,7 +26,7 @@ __bga_runtime() {
        || [ -e "$PWD/setup.cfg" ] || [ -e "$PWD/requirements.txt" ] || [ -e "$PWD/Pipfile" ] \
        || [ -e "$PWD/.python-version" ]; then
         v=""
-        [ -r "$PWD/.python-version" ] && IFS= read -r v < "$PWD/.python-version" 2>/dev/null
+        __bga_read_line "$PWD/.python-version" && v="$REPLY"
         if [ -z "$v" ]; then
             if   command -v python3 >/dev/null 2>&1; then v="$(python3 --version 2>&1)"
             elif command -v python  >/dev/null 2>&1; then v="$(python --version 2>&1)"; fi
@@ -40,7 +40,7 @@ __bga_runtime() {
     if [ -e "$PWD/package.json" ]; then
         v=""
         for f in .nvmrc .node-version; do
-            [ -r "$PWD/$f" ] && { IFS= read -r v < "$PWD/$f" 2>/dev/null; v="${v#v}"; break; }
+            __bga_read_line "$PWD/$f" && { v="${REPLY#v}"; break; }
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"

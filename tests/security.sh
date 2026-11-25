@@ -108,3 +108,57 @@ scenario_security_async_cache_private() {
     if [ -z "$left" ]; then ok "cache dir removed at exit"; else fail "cache leftovers: $left"; fi
     rm -rf "$tmp"
 }
+
+scenario_security_special_files() {
+    section "security: version files that are devices or FIFOs do not hang the prompt"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
+    ln -s /dev/zero "$base/.python-version"
+    ln -s /dev/zero "$base/.nvmrc"; printf '{}\n' > "$base/package.json"
+    local rc=0
+    timeout 10 bash -c "$(declare -f bga_render); REPO='$REPO'; bga_render '$base'" >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = 124 ]; then fail "prompt hangs on .python-version -> /dev/zero"; else ok "symlink to /dev/zero is skipped"; fi
+    rm -rf "$base"
+}
+
+scenario_security_window_title() {
+    section "security: directory names cannot inject sequences through the title"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
+    local dir="$base/t"$'\a'"X"$'\e'"]52;c;aGk="$'\a'
+    mkdir -p "$dir"
+    local out; out="$(bga_render "$dir")"
+    assert_lacks "$out" $'\e]52' "no OSC 52 from a directory name"
+    rm -rf "$base"
+}
+
+scenario_security_fsmonitor() {
+    section "security: core.fsmonitor from a hostile .git/config is never run"
+    local d; d="$(mktemp_repo)"
+    git -C "$d" config core.fsmonitor "touch '$d/PWNED_FSM'; false"
+    bga_render "$d" >/dev/null
+    bga_render "$d" BASHGITAWARE_ASYNC=1 >/dev/null
+    if [ -e "$d/PWNED_FSM" ]; then fail "core.fsmonitor command ran"; else ok "core.fsmonitor command not run"; fi
+    rm -rf "$d"
+}
+
+scenario_security_transient_line() {
+    section "security: the transient prompt does not echo raw escape sequences"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8'
+        source '$REPO/new.bashrc'
+        _bga_transient_active=1 _bga_transient_lines=1
+        READLINE_LINE=\$'echo hi\e]52;c;aGk=\a\tx'
+        __bga_transient_collapse
+    " 2>/dev/null)"
+    assert_lacks    "$out" $'\e]52' "no raw OSC 52 from the typed line"
+    assert_contains "$out" "echo hi" "typed text still shown"
+}
+
+scenario_security_c1_in_c_locale() {
+    section "security: C1 controls are stripped even in the C locale"
+    local out
+    out="$(LC_ALL=C bash --norc --noprofile -c "
+        source '$REPO/lib/15-escape.bash'
+        __bga_ps1_lit \$'a\xc2\x9b31mb'; printf '%s' \"\$REPLY\"" 2>/dev/null)"
+    assert_lacks "$out" $'\xc2\x9b' "C1 CSI (C2 9B) removed under LC_ALL=C"
+}

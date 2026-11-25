@@ -2004,8 +2004,10 @@ __bga_cli_doctor() {
     case "${BASHGITAWARE_SHELL_DEFAULTS:-}" in
         0) __bga_doc info shell-defaults "off" ;;
         1) __bga_doc info shell-defaults "on (history, ls colors, aliases, completion)" ;;
-        *) __bga_doc note shell-defaults "not set: on, as in 3.0; 4.0 turns it off when unset"
-           printf '         choose with: bga config set shell_defaults 1   (or 0)\n' ;;
+        '') __bga_doc note shell-defaults "not set: on, as in 3.0; 4.0 turns it off when unset"
+            printf '         choose with: bga config set shell_defaults 1   (or 0)\n' ;;
+        *) __bga_term_safe "$BASHGITAWARE_SHELL_DEFAULTS"
+           __bga_doc note shell-defaults "on: BASHGITAWARE_SHELL_DEFAULTS='$REPLY' is not 0 or 1" ;;
     esac
     return "$bad"
 }
@@ -2030,7 +2032,7 @@ fi
 # sourced at top level, or its declarations would become function locals.
 # bash-gitaware never changes PATH.
 # ---------------------------------------------------------------------------
-if [ "${BASHGITAWARE_SHELL_DEFAULTS:-1}" = 1 ]; then
+if [ "${BASHGITAWARE_SHELL_DEFAULTS:-1}" != 0 ]; then
     HISTCONTROL=ignoreboth
     HISTSIZE=10000
     HISTFILESIZE=20000

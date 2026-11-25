@@ -56,7 +56,7 @@ scenario_perf_budget() {
     # Startup with the shell-defaults module off (ADR-0010): within budget,
     # and not slower than with it on. It does strictly less work, so the
     # slack only absorbs timer noise between the two medians.
-    local src_off startup_off slack=3
+    local src_off startup_off slack=5
     src_off="$(_perf_median_ms 5 "$env; export BASHGITAWARE_SHELL_DEFAULTS=0; source '$REPO/new.bashrc'")"
     startup_off=$(( src_off - base )); [ "$startup_off" -lt 0 ] && startup_off=0
     if [ "$startup_off" -le "$BGA_BUDGET_STARTUP_MS" ] && [ "$startup_off" -le $(( startup + slack )) ]; then

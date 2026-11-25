@@ -78,6 +78,8 @@ scenario_cli_theme_and_doctor() {
     assert_contains "$out" "info shell-defaults off" "doctor: shell_defaults = 0 reported as off"
     assert_lacks    "$out" "note shell-defaults" "doctor: no notice once set"
     if [ "$rc" = 0 ]; then ok "doctor exits 0 with shell_defaults set"; else fail "doctor exit $rc with shell_defaults set"; fi
+    out="$(BASHGITAWARE_SHELL_DEFAULTS=yes _bga_cmd doctor)"
+    assert_contains "$out" "is not 0 or 1" "doctor: an invalid env value is reported, not shown as unset"
     printf 'glyphs = bogus\n' > "$dir/config"
     out="$(_bga_cmd doctor 2>&1)"; rc=$?
     if [ "$rc" = 1 ]; then ok "doctor exits 1 on an invalid config"; else fail "doctor exit $rc on bad config"; fi

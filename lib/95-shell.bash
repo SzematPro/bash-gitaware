@@ -19,7 +19,7 @@ fi
 # sourced at top level, or its declarations would become function locals.
 # bash-gitaware never changes PATH.
 # ---------------------------------------------------------------------------
-if [ "${BASHGITAWARE_SHELL_DEFAULTS:-1}" = 1 ]; then
+if [ "${BASHGITAWARE_SHELL_DEFAULTS:-1}" != 0 ]; then
     HISTCONTROL=ignoreboth
     HISTSIZE=10000
     HISTFILESIZE=20000

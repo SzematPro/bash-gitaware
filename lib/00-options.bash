@@ -108,6 +108,7 @@ __bga_config_parse() {
         var="BASHGITAWARE_${k^^}"
         if [ "$pol" = 1 ]; then
             printf -v "$var" '%s' "$v"
+            _bga_policy_vars+="$var "
             case "$_bga_policy_locked" in *" $k "*) ;; *) _bga_policy_locked+="$k " ;; esac
         else
             case "$_bga_policy_locked" in *" $k "*) continue ;; esac
@@ -121,12 +122,13 @@ __bga_config_parse() {
 # REPLY says why. Regular file, not a symlink; it and every directory on its
 # physical path owned by uid 0 and not writable by group or others (one find
 # over all of them: each path that passes is printed, so a find that fails
-# or skips one fails closed); no ACL entry granting write.
+# or skips one fails closed); on macOS, no ACL entry granting write.
 __bga_policy_trusted() {
     local f="$1" d x out n=0
     REPLY=''
     if [ -L "$f" ]; then REPLY='is a symlink'; return 1; fi
     if [ ! -f "$f" ]; then REPLY='is not a regular file'; return 1; fi
+    if [ ! -r "$f" ]; then REPLY='is not readable (it should be mode 0644)'; return 1; fi
     d="${f%/*}"; [ -n "$d" ] || d=/
     d="$(CDPATH='' builtin cd -P -- "$d" 2>/dev/null && pwd -P)" || { REPLY='directory not accessible'; return 1; }
     local -a p=("${d%/}/${f##*/}")
@@ -139,15 +141,10 @@ __bga_policy_trusted() {
         REPLY='it or a parent directory is not owned by root, or is writable by group or others'
         return 1
     fi
-    if command -v getfacl >/dev/null 2>&1; then
-        out="$(getfacl -cp -- "${p[@]}" 2>/dev/null)"
-        case "$out" in *user:?*:?w* | *group:?*:?w*)
-            # Named entries only: user::/group:: are the mode bits checked above.
-            if printf '%s\n' "$out" | grep -Eq '^(user|group):[^:]+:.w'; then
-                REPLY='an ACL entry grants write access'; return 1
-            fi ;;
-        esac
-    elif [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+    # POSIX ACLs (Linux) need no separate check: a named entry with write
+    # access raises the mask, which shows as group write above, and a masked
+    # entry grants nothing. macOS ACLs do not show in the mode bits.
+    if [ "$(uname -s 2>/dev/null)" = Darwin ]; then
         # macOS lists ACL entries under each path as " N: who allow perms".
         out="$(ls -lde "${p[@]}" 2>/dev/null)"
         while [ -n "$out" ]; do
@@ -166,7 +163,7 @@ __bga_policy_trusted() {
 # _BGA_POLICY set before this file is sourced (an exported one is ignored,
 # like _BGA_CLI); the trust check applies there too (ADR-0011).
 __bga_policy_load() {
-    _bga_policy_locked=' ' _bga_policy_state=absent _bga_policy_reason=''
+    _bga_policy_locked=' ' _bga_policy_state=absent _bga_policy_reason='' _bga_policy_vars=''
     _bga_policy_path=/etc/bash-gitaware/policy
     if [ -n "${_BGA_POLICY:-}" ] && [[ "${_BGA_POLICY@a}" != *x* ]]; then _bga_policy_path="$_BGA_POLICY"; fi
     [ -e "$_bga_policy_path" ] || [ -L "$_bga_policy_path" ] || return 0
@@ -199,6 +196,35 @@ __bga_config_load() {
     fi
     __bga_config_parse "$f" config 0
 }
+# bga reload re-sources this file. Values that bash-gitaware itself set on
+# the previous load (policy, config file, presets, plain-mode defaults) are
+# unset first, or they would look like environment and shadow the files; the
+# user's own environment is kept. _bga_managed is filled by
+# __bga_settings_mark (end of lib/10-detect.bash). ${!prefix@} lists names
+# without a subshell.
+__bga_settings_reset() {
+    local rest="${_bga_managed:-}" v
+    while [ -n "$rest" ]; do
+        v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
+        [ -n "$v" ] && unset "$v"
+    done
+    _bga_managed='' _bga_env_vars=' '
+    for v in "${!BASHGITAWARE_@}"; do _bga_env_vars+="$v "; done
+}
+__bga_settings_mark() {
+    local v
+    _bga_managed=''
+    for v in "${!BASHGITAWARE_@}"; do
+        case "$_bga_env_vars" in *" $v "*) ;; *) _bga_managed+="$v " ;; esac
+    done
+    # Policy values replace the environment's: always ours to reset.
+    local rest="${_bga_policy_vars:-}"
+    while [ -n "$rest" ]; do
+        v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
+        case " $_bga_managed" in *" $v "*) ;; *) [ -n "$v" ] && _bga_managed+="$v " ;; esac
+    done
+}
+__bga_settings_reset
 __bga_policy_load
 __bga_config_load
 

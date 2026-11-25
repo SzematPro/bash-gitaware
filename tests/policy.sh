@@ -2,10 +2,10 @@
 # shellcheck shell=bash disable=SC2016  # payloads are literal on purpose
 #
 # Trust tests need root-owned files: tests/policy-fixtures.sh creates them
-# under /opt/bga-policy-test (CI runs it as root). Without them those tests
+# under /etc/bga-policy-test (CI runs it as root). Without them those tests
 # are skipped.
 
-_PF=/opt/bga-policy-test
+_PF=/etc/bga-policy-test
 
 # Interactive bash: $1 = policy path (set unexported, the test seam), $2 =
 # set-up before sourcing, $3 = commands after. stderr is kept.
@@ -84,13 +84,18 @@ scenario_policy_applied() {
     # bga reload keeps the policy on top.
     out="$(_pol_run "$_PF/ok/policy" '' 'export BASHGITAWARE_THEME=light; bga reload >/dev/null 2>&1; echo "theme=$BASHGITAWARE_THEME"')"
     assert_contains "$out" "theme=contrast" "policy still wins after bga reload"
+    # A policy that no longer applies on reload leaves nothing behind: the
+    # user config takes over again (the seam path stands in for a removal).
+    out="$(_pol_run "$_PF/ok/policy" "printf 'theme = light\n' > \"\$HOME/config\"; chmod 600 \"\$HOME/config\"" \
+        '_BGA_POLICY=/nonexistent/policy; bga reload >/dev/null 2>&1; echo "theme=$BASHGITAWARE_THEME glyphs=${BASHGITAWARE_GLYPHS:-unset} state=$_bga_policy_state"')"
+    assert_contains "$out" "theme=light glyphs=unset state=absent" "removed policy: its values are gone after bga reload"
 }
 
 scenario_policy_refused() {
     section "policy: refused when anyone but root could change it"
     if ! _pol_have_fixtures; then skip "policy fixtures missing (run tests/policy-fixtures.sh as root)"; return; fi
     local c out rc
-    for c in gw dirw link fifo acl; do
+    for c in gw dirw link fifo unreadable acl; do
         if [ "$c" = acl ] && [ ! -e "$_PF/acl/policy" ]; then skip "policy acl: no ACL support here"; continue; fi
         out="$(run_bounded 10 _pol_run "$_PF/$c/policy" '' 'echo "theme=${BASHGITAWARE_THEME:-unset} state=$_bga_policy_state"; bga doctor >/dev/null 2>&1; echo "doctor=$?"')"; rc=$?
         if [ "$rc" = 124 ]; then fail "policy $c: shell hung"; continue; fi

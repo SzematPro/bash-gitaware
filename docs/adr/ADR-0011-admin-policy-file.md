@@ -38,19 +38,33 @@ that layer has to be at least as hard to tamper with as the user's config.
   applied (with the locked keys) or refused (with the reason), and exits 1
   when it is refused.
 - **Trust.** The policy is used only if all of these hold:
-  - it is a regular file and not a symlink;
+  - it is a regular file, not a symlink, and readable (a root-only 0600
+    policy would otherwise look applied while nothing was read);
   - it and every directory on its physical path (resolved with `cd -P`, so
     a root-owned `/etc -> /private/etc` symlink on macOS is fine) are owned
     by uid 0;
   - none of them is writable by group or others;
-  - no ACL entry grants write access (`getfacl` where it exists, `ls -le`
-    on macOS).
+  - on macOS, no ACL entry grants write access (`ls -le`). Linux POSIX ACLs
+    need no separate check: a named entry with write access raises the mask,
+    which shows as group write, and a masked entry grants nothing.
 
   A policy that fails any check is ignored as a whole, with one warning that
   names the reason. That warning appears in every shell, on purpose: a
   policy that cannot be trusted is a problem for the administrator to fix.
-  Using part of an untrusted file would be worse than using none of it. The checks run only when the file exists, in one `find`
-  call over all the path components, plus one ACL query.
+  Using part of an untrusted file would be worse than using none of it.
+  The checks run only when the file exists: one `find` call over all the
+  path components, plus one ACL listing on macOS.
+- **Reload.** `bga reload` re-sources `new.bashrc`. Every `BASHGITAWARE_*`
+  value that bash-gitaware assigned on the previous load (policy, config
+  file, presets, plain-mode defaults) is unset first, so a removed or
+  changed policy, or an edited config, takes effect. The user's own
+  environment is kept, except for values that the policy replaced. This
+  also fixes a 3.0 bug: `bga theme set X; bga reload` kept the old theme.
+- **What a lock covers.** A lock covers the key, not every way of reaching
+  the same effect. `glyphs` has priority over `nerd_font`, so to fix the
+  glyph set, lock `glyphs`. A locked `preset` fixes the preset, but the
+  user's individual keys still override the defaults it sets, as they do
+  without a policy.
 - **Threat model.** The policy protects users from *other* local users:
   nobody but root can write it, so nobody but root can change another
   user's prompt through it. It is **not** a boundary against the account

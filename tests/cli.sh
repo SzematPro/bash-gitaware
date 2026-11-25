@@ -87,6 +87,25 @@ scenario_cli_theme_and_doctor() {
     rm -rf "$dir"
 }
 
+scenario_cli_reload_applies_config() {
+    section "bga reload applies config changes (3.0 kept the old values)"
+    local dir out; dir="$(mktemp -d "${TMPDIR:-/tmp}/bga-cli-XXXXXX")"
+    printf 'theme = light\npreset = minimal\n' > "$dir/config"; chmod 600 "$dir/config"
+    out="$(BASHGITAWARE_CONFIG="$dir/config" bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH'
+        source '$REPO/new.bashrc'
+        bga theme set contrast >/dev/null; bga config set preset default
+        bga reload >/dev/null 2>&1
+        echo \"theme=\$BASHGITAWARE_THEME runtime=\${BASHGITAWARE_RUNTIME:-unset}\"" 2>/dev/null)"
+    assert_contains "$out" "theme=contrast runtime=unset" "reload: new config value and preset applied"
+    out="$(BASHGITAWARE_CONFIG="$dir/config" BASHGITAWARE_THEME=aware bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH'; IFS=:
+        source '$REPO/new.bashrc'; bga reload >/dev/null 2>&1
+        echo \"theme=\$BASHGITAWARE_THEME\"" 2>/dev/null)"
+    assert_contains "$out" "theme=aware" "reload: the user's environment still wins (IFS=:)"
+    rm -rf "$dir"
+}
+
 scenario_cli_shell_function() {
     section "bga as a shell function: available, reload is idempotent"
     local out

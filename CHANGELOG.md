@@ -26,6 +26,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI tests macOS both with and without Homebrew coreutils. The render budget
   is now set per platform: 60 ms, or 90 ms on macOS.
 
+### Fixed
+
+- `bga reload` now applies config changes. Before, `bga theme set X;
+  bga reload` kept the old theme, because values loaded from the config
+  file counted as environment on the second load.
+
 ### Removed
 
 - bash-gitaware no longer adds `~/.npm-global/bin` to `PATH`. If you need

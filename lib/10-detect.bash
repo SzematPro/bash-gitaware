@@ -81,3 +81,6 @@ if [ "$_bga_plain" = 1 ]; then
     : "${BASHGITAWARE_OSC:=0}" "${BASHGITAWARE_TRANSIENT:=0}" "${BASHGITAWARE_ASYNC:=0}"
     : "${BASHGITAWARE_GLYPHS:=ascii}" "${BASHGITAWARE_COMMIT_LINE:=0}"
 fi
+# Every default bash-gitaware assigns is in place now: remember which
+# BASHGITAWARE_* variables are ours, for bga reload (lib/00-options.bash).
+__bga_settings_mark

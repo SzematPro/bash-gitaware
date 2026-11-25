@@ -253,7 +253,8 @@ __bga_cli_doctor() {
     case "${_bga_policy_state:-absent}" in
         applied)
             k="${_bga_policy_locked# }"; k="${k% }"
-            __bga_doc ok policy "$v (locks: ${k// /, })"
+            if [ -n "$k" ]; then k="${k// /, }"; else k=none; fi
+            __bga_doc ok policy "$v (locks: $k)"
             if [ -f "$f" ]; then
                 # Split on spaces whatever the caller's IFS (shell-state rule).
                 local IFS=' '

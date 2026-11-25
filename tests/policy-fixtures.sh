@@ -7,10 +7,13 @@
 set -eu
 [ "$(id -u)" = 0 ] || { echo "policy-fixtures: must run as root" >&2; exit 1; }
 
-b=/opt/bga-policy-test
+# Under /etc: hosted runners grant their user ACL write access on /opt, which
+# would (correctly) make every fixture untrusted. On macOS /etc is a
+# root-owned symlink to /private/etc, which the trust check must accept.
+b=/etc/bga-policy-test
 rm -rf "$b"
 mkdir -p "$b"
-chmod 755 /opt "$b"
+chmod 755 "$b"
 
 mk() {  # mk <dir> <mode> <content>
     mkdir -p "$b/$1"; chmod 755 "$b/$1"
@@ -27,6 +30,9 @@ glyphs = sparkly
 no equals here
 '
 mk gw 664 'theme = contrast
+'
+# Root-only readable (a umask 077 mistake): refused, not half applied.
+mk unreadable 600 'theme = contrast
 '
 # A directory others can write: anyone could swap the file.
 mk dirw 644 'theme = contrast

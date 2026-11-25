@@ -82,9 +82,11 @@ __bga_config_load() {
     # file between this check and the read.
     # The file: ours, and nobody else may write it. Its directory: nobody
     # else may write it either, unless it is sticky (like /tmp), where other
-    # users cannot replace a file they do not own.
+    # users cannot replace a file they do not own -- but they can plant a
+    # symlink there, so a symlinked config in such a directory is refused.
     if [ ! -O "$f" ] || [ -n "$(find -L "$f" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ] \
-       || [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) ! -perm -1000 2>/dev/null)" ]; then
+       || [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) ! -perm -1000 2>/dev/null)" ] \
+       || { [ -L "$f" ] && [ -n "$(find -L "${f%/*}" -maxdepth 0 -perm -002 2>/dev/null)" ]; }; then
         __bga_config_warn "$f: owned or writable by other users, ignored"; return 0
     fi
     local line k v n=0 var q=\'

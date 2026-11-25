@@ -75,5 +75,9 @@ scenario_config_file_sticky_dir() {
     assert_contains "$out" "p=minimal" "sticky directory (like /tmp): accepted"
     out="$(_cf_run "$dir/open/config" 'echo "p=${BASHGITAWARE_PRESET-unset}"')"
     assert_contains "$out" "p=unset" "world-writable, non-sticky directory: refused"
+    printf 'preset = minimal\n' > "$dir/mine"; chmod 600 "$dir/mine"
+    ln -s "$dir/mine" "$dir/sticky/link"
+    out="$(_cf_run "$dir/sticky/link" 'echo "p=${BASHGITAWARE_PRESET-unset}"')"
+    assert_contains "$out" "p=unset" "symlink planted in a sticky directory: refused"
     chmod 755 "$dir/open" "$dir/sticky"; rm -rf "$dir"
 }

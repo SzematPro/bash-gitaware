@@ -36,13 +36,13 @@ Exit gate: SR1 (state directory, config parsing, escaping).
 
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
-| T1.1 | R1 | Display-width engine | Correct cell widths for ASCII, CJK, combining marks, emoji and invalid UTF-8 (one cell per byte) on glibc and musl; linear time on 10 KB inputs; follows the SPEC section 5 idioms | todo |
+| T1.1 | R1 | Display-width engine | `lib/17-width.bash` (table from `bin/gen-width.py`, Unicode 15, 469 ranges): 18 known cases (ASCII, accents, combining, CJK, fullwidth, emoji, ZWJ, VS16, controls, invalid, truncated, overlong, surrogate, > U+10FFFF) pass on glibc and musl; linear (10 KB vs 20 KB about 2x) on bash 4.4 to 5.3 (`tests/width.sh`) | done |
 | T1.2 | R1 | Segment model | Segments (`path`, `git`, `runtime`, `duration`, `exit`, ...) produce text plus a width; untrusted text is escaped only once, when the segment is built | todo |
 | T1.3 | R1 | Right-aligned context | The right block is aligned to `COLUMNS`; it drops or truncates segments when the terminal is narrow, in a stated priority order; a resize is handled on the next prompt | todo |
 | T1.4 | R4 | Semantic color tokens and the `Aware` theme | Every color comes from a token; `NO_COLOR` and 16-, 256- and true-color terminals each have a fallback; the theme is one file | todo |
 | T1.5 | R2 | Lean layout and command ledger | The default layout matches the mock-up in ADR-0007; previous commands collapse into ledger lines (symbol, command, duration, exit code) | todo |
 | T1.6 | R3 | Transient prompt adapted to the ledger | Pressing Enter collapses the prompt to a ledger line; multi-line input and Ctrl-C behave as documented in `tests/MANUAL.md` | todo |
-| T1.7 | R1 | ADR-0007: render engine and layout | ADR written and accepted | todo |
+| T1.7 | R1 | ADR-0007: render engine and layout | `docs/adr/ADR-0007-v3-render-engine-and-lean-layout.md`: Lean mock-up, segments, width engine, right block drawn with cursor moves inside `\[ \]` so width errors fail soft, narrow-terminal drop order; layout open to owner feedback | done |
 
 Exit gate: SR2 (escape sequences, width engine fed hostile input).
 

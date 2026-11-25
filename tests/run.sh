@@ -81,6 +81,7 @@ scenario_install_append_idempotent
 scenario_install_help
 scenario_install_tamper_check
 scenario_install_uninstall
+scenario_install_hostile_path
 scenario_install_interactive
 scenario_path_maxdepth
 scenario_runtime_cache

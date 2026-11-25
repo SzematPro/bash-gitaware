@@ -43,6 +43,14 @@ scenario_cli_config() {
     ln -s "$f" "$dir/link"
     BASHGITAWARE_CONFIG="$dir/link" _bga_cmd config set glyphs ascii 2>/dev/null; rc=$?
     if [ "$rc" = 1 ] && [ -L "$dir/link" ]; then ok "symlinked config not replaced"; else fail "symlink handling ($rc)"; fi
+    # SR4: a directory at the config path is refused; control characters in
+    # the file never reach the terminal through list or loader warnings.
+    mkdir -p "$dir/isdir/config"
+    BASHGITAWARE_CONFIG="$dir/isdir/config" _bga_cmd config set glyphs ascii 2>/dev/null; rc=$?
+    if [ "$rc" = 1 ]; then ok "directory at the config path refused"; else fail "directory path exit $rc"; fi
+    printf 'style = classic\n\033]0;PWN\a = 1\n' > "$dir/esc"; chmod 600 "$dir/esc"
+    out="$(BASHGITAWARE_CONFIG="$dir/esc" _bga_cmd config list 2>&1; BASHGITAWARE_CONFIG="$dir/esc" _bga_cmd doctor 2>&1)"
+    assert_lacks "$out" $'\e]0;PWN' "no raw escape from the config file"
     unset BASHGITAWARE_CONFIG
     rm -rf "$dir"
 }

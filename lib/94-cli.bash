@@ -74,12 +74,12 @@ __bga_cli_config() {
             while IFS= read -r line || [ -n "$line" ]; do
                 line="${line%$'\r'}"
                 case "$line" in '' | [[:blank:]]*'#'* | '#'*) continue ;; *=*) ;; *) continue ;; esac
-                printf '%s\n' "$line"
+                __bga_term_safe "$line"; printf '%s\n' "$REPLY"
             done < "$f" ;;
         get)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config get KEY"; return 2; }
             __bga_cli_cfg_find "$f" "$1" || return 1
-            printf '%s\n' "$REPLY" ;;
+            __bga_term_safe "$REPLY"; printf '%s\n' "$REPLY" ;;
         set)
             [ "$#" = 2 ] || { __bga_cli_err "usage: bga config set KEY VALUE"; return 2; }
             key="${1,,}"
@@ -121,31 +121,33 @@ __bga_cli_cfg_find() {
 # file in the same directory, then mv) and the file stays 0600. A symlinked
 # config is not replaced: the link would silently become a regular file.
 __bga_cli_cfg_write() {
-    local f="$1" key="$2" dir tmp line k done_=0 set_=0
+    local f="$1" key="$2" dir tmp line k done_=0 set_=0 out=''
     [ "$#" = 3 ] && set_=1
     if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
+    if [ -e "$f" ] && [ ! -f "$f" ]; then __bga_cli_err "$f is not a regular file"; return 1; fi
     dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
     ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
+    # Build the new content first, then write it with one printf whose
+    # status is checked: a full disk must not leave a truncated config.
+    if [ -f "$f" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            k="${line%$'\r'}"; k="${k#"${k%%[![:blank:]]*}"}"
+            case "$k" in
+                '#'* | '') out+="$line"$'\n'; continue ;;
+                *=*) k="${k%%=*}"; k="${k%"${k##*[![:blank:]]}"}" ;;
+                *) out+="$line"$'\n'; continue ;;
+            esac
+            if [ "${k,,}" = "$key" ]; then
+                if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
+                done_=1
+                continue
+            fi
+            out+="$line"$'\n'
+        done < "$f"
+    fi
+    if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
     tmp="$(umask 077; mktemp "$dir/.config.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
-    {
-        if [ -f "$f" ]; then
-            while IFS= read -r line || [ -n "$line" ]; do
-                k="${line%$'\r'}"; k="${k#"${k%%[![:blank:]]*}"}"
-                case "$k" in
-                    '#'* | '') printf '%s\n' "$line"; continue ;;
-                    *=*) k="${k%%=*}"; k="${k%"${k##*[![:blank:]]}"}" ;;
-                    *) printf '%s\n' "$line"; continue ;;
-                esac
-                if [ "${k,,}" = "$key" ]; then
-                    if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then printf '%s = %s\n' "$key" "$3"; fi
-                    done_=1
-                    continue
-                fi
-                printf '%s\n' "$line"
-            done < "$f"
-        fi
-        if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then printf '%s = %s\n' "$key" "$3"; fi
-    } > "$tmp" || { rm -f "$tmp"; __bga_cli_err "write failed"; return 1; }
+    if ! printf '%s' "$out" > "$tmp"; then rm -f "$tmp"; __bga_cli_err "write failed; $f unchanged"; return 1; fi
     mv -f "$tmp" "$f" || { rm -f "$tmp"; __bga_cli_err "cannot replace $f"; return 1; }
 }
 

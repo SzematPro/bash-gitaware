@@ -31,7 +31,9 @@ _bga_src="${BASH_SOURCE[0]}"
 # _BGA_CLI=1 to load the CLI and the settings it reports on.
 case $- in
     *i*) ;;
-      *) [ -n "${_BGA_CLI:-}" ] || return ;;
+      # Only a plain (unexported) _BGA_CLI counts: an exported one would
+      # change every non-interactive script that sources this file.
+      *) { [ -n "${_BGA_CLI:-}" ] && [[ "${_BGA_CLI@a}" != *x* ]]; } || return ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -47,7 +49,9 @@ esac
 # refused when someone else owns it or group/others can write it (a symlink is
 # fine if its target passes).
 # ---------------------------------------------------------------------------
-__bga_config_warn() { printf 'bash-gitaware: %s\n' "$*" >&2; }
+# Warnings echo keys and paths from the file: strip control characters so a
+# hostile config cannot send escape sequences to the terminal.
+__bga_config_warn() { local m="$*"; printf 'bash-gitaware: %s\n' "${m//[[:cntrl:]]/?}" >&2; }
 
 # Valid values per key, as a case pattern. Echoes nothing; returns 1 if invalid.
 __bga_config_valid() {

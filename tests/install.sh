@@ -36,13 +36,37 @@ scenario_install_uninstall() {
     out="$(cat "$c/rc")"
     assert_contains "$out" "export KEEP=1" "user content kept"
     assert_lacks    "$out" "new.bashrc"    "source block removed"
-    printf 'original\n' > "$c/rc2"
+    printf 'ORIGINAL-RC-MARKER\n' > "$c/rc2"
     bash "$c/repo/install.sh" --replace --target "$c/rc2" >/dev/null 2>&1
     bash "$c/repo/install.sh" --uninstall --target "$c/rc2" >/dev/null 2>&1
-    assert_contains "$(cat "$c/rc2")" "original" "replaced file restored from its backup"
+    assert_contains "$(cat "$c/rc2")" "ORIGINAL-RC-MARKER" "replaced file restored from its backup"
     out="$(bash "$c/repo/install.sh" --uninstall --target "$c/rc2" 2>&1)"
     assert_contains "$out" "nothing to do" "uninstall twice is a no-op"
+    # SR4: lines that merely mention bash-gitaware are the user's and stay.
+    printf 'alias x=1  # bash-gitaware tweak, keep\n' > "$c/rc4"
+    bash "$c/repo/install.sh" --append --target "$c/rc4" >/dev/null 2>&1
+    bash "$c/repo/install.sh" --uninstall --target "$c/rc4" >/dev/null 2>&1
+    assert_contains "$(cat "$c/rc4")" "alias x=1  # bash-gitaware tweak, keep" "user line mentioning bash-gitaware kept"
+    # SR4: a backup someone else could have written is not restored.
+    printf 'ORIGINAL-RC-MARKER\n' > "$c/rc5"
+    bash "$c/repo/install.sh" --replace --target "$c/rc5" >/dev/null 2>&1
+    printf 'echo EVIL\n' > "$c/rc5.bak-9999999999"; chmod 666 "$c/rc5.bak-9999999999"
+    bash "$c/repo/install.sh" --uninstall --target "$c/rc5" >/dev/null 2>&1
+    assert_lacks "$(cat "$c/rc5")" "echo EVIL" "world-writable planted backup not restored"
     rm -rf "$c"
+}
+
+scenario_install_hostile_path() {
+    section "install.sh --append: a repository path with \$(...) is quoted"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-inst-XXXXXX")"
+    local c="$base/x\$(touch \$HOME/PWNED_INST)y"
+    mkdir -p "$c/bin"; cp "$REPO/install.sh" "$REPO/new.bashrc" "$c/"; cp "$REPO/bin/bga" "$c/bin/"
+    chmod 755 "$c"
+    bash "$c/install.sh" --append --target "$base/rc" >/dev/null 2>&1
+    assert_contains "$(cat "$base/rc" 2>/dev/null)" "new.bashrc" "append happened for the odd path"
+    HOME="$base" bash --norc --noprofile -c "source '$base/rc'" >/dev/null 2>&1
+    if [ -e "$base/PWNED_INST" ]; then fail "source line executed the path"; else ok "source line quotes the path"; fi
+    rm -rf "$base"
 }
 
 scenario_install_interactive() {

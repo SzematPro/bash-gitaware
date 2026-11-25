@@ -14,7 +14,7 @@
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
 | T5.1 | M3 | macOS CI with `gtimeout` | The `macos-tests` job runs as a matrix (`watchdog`, `gtimeout` with `brew install coreutils`); `tests/perf.sh` reports which path it measured (`timeout`, `gtimeout`, `watchdog`) and applies 60 ms or 90 ms; the job is green 3 runs in a row before the task closes; if it measures over 60 ms, that is a ruling, not a budget change in the task | doing |
-| T5.2 | M3 | `tests/MANUAL.md` for 3.x | No v2 milestone sections or `/tmp/bga-$$.cache` paths; checks for Lean, ledger, transient, right block on a narrow terminal, themes, plain mode, `bga doctor`, state directory; each check names the command to run | todo |
+| T5.2 | M3 | `tests/MANUAL.md` for 3.x | No v2 milestone sections or `/tmp/bga-$$.cache` paths; checks for Lean, ledger, transient, right block on a narrow terminal, themes, plain mode, `bga doctor`, state directory; each check names the command to run | done |
 | T5.3 | M1 | `shell_defaults` key | Loader accepts `shell_defaults = 0 \| 1` and `BASHGITAWARE_SHELL_DEFAULTS`; 0: no aliases, `HISTCONTROL`/`HISTSIZE` untouched, no `dircolors`/`lesspipe` eval, no completion or `~/.bash_aliases` sourced; 1 or unset: current behavior (`tests/config.sh`, new `tests/shell.sh`) | todo |
 | T5.4 | M1 | Drop the `PATH` entry | `new.bashrc` never changes `PATH` with any setting (test compares `PATH` before and after sourcing) | todo |
 | T5.5 | M1 | Installer writes the key | Interactive installer asks (default 0 for append, 1 for replace); `--yes` writes the mode's default; re-running keeps an existing value; `--uninstall` unchanged (`tests/install.sh`, interactive path through `script`) | todo |

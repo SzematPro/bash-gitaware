@@ -27,6 +27,7 @@ usage: bga <command> [args]
   config get KEY              print one setting
   config set KEY VALUE        validate and store a setting
   config unset KEY            remove a setting
+  config edit                 edit the file in $VISUAL/$EDITOR, validated before saving
   theme list                  list the themes
   theme preview [NAME]        show a sample prompt in a theme
   theme set NAME              store the theme in the config file
@@ -103,6 +104,9 @@ __bga_cli_config() {
             esac
             __bga_cli_locked "$key" && return 1
             __bga_cli_cfg_write "$f" "$key" "$2" ;;
+        edit)
+            [ "$#" = 0 ] || { __bga_cli_err "usage: bga config edit"; return 2; }
+            __bga_cli_cfg_edit "$f" ;;
         unset)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config unset KEY"; return 2; }
             __bga_key_lc "$1"; key="$REPLY"
@@ -166,6 +170,48 @@ __bga_cli_cfg_write() {
     tmp="$(umask 077; mktemp "$dir/.config.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
     if ! printf '%s' "$out" > "$tmp"; then rm -f "$tmp"; __bga_cli_err "write failed; $f unchanged"; return 1; fi
     mv -f "$tmp" "$f" || { rm -f "$tmp"; __bga_cli_err "cannot replace $f"; return 1; }
+}
+
+# Edit config file $1 in the user's editor. The editor works on a 0600 copy
+# next to the file; the copy is validated with the loader's own parser and
+# replaces the file (mv, atomic) only when the user keeps it. The editor
+# command goes through sh -c, as git does, so "code --wait" works.
+__bga_cli_cfg_edit() {
+    local f="$1" dir tmp ed="${VISUAL:-${EDITOR:-vi}}" msgs a k notes rest REPLY
+    if [ ! -t 0 ] || [ ! -t 1 ]; then __bga_cli_err "config edit needs a terminal; use bga config set"; return 2; fi
+    if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
+    if [ -e "$f" ] && [ ! -f "$f" ]; then __bga_cli_err "$f is not a regular file"; return 1; fi
+    dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
+    ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
+    tmp="$(umask 077; mktemp "$dir/.config.edit.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
+    if [ -f "$f" ]; then
+        cat -- "$f" > "$tmp" || { rm -f "$tmp"; __bga_cli_err "cannot read $f"; return 1; }
+    else
+        printf '# bash-gitaware settings: key = value (see bga help)\n' > "$tmp"
+    fi
+    while :; do
+        if ! sh -c "$ed \"\$1\"" sh "$tmp"; then
+            rm -f "$tmp"; __bga_cli_err "the editor failed; $f unchanged"; return 1
+        fi
+        # Validate in a subshell: parsing assigns variables.
+        msgs="$( { __bga_config_parse "$tmp" config 0; } 2>&1 >/dev/null )"
+        notes='' rest="${_bga_policy_locked:- }"
+        while [ -n "${rest// /}" ]; do
+            rest="${rest# }"; k="${rest%% *}"; rest="${rest#"$k"}"
+            __bga_cli_cfg_find "$tmp" "$k" && notes+="bga: '$k' is locked by the administrator policy; that line has no effect"$'\n'
+        done
+        [ -n "$notes" ] && printf '%s' "$notes" >&2
+        [ -z "$msgs" ] && break
+        printf '%s\n' "$msgs" | sed 's/^bash-gitaware: /bga: /' >&2
+        while :; do
+            printf 'Edit again or discard your changes? [e/d] ' >&2
+            IFS= read -r a || a=d
+            case "$a" in e | E | '') continue 2 ;; d | D) rm -f "$tmp"; printf 'bga: discarded; %s unchanged\n' "$f" >&2; return 1 ;; esac
+        done
+    done
+    chmod 600 "$tmp" 2>/dev/null
+    mv -f "$tmp" "$f" || { rm -f "$tmp"; __bga_cli_err "cannot replace $f"; return 1; }
+    printf 'saved %s; open a new shell or run: bga reload\n' "$f"
 }
 
 # --- theme -------------------------------------------------------------------

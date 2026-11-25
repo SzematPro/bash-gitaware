@@ -128,8 +128,8 @@ mini-language, and an animated pending indicator (ruled out in R-5).
 
 ### S8 `bga config edit`
 
-- Opens `$VISUAL`, then `$EDITOR`, then `vi` on a 0600 temp copy in the
-  state directory. On exit the copy is validated with the loader's rules.
+- Opens `$VISUAL`, then `$EDITOR`, then `vi` on a 0600 temp copy next to
+  the config file, so the save is an atomic `mv`. On exit the copy is validated with the loader's rules.
 - Valid: saved atomically (the same path as `bga config set`). Invalid: the
   warnings are shown, and the user chooses to edit again or discard. The
   original is never left half written.

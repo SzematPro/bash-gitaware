@@ -132,3 +132,54 @@ scenario_cli_reload_keeps_runtime() {
     assert_contains "$out" "node 20.1.0" "runtime shown after reload"
     rm -rf "$base"
 }
+
+scenario_cli_config_edit() {
+    section "bga config edit: validated before saving"
+    local dir f out rc; dir="$(mktemp -d "${TMPDIR:-/tmp}/bga-cli-XXXXXX")"; f="$dir/cfg/config"
+    mkdir -m 700 "$dir/cfg"
+    out="$(BASHGITAWARE_CONFIG="$f" _bga_cmd config edit </dev/null 2>&1)"; rc=$?
+    if [ "$rc" = 2 ]; then ok "no terminal: exit 2"; else fail "no terminal: exit $rc"; fi
+    assert_contains "$out" "needs a terminal" "no terminal: says why"
+    if ! command -v script >/dev/null 2>&1 || ! script -qc true /dev/null >/dev/null 2>&1; then
+        skip "config edit on a terminal (needs util-linux script)"; rm -rf "$dir"; return
+    fi
+    # Editors: append a valid line; append an invalid one; fail; invalid
+    # first, then fixed on the second run.
+    printf '#!/bin/sh\nprintf "clock = 1\\n" >> "$1"\n' > "$dir/ed-ok"
+    printf '#!/bin/sh\nprintf "glyphs = bogus\\n" >> "$1"\n' > "$dir/ed-bad"
+    printf '#!/bin/sh\nexit 3\n' > "$dir/ed-fail"
+    {
+        printf '#!/bin/sh\n'
+        printf 'mark=%s/n\n' "$dir"
+        printf '%s\n' 'if [ -e "$mark" ]; then' \
+            '  sed "s/bogus/ascii/" "$1" > "$1.n" && cat "$1.n" > "$1" && rm -f "$1.n"' \
+            'else' '  : > "$mark"; printf "glyphs = bogus\n" >> "$1"' 'fi'
+    } > "$dir/ed-fix"
+    chmod 755 "$dir"/ed-*
+    printf '# keep this comment\ntheme = light\n' > "$f"; chmod 600 "$f"
+    _ce() { printf '%s' "$2" | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/$1" VISUAL='' script -qc "'$REPO/bin/bga' config edit" /dev/null 2>&1; }
+
+    out="$(_ce ed-ok '')"
+    assert_contains "$(cat "$f")" "clock = 1" "valid edit saved"
+    assert_contains "$(cat "$f")" "# keep this comment" "comments kept"
+    if [ -z "$(find "$f" -maxdepth 0 -perm 600 2>/dev/null)" ]; then fail "saved file is not mode 0600"; else ok "saved file is mode 0600"; fi
+    assert_contains "$out" "bga reload" "save says how to apply"
+
+    cp "$f" "$dir/before"
+    out="$(_ce ed-bad $'d\n')"
+    assert_contains "$out" "config:4: invalid value for 'glyphs'" "invalid edit: warning with the line"
+    if cmp -s "$f" "$dir/before"; then ok "discard: file unchanged"; else fail "discard changed the file"; fi
+    out="$(_ce ed-fix $'e\n')"
+    assert_contains "$(cat "$f")" "glyphs = ascii" "edit again: fixed version saved"
+    cp "$f" "$dir/before"
+    out="$(_ce ed-fail '')"
+    assert_contains "$out" "the editor failed" "editor failure reported"
+    if cmp -s "$f" "$dir/before"; then ok "editor failure: file unchanged"; else fail "editor failure changed the file"; fi
+    local left; left="$(cd "$dir/cfg" && for x in .config.edit.*; do [ -e "$x" ] && printf '%s ' "$x"; done)"
+    if [ -n "$left" ]; then fail "temp copy left behind: $left"; else ok "no temp copy left behind"; fi
+
+    ln -s "$f" "$dir/link"
+    out="$(printf '' | BASHGITAWARE_CONFIG="$dir/link" EDITOR="$dir/ed-ok" script -qc "'$REPO/bin/bga' config edit" /dev/null 2>&1)"
+    assert_contains "$out" "is a symlink" "symlinked config refused"
+    rm -rf "$dir"
+}

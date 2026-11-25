@@ -183,6 +183,7 @@ scenario_cli_basics
 scenario_cli_config
 scenario_cli_theme_and_doctor
 scenario_cli_reload_applies_config
+scenario_cli_config_edit
 scenario_cli_shell_function
 scenario_cli_reload_keeps_runtime
 

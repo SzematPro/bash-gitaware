@@ -80,15 +80,67 @@ __bga_git_info_cheap() {
     fi
 
     # Commit subject: kept sync (fast even on large repos -- it only reads HEAD).
-    [ -n "$_bga_git_hash" ] && _bga_git_msg="$(git log -1 --pretty=%s 2>/dev/null)"
+    [ -n "$_bga_git_hash" ] && _bga_git_msg="$(git -c log.showSignature=false log -1 --pretty=%s 2>/dev/null)"
 
     # Stash count: filesystem-gated, kept sync.
     if [ -f "$_bga_git_dir/refs/stash" ]; then
-        _bga_git_stash="$(git stash list 2>/dev/null | wc -l)"
+        _bga_git_stash="$(git -c log.showSignature=false stash list 2>/dev/null | wc -l)"
         _bga_git_stash=$(( _bga_git_stash ))
     fi
 
     __bga_git_state
+}
+
+# ---------------------------------------------------------------------------
+# Running `git status` safely in a repository we did not create.
+#
+# A .git directory that came from an archive (not from `git clone`, which never
+# copies .git/config) can name commands that git runs: core.fsmonitor,
+# clean/process filter drivers for files whose stat data looks stale (any
+# freshly extracted tree), gpg.program for a forged signed commit when
+# log.showSignature is set, and the same again inside submodules. The prompt
+# runs git on every `cd`, so it must not run them. Every git call here passes
+# log.showSignature=false, and __bga_git_status_safe also:
+#   * passes core.fsmonitor=false and --ignore-submodules=dirty (no git runs
+#     inside submodules, which have their own config);
+#   * asks git for the filter drivers the repository's own config (and
+#     config.worktree) defines, and neutralizes each one (empty
+#     clean/process/smudge);
+#   * skips `git status` entirely when that config uses include/includeIf
+#     (what they pull in is not checked), a filter name with unexpected
+#     characters, or a config git cannot parse. The dirty/ahead/behind info is then unknown.
+# Drivers from the user's own ~/.gitconfig are untouched. Users whose
+# repositories legitimately define local filters (git-crypt, `git lfs install
+# --local`) can opt out with BASHGITAWARE_TRUST_REPO_CONFIG=1.
+# ---------------------------------------------------------------------------
+__bga_git_status_safe() {
+    local -a args=(-c core.fsmonitor=false -c log.showSignature=false)
+    if [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" != 1 ]; then
+        local gd="${_bga_git_dir:-.git}" cfg names name rc REPLY
+        # Linked worktrees keep the config in the common directory.
+        if __bga_read_line "$gd/commondir"; then
+            case "$REPLY" in /*) gd="$REPLY" ;; *) gd="$gd/$REPLY" ;; esac
+        fi
+        # Let git itself list the names (its own syntax and case rules; a
+        # bash parser would disagree with git on edge cases). --no-includes:
+        # an include is reported, never followed. Any error fails closed.
+        for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
+            [ -f "$cfg" ] || continue
+            names="$(git config --file "$cfg" --no-includes --name-only \
+                     --get-regexp '^(filter|include|includeif)\.' 2>/dev/null)"; rc=$?
+            [ "$rc" = 1 ] && continue          # no match
+            [ "$rc" = 0 ] || return 1
+            while [ -n "$names" ]; do
+                name="${names%%$'\n'*}"
+                case "$names" in *$'\n'*) names="${names#*$'\n'}" ;; *) names='' ;; esac
+                case "$name" in filter.*.*) ;; *) return 1 ;; esac   # include/includeif
+                name="${name#filter.}"; name="${name%.*}"
+                case "$name" in '' | *[!A-Za-z0-9._-]*) return 1 ;; esac
+                args+=(-c "filter.$name.clean=" -c "filter.$name.process=" -c "filter.$name.smudge=")
+            done
+        done
+    fi
+    git "${args[@]}" status --porcelain=v2 --branch --ignore-submodules=dirty 2>/dev/null
 }
 
 # Parse the head of `git status --porcelain=v2 --branch` into _bga_st_dirty,
@@ -100,9 +152,7 @@ __bga_git_info_cheap() {
 __bga_git_status_parse() {
     local st line
     _bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0
-    # core.fsmonitor names a command that `git status` runs; a .git/config
-    # from an extracted archive could point it anywhere. Never run it.
-    st="$(git -c core.fsmonitor=false status --porcelain=v2 --branch 2>/dev/null | head -n 8)"
+    st="$(__bga_git_status_safe | head -n 8)"
     while [ -n "$st" ]; do
         line="${st%%$'\n'*}"
         case "$st" in *$'\n'*) st="${st#*$'\n'}" ;; *) st='' ;; esac

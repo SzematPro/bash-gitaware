@@ -22,6 +22,8 @@ source "$HERE/hooks.sh"
 source "$HERE/plain.sh"
 # shellcheck source=config.sh
 source "$HERE/config.sh"
+# shellcheck source=gitconfig.sh
+source "$HERE/gitconfig.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -81,6 +83,12 @@ scenario_security_window_title
 scenario_security_fsmonitor
 scenario_security_transient_line
 scenario_security_c1_in_c_locale
+scenario_gitconfig_filter_driver
+scenario_gitconfig_include_skips_status
+scenario_gitconfig_forged_signature
+scenario_gitconfig_submodule_filter
+scenario_gitconfig_parser_edge_cases
+scenario_gitconfig_trust_knob
 
 # Coexistence with the user's hooks.
 scenario_hooks_prompt_command_string

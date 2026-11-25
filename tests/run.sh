@@ -42,6 +42,8 @@ source "$HERE/policy.sh"
 source "$HERE/runtime.sh"
 # shellcheck source=progress.sh
 source "$HERE/progress.sh"
+# shellcheck source=vimode.sh
+source "$HERE/vimode.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -99,6 +101,8 @@ scenario_runtime_no_exec
 scenario_runtime_hostile_version_files
 scenario_runtime_key_validation
 scenario_progress_osc94
+scenario_vimode_setup
+scenario_vimode_pty
 
 # Security: untrusted text is never evaluated by the prompt.
 scenario_security_branch_name

@@ -26,10 +26,14 @@
 #   BASHGITAWARE_SHOW_HOST=auto|always|never Show user@host. "auto" = only over SSH or as root. Default: auto.
 #   NO_COLOR                                 If set (any value), disable all color. https://no-color.org
 
-# If not running interactively, do nothing.
+# Where this file lives (bga reload re-sources it).
+_bga_src="${BASH_SOURCE[0]}"
+
+# If not running interactively, do nothing -- except for bin/bga, which sets
+# _BGA_CLI=1 to load the CLI and the settings it reports on.
 case $- in
     *i*) ;;
-      *) return ;;
+      *) [ -n "${_BGA_CLI:-}" ] || return ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -464,7 +468,9 @@ _R='' _Rr=''
 _c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
 _c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit='' _c_node=''
 _c_py='' _c_rust='' _c_go='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
-_cr_dim='' _cr_err='' _cr_timer='' _cr_ok='' _cr_sym_err='' _cr_py='' _cr_node='' _cr_rust='' _cr_go=''
+_cr_dim='' _cr_path='' _cr_user='' _cr_host='' _cr_host_ssh='' _cr_branch='' _cr_hash=''
+_cr_state='' _cr_ahead='' _cr_behind='' _cr_dirty='' _cr_stash='' _cr_commit='' _cr_node=''
+_cr_py='' _cr_rust='' _cr_go='' _cr_tag='' _cr_timer='' _cr_err='' _cr_ok='' _cr_sym_err=''
 
 # Every token a theme must define (the test suite checks each theme).
 _bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash commit node py rust go tag timer err ok sym_err'
@@ -762,8 +768,17 @@ __bga_git_trust() {
         return "$_bga_trust_rc"
     fi
     __bga_git_trust_scan "$gd" "$wt"; local rc=$?
-    _bga_trust_key="$key" _bga_trust_rc="$rc"
-    _bga_trust_args=("${_bga_git_args[@]}")
+    # Cache only if the files still hold what was read before the scan, so
+    # the verdict is bound to the bytes git actually checked.
+    local d1='' d2=''
+    IFS= read -r -d '' -N 65536 d1 < "$gd/config" 2>/dev/null
+    if [ -f "$wt" ]; then IFS= read -r -d '' -N 65536 d2 < "$wt" 2>/dev/null; d2="wt:$d2"; fi
+    if [ "$d1" = "$c1" ] && [ "$d2" = "$c2" ]; then
+        _bga_trust_key="$key" _bga_trust_rc="$rc"
+        _bga_trust_args=("${_bga_git_args[@]}")
+    else
+        _bga_trust_key=''
+    fi
     return "$rc"
 }
 
@@ -1652,6 +1667,246 @@ __bga_timer_start() {
 __bga_async_init
 
 __bga_hooks_install
+
+# ---------------------------------------------------------------------------
+# bga: the command-line tool (v3, ADR-0009).
+#
+# Defined as a shell function, so `bga reload` and `bga theme set` can apply
+# to the running shell; bin/bga runs the same code as a script (it sources
+# this file with _BGA_CLI=1). Subcommands:
+#
+#   bga help | version
+#   bga config path | list | get KEY | set KEY VALUE | unset KEY
+#   bga theme list | preview [NAME] | set NAME
+#   bga doctor
+#   bga reload                      (shell function only)
+#
+# Exit status: 0 ok, 1 a check or operation failed, 2 usage error.
+# ---------------------------------------------------------------------------
+_bga_version='3.0.0-dev'
+
+__bga_cli_err() { printf 'bga: %s\n' "$*" >&2; }
+
+__bga_cli_usage() {
+    cat <<'EOF_USAGE'
+usage: bga <command> [args]
+
+  config path                 print the config file path
+  config list                 print the settings in the config file
+  config get KEY              print one setting
+  config set KEY VALUE        validate and store a setting
+  config unset KEY            remove a setting
+  theme list                  list the themes
+  theme preview [NAME]        show a sample prompt in a theme
+  theme set NAME              store the theme in the config file
+  doctor                      check the environment, exit 1 on problems
+  reload                      re-source bash-gitaware (shell function only)
+  version                     print the version
+  help                        this text
+
+Settings take effect in new shells, or after `bga reload`.
+EOF_USAGE
+}
+
+bga() {
+    local cmd="${1:-help}"
+    [ "$#" -gt 0 ] && shift
+    case "$cmd" in
+        help | -h | --help) __bga_cli_usage ;;
+        version | --version) printf 'bash-gitaware %s\n' "$_bga_version" ;;
+        config)  __bga_cli_config "$@" ;;
+        theme)   __bga_cli_theme "$@" ;;
+        doctor)  __bga_cli_doctor "$@" ;;
+        reload)
+            if [ -n "${_BGA_CLI:-}" ]; then __bga_cli_err "reload only works in an interactive shell"; return 1; fi
+            # shellcheck disable=SC1090  # the file this function came from
+            source "$_bga_src"
+            ;;
+        *) __bga_cli_err "unknown command '$cmd'"; __bga_cli_usage >&2; return 2 ;;
+    esac
+}
+
+# --- config ------------------------------------------------------------------
+
+__bga_cli_cfg_path() {
+    REPLY="${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/bash-gitaware/config}"
+}
+
+__bga_cli_config() {
+    local sub="${1:-list}" f key line k
+    [ "$#" -gt 0 ] && shift
+    local REPLY; __bga_cli_cfg_path; f="$REPLY"
+    case "$sub" in
+        path) printf '%s\n' "$f" ;;
+        list)
+            [ -f "$f" ] || return 0
+            while IFS= read -r line || [ -n "$line" ]; do
+                line="${line%$'\r'}"
+                case "$line" in '' | [[:blank:]]*'#'* | '#'*) continue ;; *=*) ;; *) continue ;; esac
+                printf '%s\n' "$line"
+            done < "$f" ;;
+        get)
+            [ "$#" = 1 ] || { __bga_cli_err "usage: bga config get KEY"; return 2; }
+            __bga_cli_cfg_find "$f" "$1" || return 1
+            printf '%s\n' "$REPLY" ;;
+        set)
+            [ "$#" = 2 ] || { __bga_cli_err "usage: bga config set KEY VALUE"; return 2; }
+            key="${1,,}"
+            __bga_config_valid "$key" "$2"
+            case $? in
+                0) ;;
+                2) __bga_cli_err "unknown key '$key'"; return 2 ;;
+                *) __bga_cli_err "invalid value for '$key': $2"; return 2 ;;
+            esac
+            __bga_cli_cfg_write "$f" "$key" "$2" ;;
+        unset)
+            [ "$#" = 1 ] || { __bga_cli_err "usage: bga config unset KEY"; return 2; }
+            key="${1,,}"
+            __bga_cli_cfg_write "$f" "$key" ;;
+        *) __bga_cli_err "unknown config command '$sub'"; return 2 ;;
+    esac
+}
+
+# Value of KEY in file $1 into REPLY (last occurrence wins, like the loader).
+__bga_cli_cfg_find() {
+    local f="$1" want="${2,,}" line k v found=1
+    REPLY=''
+    [ -f "$f" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:blank:]]*}"}"
+        case "$line" in '' | '#'*) continue ;; *=*) ;; *) continue ;; esac
+        k="${line%%=*}"; k="${k%"${k##*[![:blank:]]}"}"
+        [ "${k,,}" = "$want" ] || continue
+        v="${line#*=}"; v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
+        case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
+        REPLY="$v" found=0
+    done < "$f"
+    return "$found"
+}
+
+# Rewrite file $1 with KEY $2 set to $3 (or removed when $3 is absent).
+# Comments, other keys and their order are kept. The write is atomic (temp
+# file in the same directory, then mv) and the file stays 0600. A symlinked
+# config is not replaced: the link would silently become a regular file.
+__bga_cli_cfg_write() {
+    local f="$1" key="$2" dir tmp line k done_=0 set_=0
+    [ "$#" = 3 ] && set_=1
+    if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
+    dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
+    ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
+    tmp="$(umask 077; mktemp "$dir/.config.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
+    {
+        if [ -f "$f" ]; then
+            while IFS= read -r line || [ -n "$line" ]; do
+                k="${line%$'\r'}"; k="${k#"${k%%[![:blank:]]*}"}"
+                case "$k" in
+                    '#'* | '') printf '%s\n' "$line"; continue ;;
+                    *=*) k="${k%%=*}"; k="${k%"${k##*[![:blank:]]}"}" ;;
+                    *) printf '%s\n' "$line"; continue ;;
+                esac
+                if [ "${k,,}" = "$key" ]; then
+                    if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then printf '%s = %s\n' "$key" "$3"; fi
+                    done_=1
+                    continue
+                fi
+                printf '%s\n' "$line"
+            done < "$f"
+        fi
+        if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then printf '%s = %s\n' "$key" "$3"; fi
+    } > "$tmp" || { rm -f "$tmp"; __bga_cli_err "write failed"; return 1; }
+    mv -f "$tmp" "$f" || { rm -f "$tmp"; __bga_cli_err "cannot replace $f"; return 1; }
+}
+
+# --- theme -------------------------------------------------------------------
+
+__bga_cli_theme() {
+    local sub="${1:-list}" v name
+    [ "$#" -gt 0 ] && shift
+    case "$sub" in
+        list)
+            for v in $(compgen -v _bga_theme_); do
+                [ "$v" = _bga_theme_tokens ] && continue
+                name="${v#_bga_theme_}"
+                if [ "$name" = "${BASHGITAWARE_THEME:-aware}" ]; then printf '%s (current)\n' "$name"
+                else printf '%s\n' "$name"; fi
+            done ;;
+        preview)
+            name="${1:-${BASHGITAWARE_THEME:-aware}}"
+            __bga_cli_theme_known "$name" || { __bga_cli_err "unknown theme '$name'"; return 2; }
+            __bga_cli_theme_preview "$name" ;;
+        set)
+            [ "$#" = 1 ] || { __bga_cli_err "usage: bga theme set NAME"; return 2; }
+            __bga_cli_theme_known "$1" || { __bga_cli_err "unknown theme '$1'"; return 2; }
+            __bga_cli_config set theme "$1" || return 1
+            printf 'theme set to %s; open a new shell or run: bga reload\n' "$1" ;;
+        *) __bga_cli_err "unknown theme command '$sub'"; return 2 ;;
+    esac
+}
+
+__bga_cli_theme_known() {
+    case "$1" in '' | *[!a-z0-9_]* | tokens) return 1 ;; esac
+    local v="_bga_theme_$1"
+    [ -n "${!v+set}" ]
+}
+
+# A sample Lean prompt in theme $1, printed with raw tokens. The current
+# shell's colors are restored afterwards.
+__bga_cli_theme_preview() {
+    local cur="${BASHGITAWARE_THEME:-aware}" sep=' · ' l1 l2 l3
+    __bga_theme_apply "$1"
+    l1="${_cr_path}~/src/project${_Rr}  ${_cr_branch}main${_Rr} ${_cr_dirty}●${_Rr} ${_cr_ahead}↑1${_Rr}"
+    l1+="        ${_cr_py}python 3.12${_Rr}${_cr_dim}${sep}14:02${_Rr}"
+    l2="${_cr_ok}❯${_Rr} make test"
+    l3="  ${_cr_err}✘1${_Rr}${_cr_dim}${sep}${_Rr}${_cr_timer}3s${_Rr}"
+    printf '\n%s\n%s\n%s\n%s\n\n' "$l1" "$l2" "$l3" "${_cr_sym_err}❯${_Rr}"
+    __bga_theme_apply "$cur"
+}
+
+# --- doctor ------------------------------------------------------------------
+
+__bga_cli_doctor() {
+    local bad=0 v REPLY f
+    __bga_doc() { printf '  %-4s %-14s %s\n' "$1" "$2" "$3"; }
+    printf 'bash-gitaware %s\n' "$_bga_version"
+    if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" = 4 ] && [ "${BASH_VERSINFO[1]}" -ge 4 ]; }; then
+        __bga_doc ok bash "$BASH_VERSION"
+    else
+        __bga_doc FAIL bash "$BASH_VERSION (4.4 or newer required)"; bad=1
+    fi
+    if command -v git >/dev/null 2>&1; then
+        v="$(git --version 2>/dev/null)"; v="${v#git version }"
+        local maj="${v%%.*}" rest="${v#*.}"; local min="${rest%%.*}"
+        case "$maj$min" in *[!0-9]*) maj=0 min=0 ;; esac
+        if [ "$maj" -gt 2 ] || { [ "$maj" = 2 ] && [ "$min" -ge 11 ]; }; then __bga_doc ok git "$v"
+        else __bga_doc FAIL git "$v (2.11 or newer required)"; bad=1; fi
+    else
+        __bga_doc FAIL git "not found"; bad=1
+    fi
+    __bga_doc info locale "${LC_ALL:-${LC_CTYPE:-${LANG:-unset}}} (utf8=$_bga_utf8)"
+    __bga_doc info glyphs "$_bga_glyphs"
+    __bga_doc info colors "depth=$_bga_depth TERM=${TERM:-unset}${COLORTERM:+ COLORTERM=$COLORTERM}"
+    __bga_doc info style "${BASHGITAWARE_STYLE:-lean}, theme ${BASHGITAWARE_THEME:-aware}"
+    if [ "${_bga_plain:-0}" = 1 ]; then __bga_doc info mode "plain (dumb terminal, no tty, CI or agent detected)"
+    else __bga_doc info mode "full"; fi
+    if [ -n "${_bga_tmo:-}" ]; then __bga_doc ok timeouts "$_bga_tmo"
+    else __bga_doc ok timeouts "watchdog (no timeout(1))"; fi
+    if [ -n "${_bga_state_dir:-}" ]; then __bga_doc ok state "$_bga_state_dir"
+    else __bga_doc info state "none (async off or non-interactive)"; fi
+    __bga_cli_cfg_path; f="$REPLY"
+    if [ -e "$f" ]; then
+        local msgs; msgs="$( { BASHGITAWARE_CONFIG="$f" __bga_config_load; } 2>&1 >/dev/null )"
+        if [ -z "$msgs" ]; then __bga_doc ok config "$f"
+        else __bga_doc FAIL config "$f"; printf '%s\n' "$msgs" | sed 's/^/         /'; bad=1; fi
+    else
+        __bga_doc info config "$f (not present, defaults in use)"
+    fi
+    return "$bad"
+}
+
+# bin/bga (_BGA_CLI=1) stops here: shell defaults, aliases and completion are
+# for interactive shells only.
+if [ -n "${_BGA_CLI:-}" ]; then return 0; fi
 
 # ---------------------------------------------------------------------------
 # History

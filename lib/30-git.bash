@@ -213,8 +213,17 @@ __bga_git_trust() {
         return "$_bga_trust_rc"
     fi
     __bga_git_trust_scan "$gd" "$wt"; local rc=$?
-    _bga_trust_key="$key" _bga_trust_rc="$rc"
-    _bga_trust_args=("${_bga_git_args[@]}")
+    # Cache only if the files still hold what was read before the scan, so
+    # the verdict is bound to the bytes git actually checked.
+    local d1='' d2=''
+    IFS= read -r -d '' -N 65536 d1 < "$gd/config" 2>/dev/null
+    if [ -f "$wt" ]; then IFS= read -r -d '' -N 65536 d2 < "$wt" 2>/dev/null; d2="wt:$d2"; fi
+    if [ "$d1" = "$c1" ] && [ "$d2" = "$c2" ]; then
+        _bga_trust_key="$key" _bga_trust_rc="$rc"
+        _bga_trust_args=("${_bga_git_args[@]}")
+    else
+        _bga_trust_key=''
+    fi
     return "$rc"
 }
 

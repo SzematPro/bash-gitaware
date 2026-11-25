@@ -185,3 +185,22 @@ scenario_gitconfig_newline_paths() {
     if [ -e "$base/PWNED" ]; then fail "newline path: filter ran"; else ok "newline path: filter not run"; fi
     rm -rf "$base"
 }
+
+scenario_gitconfig_trailing_newline_path() {
+    section "hostile .git: a path ending in a newline cannot redirect git to a sibling"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-gc-XXXXXX")"
+    local v="$base/x"$'\n' s="$base/x"
+    git init -q -b main "$v"
+    git -C "$v" -c user.name=t -c user.email=t@t commit -q --allow-empty -m v
+    git init -q -b main "$s"
+    printf 'd\n' > "$s/f"; printf '* filter=e\n' > "$s/.gitattributes"
+    git -C "$s" add -A
+    git -C "$s" -c user.name=t -c user.email=t@t commit -qm e
+    git -C "$s" config filter.e.clean "touch '$base/PWNED'; cat"
+    touch -t 200101010000 "$s/f"
+    bga_render "$v" BASHGITAWARE_ASYNC=1 >/dev/null 2>&1
+    bga_render "$v" >/dev/null 2>&1
+    local i=0; while [ "$i" -lt 20 ] && [ ! -e "$base/PWNED" ]; do i=$(( i + 1 )); sleep 0.1; done
+    if [ -e "$base/PWNED" ]; then fail "sibling repo's filter ran"; else ok "sibling repo's filter not run"; fi
+    rm -rf "$base"
+}

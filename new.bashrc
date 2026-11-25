@@ -420,12 +420,15 @@ __bga_git_info_cheap() {
     # 1 subprocess: the git dir, the common dir (where the config lives for a
     # linked worktree; git resolves it, we never parse .git/commondir) and the
     # work-tree root, in one shot.
-    local rp; rp="$(git rev-parse --git-dir --git-common-dir --show-toplevel 2>/dev/null)" || return
-    # Exactly three lines. A path with a newline in it (a directory name from
-    # an archive) would shift the fields, and the trust check could then scan
-    # a decoy config: show no git info at all rather than guess.
+    # The trailing "x" keeps the final newlines that $(...) would strip: a
+    # path ending in a newline would otherwise lose it and name a different
+    # directory. Exactly three newline-terminated lines, else no git info: a
+    # newline inside any path would shift the fields onto a decoy.
+    local rp; rp="$(git rev-parse --git-dir --git-common-dir --show-toplevel 2>/dev/null && printf x)" || return
+    rp="${rp%x}"
     local nls="${rp//[!$'\n']/}"
-    [ "${#nls}" = 2 ] || return
+    [ "${#nls}" = 3 ] || return
+    rp="${rp%$'\n'}"
     _bga_in_git=1
     _bga_git_untrusted=0
     _bga_git_dir="${rp%%$'\n'*}"; rp="${rp#*$'\n'}"
@@ -1101,7 +1104,8 @@ __bga_async_dispatch() {
 
     local cache="$_bga_async_cache"
     (
-        cd "$top" 2>/dev/null || exit 0
+        # Run in the shell's own directory, the one the trust check validated,
+        # never in a path re-derived from parsed output.
         local expensive
         expensive="$(__bga_git_info_expensive_compute)"
         # Atomic write: write to a sibling tmpfile and rename into place.

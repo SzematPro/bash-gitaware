@@ -16,6 +16,7 @@ MADR-style template (see [`template.md`](template.md)).
 | 0008 | [v3 git worker, trust model and state directory](ADR-0008-v3-git-worker-trust-and-state.md) | Accepted |
 | 0009 | [v3 command-line surface (`bga`)](ADR-0009-v3-cli-surface.md) | Accepted |
 | 0010 | [Shell-defaults module, off for new installs](ADR-0010-shell-defaults-module.md) | Accepted |
+| 0011 | [Administrator policy file](ADR-0011-admin-policy-file.md) | Accepted |
 
 ## Conventions
 

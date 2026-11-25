@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-11-25
+
+### Security
+
+- **Bypass of the 2.0.2 `.git` trust check.** The check read only the first
+  256 characters of a linked worktree's `.git/commondir`, while git reads the
+  whole file. With a longer path, the check scanned a decoy config at the
+  truncated prefix while git loaded the real one, so that config's filter
+  drivers ran. The common directory now comes from
+  `git rev-parse --git-common-dir`, in the call the prompt already makes,
+  and a missing config fails closed.
+- **Newline in a repository path.** That output was split on newlines, so a
+  directory name containing a newline (possible in an archive) shifted the
+  fields and could point the check at a planted decoy config. Output with
+  an unexpected number of lines now means no git info at all.
+
 ## [2.0.2] - 2026-11-25
 
 ### Security

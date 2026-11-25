@@ -279,13 +279,21 @@ __bga_git_info_cheap() {
     _bga_in_git=0
     _bga_git_branch='' _bga_git_hash='' _bga_git_dirty=0
     _bga_git_ahead=0 _bga_git_behind=0 _bga_git_stash=0
-    _bga_git_msg='' _bga_git_state='' _bga_git_dir='' _bga_git_top=''
+    _bga_git_msg='' _bga_git_state='' _bga_git_dir='' _bga_git_top='' _bga_git_common=''
 
-    # 1 subprocess: the git dir and the work-tree root, in one shot.
-    local rp; rp="$(git rev-parse --git-dir --show-toplevel 2>/dev/null)" || return
+    # 1 subprocess: the git dir, the common dir (where the config lives for a
+    # linked worktree; git resolves it, we never parse .git/commondir) and the
+    # work-tree root, in one shot.
+    local rp; rp="$(git rev-parse --git-dir --git-common-dir --show-toplevel 2>/dev/null)" || return
+    # Exactly three lines. A path with a newline in it (a directory name from
+    # an archive) would shift the fields, and the trust check could then scan
+    # a decoy config: show no git info at all rather than guess.
+    local nls="${rp//[!$'\n']/}"
+    [ "${#nls}" = 2 ] || return
     _bga_in_git=1
     _bga_git_untrusted=0
-    _bga_git_dir="${rp%%$'\n'*}"
+    _bga_git_dir="${rp%%$'\n'*}"; rp="${rp#*$'\n'}"
+    _bga_git_common="${rp%%$'\n'*}"
     case "$rp" in *$'\n'*) _bga_git_top="${rp#*$'\n'}" ;; *) _bga_git_top= ;; esac
     __bga_git_trust || _bga_git_untrusted=1
 
@@ -350,8 +358,8 @@ __bga_git_info_cheap() {
 #     git on edge cases;
 #   * it fails closed (returns 1, and the prompt shows only the branch) on
 #     include/includeIf, a partial clone (extensions.partialClone,
-#     remote.*.promisor), an odd driver name, a commondir it cannot resolve
-#     to a config file, or a config git cannot parse.
+#     remote.*.promisor), an odd driver name, a missing config file in the
+#     common dir that git reports, or a config git cannot parse.
 # `git status` also passes --ignore-submodules=dirty (no git inside
 # submodules, which have their own config). The user's own ~/.gitconfig is
 # trusted. BASHGITAWARE_TRUST_REPO_CONFIG=1 keeps only the fixed overrides, for
@@ -367,14 +375,10 @@ __bga_git_trust() {
     _bga_git_args=(--no-optional-locks -c core.hooksPath=/dev/null
                    -c core.fsmonitor=false -c log.showSignature=false)
     [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" = 1 ] && return 0
-    local gd="${_bga_git_dir:-.git}" cfg names name rc REPLY
-    # Linked worktrees keep the config in the common directory. Fail closed
-    # if that does not lead to a config file.
-    if [ -e "$gd/commondir" ]; then
-        __bga_read_line "$gd/commondir" || return 1
-        case "$REPLY" in /*) gd="$REPLY" ;; *) gd="$gd/$REPLY" ;; esac
-        [ -f "$gd/config" ] || return 1
-    fi
+    # The common dir comes from `git rev-parse --git-common-dir`, so this is
+    # the config file git itself loads. Fail closed if it is missing.
+    local gd="${_bga_git_common:-}" cfg names name rc
+    [ -n "$gd" ] && [ -f "$gd/config" ] || return 1
     for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
         [ -f "$cfg" ] || continue
         names="$(git config --file "$cfg" --no-includes --name-only \

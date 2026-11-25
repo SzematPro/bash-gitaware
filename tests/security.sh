@@ -115,7 +115,7 @@ scenario_security_special_files() {
     ln -s /dev/zero "$base/.python-version"
     ln -s /dev/zero "$base/.nvmrc"; printf '{}\n' > "$base/package.json"
     local rc=0
-    timeout 10 bash -c "$(declare -f bga_render); REPO='$REPO'; bga_render '$base'" >/dev/null 2>&1 || rc=$?
+    run_bounded 10 bash -c "$(declare -f bga_render); REPO='$REPO'; bga_render '$base'" >/dev/null 2>&1 || rc=$?
     if [ "$rc" = 124 ]; then fail "prompt hangs on .python-version -> /dev/zero"; else ok "symlink to /dev/zero is skipped"; fi
     rm -rf "$base"
 }

@@ -36,6 +36,20 @@ assert_lacks() {
     esac
 }
 
+# Run a command with a time limit, without timeout(1) (stock macOS has none).
+# Returns 124 if it had to be killed, else the command's status.
+#   run_bounded <seconds> <cmd> [args...]
+run_bounded() {
+    local lim="$1" p w rc; shift
+    "$@" &
+    p=$!
+    { sleep "$lim"; kill -KILL "$p"; } >/dev/null 2>&1 &
+    w=$!
+    wait "$p"; rc=$?
+    if kill -0 "$w" 2>/dev/null; then kill "$w" 2>/dev/null; wait "$w" 2>/dev/null; return "$rc"; fi
+    return 124
+}
+
 # Create a fresh empty git repo in a temp dir. Echoes the dir path.
 mktemp_repo() {
     local d; d="$(mktemp -d "${TMPDIR:-/tmp}/bga-test-XXXXXX")"

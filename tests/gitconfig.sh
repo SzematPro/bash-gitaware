@@ -211,7 +211,7 @@ scenario_gitconfig_trailing_newline_path() {
 _gc_fifo_render() {
     local base="$1" what="$2" extra="${3-}"
     local TIMEFORMAT=%0R t
-    t="$( { time timeout 15 bash --norc --noprofile -i -c "
+    t="$( { time run_bounded 15 bash --norc --noprofile -i -c "
         export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=0
         cd '$base/r' || exit 1
         source '$REPO/new.bashrc'

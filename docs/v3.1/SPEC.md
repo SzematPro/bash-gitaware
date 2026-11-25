@@ -39,7 +39,7 @@ policy file. 3.0.0 also left three loose ends:
 |---|---|---|
 | M1 | Shell-defaults module behind `shell_defaults`, off by default, with migration for 3.0 installs | Must |
 | M2 | Policy file: system-wide, root-owned, locks keys | Must |
-| M3 | Maintenance: macOS CI leg with `gtimeout` that checks the 60 ms budget; `tests/MANUAL.md` rewritten for v3 | Must |
+| M3 | Maintenance: macOS CI leg with a real timeout helper (coreutils); `tests/MANUAL.md` rewritten for v3 | Must |
 | S5 | vi-mode indicator | Should |
 | S6 | More runtimes: Ruby, Deno, Bun, Java | Should |
 | S7 | OSC 9;4 taskbar progress while a command runs, opt-in | Should |
@@ -86,9 +86,10 @@ mini-language, and an animated pending indicator (ruled out in R-5).
 
 ### M3 Maintenance
 
-- CI: a second macOS job installs `coreutils` (`gtimeout`) and must pass the
-  60 ms render budget. The existing job (no `gtimeout`) keeps the 90 ms
-  budget. Both are reported by `tests/perf.sh`.
+- CI: a second macOS job installs `coreutils`, so both time-limit paths
+  (helper and watchdog) are tested on macOS. Ruling R-8 changed the budget
+  after the first runs: 60 ms off macOS and 90 ms on macOS with either
+  helper, with the render median taken over 5 runs.
 - `tests/MANUAL.md`: every check reflects 3.x (Lean, ledger, state directory
   under `XDG_RUNTIME_DIR` or the fallback, `bga`, plain mode, themes). The v2
   milestone sections are removed.

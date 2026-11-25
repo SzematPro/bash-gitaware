@@ -55,30 +55,36 @@ scenario_perf_budget() {
 
     # Render: per-prompt cost, amortized over n renders in one shell.
     local n=50 total per
-    total="$(_perf_median_ms 3 "$env; source '$REPO/new.bashrc'; i=0; while [ \$i -lt $n ]; do __bga_prompt; i=\$(( i + 1 )); done")"
+    # Median of 5: hosted runners are noisy (ruling R-8).
+    total="$(_perf_median_ms 5 "$env; source '$REPO/new.bashrc'; i=0; while [ \$i -lt $n ]; do __bga_prompt; i=\$(( i + 1 )); done")"
     per=$(( (total - src) / n )); [ "$per" -lt 0 ] && per=0
-    # The budget follows the time-limit helper the library picked at load
-    # (lib/30-git.bash: timeout, gtimeout, or '' for the watchdog), not a
-    # separate guess here, so the two cannot disagree.
-    local how budget
+    # The budget depends on the platform (R-8). The time-limit helper the
+    # library picked at load (lib/30-git.bash: timeout, gtimeout, or '' for
+    # the watchdog) is only reported, and checked when CI pins it.
+    local how budget plat
     how="$(bash --norc --noprofile -i -c "$env; source '$REPO/new.bashrc' >/dev/null 2>&1; printf '%s' \"\${_bga_tmo:-watchdog}\"" 2>/dev/null)"
-    case "$how" in
-        timeout | gtimeout) budget="$BGA_BUDGET_RENDER_MS" ;;
-        *)                  budget="$BGA_BUDGET_RENDER_WATCHDOG_MS" how="watchdog" ;;
+    case "$how" in timeout | gtimeout) ;; *) how=watchdog ;; esac
+    plat="$(uname -s 2>/dev/null)"
+    case "$plat" in
+        Darwin) budget="$BGA_BUDGET_RENDER_MACOS_MS" ;;
+        *)      budget="$BGA_BUDGET_RENDER_MS" ;;
     esac
-    # CI pins the path each job must measure, so a runner image change cannot
-    # silently move a job to the other budget.
+    # CI pins the path each job must exercise, so a runner image change cannot
+    # silently move a job to the other one. "coreutils" accepts either name:
+    # Homebrew's coreutils puts an unprefixed timeout on PATH.
     if [ -n "${BGA_EXPECT_TMO:-}" ]; then
-        if [ "$how" = "$BGA_EXPECT_TMO" ]; then
-            ok "perf: time-limit helper is $how (expected)"
+        local want="$BGA_EXPECT_TMO"
+        [ "$want" = coreutils ] && case "$how" in timeout | gtimeout) want="$how" ;; esac
+        if [ "$how" = "$want" ]; then
+            ok "perf: time-limit helper is $how (expected $BGA_EXPECT_TMO)"
         else
             fail "perf: time-limit helper is $how, expected $BGA_EXPECT_TMO"
         fi
     fi
     if [ "$per" -le "$budget" ]; then
-        ok "perf: ${per}ms/render across $n renders (budget ${budget}ms, $how)"
+        ok "perf: ${per}ms/render across $n renders (budget ${budget}ms, ${plat:-?}, $how)"
     else
-        fail "perf: ${per}ms/render exceeds budget ${budget}ms ($how)"
+        fail "perf: ${per}ms/render exceeds budget ${budget}ms (${plat:-?}, $how)"
     fi
 
     rm -rf "$d"

@@ -36,6 +36,8 @@ source "$HERE/cli.sh"
 source "$HERE/install.sh"
 # shellcheck source=shell.sh
 source "$HERE/shell.sh"
+# shellcheck source=policy.sh
+source "$HERE/policy.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -140,6 +142,9 @@ scenario_config_file_permissions
 scenario_config_file_sticky_dir
 scenario_shell_defaults
 scenario_shell_path_untouched
+scenario_policy_untrusted_user_file
+scenario_policy_applied
+scenario_policy_refused
 
 # Plain mode.
 scenario_plain_mode

@@ -30,12 +30,12 @@ no new input surface.
 
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
-| T6.1 | M2 | ADR-0011: policy file (first) | Path, format, precedence, locking, trust rules, threat model (not a boundary against the account owner), test seam, rejected options (`XDG_CONFIG_DIRS`, sourcing a file, per-repo policy) | todo |
-| T6.2 | M2 | Trust check | `__bga_policy_trusted` accepts a file whose owner and ancestor owners are uid 0 with no group/other write and no ACL grant; accepts a root-owned `/etc` symlink; refuses a symlink to a non-root file, a FIFO or device, a file owned by a user; never blocks on a FIFO (tests create root-owned fixtures before dropping to `bgauser`, as the CI containers already do) | todo |
-| T6.3 | M2 | Loader layering | Policy parsed with the config parser before env and user config; locked keys recorded in `_bga_policy_locked`; env and user config values for locked keys ignored, with one warning for the user config; invalid policy lines warned by line number (`tests/config.sh`) | todo |
-| T6.4 | M2 | CLI respects locks | `bga config set`/`unset` on a locked key exits 1 and names the policy file; `bga config list` marks locked keys; `bga theme set` goes through the same check (`tests/cli.sh`) | todo |
-| T6.5 | M2 | Doctor | Shows the policy path, its state (absent, applied, refused and why) and the locked keys; a refused policy makes `doctor` exit 1 | todo |
-| T6.6 | M2 | Test seam | The policy path can be changed only for the test suite, and only a uid-0-owned file is accepted there too; documented in ADR-0011; no user-facing variable can point the loader to a user-owned policy (test) | todo |
+| T6.1 | M2 | ADR-0011: policy file (first) | Path, format, precedence, locking, trust rules, threat model (not a boundary against the account owner), test seam, rejected options (`XDG_CONFIG_DIRS`, sourcing a file, per-repo policy) | done |
+| T6.2 | M2 | Trust check | `__bga_policy_trusted` accepts a file whose owner and ancestor owners are uid 0 with no group/other write and no ACL grant; accepts a root-owned `/etc` symlink; refuses a symlink to a non-root file, a FIFO or device, a file owned by a user; never blocks on a FIFO (tests create root-owned fixtures before dropping to `bgauser`, as the CI containers already do) | done |
+| T6.3 | M2 | Loader layering | Policy parsed with the config parser before env and user config; locked keys recorded in `_bga_policy_locked`; env and user config values for locked keys ignored (the user line silently at startup; `doctor` and `config list` show it, ADR-0011); invalid policy lines warned by line number (`tests/config.sh`) | done |
+| T6.4 | M2 | CLI respects locks | `bga config set`/`unset` on a locked key exits 1 and names the policy file; `bga config list` marks locked keys; `bga theme set` goes through the same check (`tests/cli.sh`) | done |
+| T6.5 | M2 | Doctor | Shows the policy path, its state (absent, applied, refused and why) and the locked keys; a refused policy makes `doctor` exit 1 | done |
+| T6.6 | M2 | Test seam | The policy path can be changed only for the test suite, and only a uid-0-owned file is accepted there too; documented in ADR-0011; no user-facing variable can point the loader to a user-owned policy (test) | done |
 | T6.7 | M2 | Docs for admins | README (EN/ES) "For administrators" section with an example policy; CHANGELOG | todo |
 
 Exit gate: review (security, correctness, compatibility) and **SR5** (policy

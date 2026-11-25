@@ -36,6 +36,9 @@ jobs:
       - name: Lint (shellcheck on the generated artifact + scripts)
         run: shellcheck -x new.bashrc bin/*.sh bin/bga tests/*.sh install.sh
 
+      - name: Root-owned policy fixtures (tests/policy.sh)
+        run: sudo sh tests/policy-fixtures.sh
+
       - name: Run tests
         run: bash tests/run.sh
 
@@ -67,6 +70,7 @@ jobs:
         run: |
           adduser -D -h /home/bgauser bgauser
           chown -R bgauser:bgauser .
+          sh tests/policy-fixtures.sh
           su -s /bin/sh -c "cd $(pwd) && bash tests/run.sh" bgauser
 
   macos-tests:
@@ -95,6 +99,9 @@ jobs:
 
       - name: Show time-limit helpers on PATH
         run: command -v timeout gtimeout || true
+
+      - name: Root-owned policy fixtures (tests/policy.sh)
+        run: sudo sh tests/policy-fixtures.sh
 
       - name: Run tests with Homebrew bash
         run: |

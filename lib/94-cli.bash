@@ -63,6 +63,13 @@ __bga_cli_cfg_path() {
     REPLY="${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/bash-gitaware/config}"
 }
 
+# True (and an error printed) when key $1 is locked by the policy (ADR-0011).
+__bga_cli_locked() {
+    case "${_bga_policy_locked:- }" in *" $1 "*) ;; *) return 1 ;; esac
+    __bga_term_safe "$_bga_policy_path"
+    __bga_cli_err "'$1' is set by the administrator policy ($REPLY); your config cannot change it"
+}
+
 __bga_cli_config() {
     local sub="${1:-list}" f key line k
     [ "$#" -gt 0 ] && shift
@@ -74,7 +81,12 @@ __bga_cli_config() {
             while IFS= read -r line || [ -n "$line" ]; do
                 line="${line%$'\r'}"
                 case "$line" in '' | [[:blank:]]*'#'* | '#'*) continue ;; *=*) ;; *) continue ;; esac
-                __bga_term_safe "$line"; printf '%s\n' "$REPLY"
+                k="${line%%=*}"; k="${k#"${k%%[![:blank:]]*}"}"; k="${k%"${k##*[![:blank:]]}"}"; k="${k,,}"
+                __bga_term_safe "$line"
+                case "${_bga_policy_locked:- }" in
+                    *" $k "*) printf '%s   (ignored: locked by policy)\n' "$REPLY" ;;
+                    *)        printf '%s\n' "$REPLY" ;;
+                esac
             done < "$f" ;;
         get)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config get KEY"; return 2; }
@@ -89,10 +101,12 @@ __bga_cli_config() {
                 2) __bga_cli_err "unknown key '$key'"; return 2 ;;
                 *) __bga_cli_err "invalid value for '$key': $2"; return 2 ;;
             esac
+            __bga_cli_locked "$key" && return 1
             __bga_cli_cfg_write "$f" "$key" "$2" ;;
         unset)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config unset KEY"; return 2; }
             key="${1,,}"
+            __bga_cli_locked "$key" && return 1
             __bga_cli_cfg_write "$f" "$key" ;;
         *) __bga_cli_err "unknown config command '$sub'"; return 2 ;;
     esac
@@ -199,7 +213,7 @@ __bga_cli_theme_preview() {
 # --- doctor ------------------------------------------------------------------
 
 __bga_cli_doctor() {
-    local bad=0 v REPLY f
+    local bad=0 v REPLY f k
     __bga_doc() { printf '  %-4s %-14s %s\n' "$1" "$2" "$3"; }
     printf 'bash-gitaware %s\n' "$_bga_version"
     if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" = 4 ] && [ "${BASH_VERSINFO[1]}" -ge 4 ]; }; then
@@ -234,6 +248,24 @@ __bga_cli_doctor() {
     else
         __bga_doc info config "$f (not present, defaults in use)"
     fi
+    # Administrator policy (ADR-0011).
+    __bga_term_safe "${_bga_policy_path:-}"; v="$REPLY"
+    case "${_bga_policy_state:-absent}" in
+        applied)
+            k="${_bga_policy_locked# }"; k="${k% }"
+            __bga_doc ok policy "$v (locks: ${k// /, })"
+            if [ -f "$f" ]; then
+                # Split on spaces whatever the caller's IFS (shell-state rule).
+                local IFS=' '
+                for k in $_bga_policy_locked; do
+                    __bga_cli_cfg_find "$f" "$k" && printf '         your config sets %s; the policy wins\n' "$k"
+                done
+            fi ;;
+        refused)
+            __bga_term_safe "$_bga_policy_reason"
+            __bga_doc FAIL policy "$v: $REPLY; ignored"; bad=1 ;;
+        *) __bga_doc info policy "none" ;;
+    esac
     # Unset means on until 4.0 (ADR-0010): say so, and how to choose. Not a
     # problem, so the exit status is unchanged.
     case "${BASHGITAWARE_SHELL_DEFAULTS:-}" in

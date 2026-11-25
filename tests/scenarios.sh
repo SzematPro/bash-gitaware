@@ -438,3 +438,23 @@ scenario_path_maxdepth() {
 
     rm -rf "$base"
 }
+
+scenario_runtime_cache() {
+    section "runtime: version commands run once per directory, not per prompt"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-rt-XXXXXX")"
+    mkdir -p "$base/bin"; printf '{}\n' > "$base/package.json"
+    # A fake node that counts its invocations.
+    printf '#!/bin/sh\necho x >> "%s/calls"\necho v20.1.0\n' "$base" > "$base/bin/node"
+    chmod +x "$base/bin/node"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$base/bin:$PATH' TERM=xterm-256color LANG=C.UTF-8 BASHGITAWARE_ASYNC=0
+        cd '$base' && source '$REPO/new.bashrc'
+        __bga_prompt; __bga_prompt; __bga_prompt
+        printf '%s' \"\${PS1@P}\"" 2>/dev/null)"
+    local n=0; [ -f "$base/calls" ] && n="$(wc -l < "$base/calls")"; n=$(( n ))
+    assert_contains "$out" "node 20.1.0" "node version shown"
+    if [ "$n" = 1 ]; then ok "node --version ran once for 3 prompts"
+    else fail "node --version ran $n times for 3 prompts"; fi
+    rm -rf "$base"
+}

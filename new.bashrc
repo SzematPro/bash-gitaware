@@ -850,15 +850,19 @@ __bga_path() {
 # ---------------------------------------------------------------------------
 # Runtime / version modules -- shown only when the directory (or env) calls for it.
 # Result is cached per (PWD, virtualenv, conda env) so the version commands run
-# once when you cd into a project, not on every prompt.
+# once when you cd into a project, not on every prompt. Sets _bga_rt_str (the
+# PS1 text for the classic layout) and _bga_rt_items (raw labels, one per
+# runtime, for the Lean right block). It prints nothing: calling it in $(...)
+# would lose the cache, which lives in these globals.
 # ---------------------------------------------------------------------------
+_bga_rt_items=()
 __bga_runtime() {
-    [ "${BASHGITAWARE_RUNTIME:-1}" = 0 ] && return
+    if [ "${BASHGITAWARE_RUNTIME:-1}" = 0 ]; then _bga_rt_str=''; _bga_rt_items=(); return; fi
     # promptvars is part of the key: the cached string is escaped for it.
     local pv=0; shopt -q promptvars && pv=1
     local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}|$pv"
-    if [ "$key" = "${_bga_rt_key:-}" ]; then printf '%s' "${_bga_rt_str:-}"; return; fi
-    _bga_rt_key="$key"; _bga_rt_str=""
+    [ "$key" = "${_bga_rt_key:-}" ] && return
+    _bga_rt_key="$key"; _bga_rt_str=""; _bga_rt_items=()
     local out="" v f s REPLY
 
     # --- Python: an active virtualenv / conda env, or a Python project marker ---
@@ -883,6 +887,7 @@ __bga_runtime() {
             v="${v#Python }"; v="${v%% *}"
         fi
         s="python"; [ -n "$v" ] && s="python $v"; [ -n "$pyenv" ] && s="$s ($pyenv)"
+        _bga_rt_items+=("py|$s")
         __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_py}${REPLY}${_R}"
     fi
 
@@ -894,6 +899,7 @@ __bga_runtime() {
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"
+        _bga_rt_items+=("node|$s")
         __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_node}${REPLY}${_R}"
     fi
 
@@ -901,6 +907,7 @@ __bga_runtime() {
     if [ -e "$PWD/Cargo.toml" ]; then
         v=""; command -v rustc >/dev/null 2>&1 && { v="$(rustc --version 2>/dev/null)"; v="${v#rustc }"; v="${v%% *}"; }
         s="rust"; [ -n "$v" ] && s="rust $v"
+        _bga_rt_items+=("rust|$s")
         __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_rust}${REPLY}${_R}"
     fi
 
@@ -908,11 +915,11 @@ __bga_runtime() {
     if [ -e "$PWD/go.mod" ]; then
         v=""; command -v go >/dev/null 2>&1 && { v="$(go env GOVERSION 2>/dev/null)"; v="${v#go}"; }
         s="go"; [ -n "$v" ] && s="go $v"
+        _bga_rt_items+=("go|$s")
         __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_go}${REPLY}${_R}"
     fi
 
     _bga_rt_str="$out"
-    printf '%s' "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -1008,7 +1015,7 @@ __bga_prompt() {
     fi
 
     # Runtime / version module(s), only when the directory calls for it.
-    local rt; rt="$(__bga_runtime)"
+    __bga_runtime; local rt="$_bga_rt_str"
     [ -n "$rt" ] && ps1+="$rt"
 
     # Command duration (if slow), then exit code (on failure only).

@@ -70,6 +70,7 @@ scenario_install_replace
 scenario_install_append_idempotent
 scenario_install_help
 scenario_path_maxdepth
+scenario_runtime_cache
 
 # Security: untrusted text is never evaluated by the prompt.
 scenario_security_branch_name

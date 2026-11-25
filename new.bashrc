@@ -431,13 +431,20 @@ __bga_path() {
     fi
     [ -z "$rest" ] && { printf '%s' "${lead:-/}"; return; }
 
-    local IFS=/ ; local -a p; read -ra p <<< "$rest"; local n=${#p[@]}
-    if [ "$max" -ne 0 ] && [ "$n" -gt "$max" ]; then
-        local out="" i
-        for (( i = n - max ; i < n ; i++ )); do out="$out/${p[i]}"; done
-        if [ -n "$lead" ]; then printf '%s/%s%s' "$lead" "$_g_ell" "$out"
-        else printf '%s%s' "$_g_ell" "$out"; fi
-        return
+    # Keep the last $max components, cutting from the right with parameter
+    # expansion (no here-string: it writes a temp file before bash 5.1).
+    if [ "$max" -ne 0 ]; then
+        local out="" r="$rest" i=0
+        while [ "$i" -lt "$max" ] && [ -n "$r" ]; do
+            out="/${r##*/}$out"
+            case "$r" in */*) r="${r%/*}" ;; *) r='' ;; esac
+            i=$(( i + 1 ))
+        done
+        if [ -n "$r" ]; then
+            if [ -n "$lead" ]; then printf '%s/%s%s' "$lead" "$_g_ell" "$out"
+            else printf '%s%s' "$_g_ell" "$out"; fi
+            return
+        fi
     fi
     if [ -n "$lead" ]; then printf '%s/%s' "$lead" "$rest"; else printf '/%s' "$rest"; fi
 }

@@ -757,11 +757,12 @@ __bga_git_trust() {
     [ -n "$gd" ] && [ -f "$gd/config" ] || return 1
     # Cache per repository and worktree, validated by content: the files
     # are read with the read builtin (no fork; only regular files, at most
-    # 64 KB) and must match what was checked. Modification times are not
+    # 64 KB, 1 s timeout in case one is swapped for a FIFO) and must match
+    # what was checked. Modification times are not
     # trusted: `tar xf` can restore an old one over new content.
     local c1='' c2=''
-    IFS= read -r -d '' -N 65536 c1 < "$gd/config" 2>/dev/null
-    if [ -f "$wt" ]; then IFS= read -r -d '' -N 65536 c2 < "$wt" 2>/dev/null; c2="wt:$c2"; fi
+    [ -f "$gd/config" ] && IFS= read -r -t 1 -d '' -N 65536 c1 < "$gd/config" 2>/dev/null
+    if [ -f "$wt" ]; then IFS= read -r -t 1 -d '' -N 65536 c2 < "$wt" 2>/dev/null; c2="wt:$c2"; fi
     key="$gd|${_bga_git_dir:-}|$c1|$c2"
     if [ "${#c1}" -lt 65536 ] && [ "${#c2}" -lt 65536 ] && [ "$key" = "${_bga_trust_key:-}" ]; then
         _bga_git_args=("${_bga_trust_args[@]}")
@@ -771,8 +772,8 @@ __bga_git_trust() {
     # Cache only if the files still hold what was read before the scan, so
     # the verdict is bound to the bytes git actually checked.
     local d1='' d2=''
-    IFS= read -r -d '' -N 65536 d1 < "$gd/config" 2>/dev/null
-    if [ -f "$wt" ]; then IFS= read -r -d '' -N 65536 d2 < "$wt" 2>/dev/null; d2="wt:$d2"; fi
+    [ -f "$gd/config" ] && IFS= read -r -t 1 -d '' -N 65536 d1 < "$gd/config" 2>/dev/null
+    if [ -f "$wt" ]; then IFS= read -r -t 1 -d '' -N 65536 d2 < "$wt" 2>/dev/null; d2="wt:$d2"; fi
     if [ "$d1" = "$c1" ] && [ "$d2" = "$c2" ]; then
         _bga_trust_key="$key" _bga_trust_rc="$rc"
         _bga_trust_args=("${_bga_git_args[@]}")

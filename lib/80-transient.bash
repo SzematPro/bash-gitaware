@@ -13,8 +13,8 @@
 # accept-line then echoes \n and the command runs as usual; the modern terminal
 # (via OSC 133;C from PS0) still gets the command-start mark in the right place.
 #
-# The reprinted form includes READLINE_LINE so scrollback stays useful: each
-# collapsed prompt is "❯ <command>", not just "❯" -- matches Powerlevel10k.
+# The collapsed form keeps the typed command ("❯ <command>"), drawn by
+# readline itself after PS1 is swapped, so scrollback stays useful.
 # (This refines ADR-0004 step 2: the original 'minimal form ("❯ only")' was
 # directional; in practice the typed command must remain visible in scrollback.)
 #
@@ -45,26 +45,17 @@ __bga_transient_collapse() {
     [ "${BASHGITAWARE_TRANSIENT:-1}" = 0 ] && return 0
     [ "${_bga_transient_active:-0}" = 1 ] || return 0
 
+    # Move to the first line of the prompt and clear to the end of the screen,
+    # then swap PS1 for the collapsed form. Readline redraws the prompt and
+    # the typed line itself when the bind -x function returns: printing the
+    # line here as well left it twice on screen (bash 4.4-5.3), and readline
+    # shows control characters in it safely as ^[.
     local up=$(( ${_bga_transient_lines:-1} - 1 ))
-    [ "$up" -lt 0 ] && up=0
-
-    # Theme tokens (raw form): empty without color, so NO_COLOR is honored.
-    local color reset="${_Rr:-}"
-    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then color="${_cr_ok:-}"
-    else color="${_cr_sym_err:-}"
-    fi
-
-    local sym="${_g_sym:-❯}" REPLY
-    # The typed line is echoed raw by printf: a pasted command can hide escape
-    # sequences that readline displays safely as ^[. Neutralize them (tabs
-    # become spaces first so ordinary commands look the same).
-    __bga_term_safe "${READLINE_LINE//$'\t'/ }"
-
-    if [ "$up" -gt 0 ]; then
-        printf '\r\e[%dA\e[J%s%s%s %s' "$up" "$color" "$sym" "$reset" "$REPLY"
-    else
-        printf '\r\e[J%s%s%s %s' "$color" "$sym" "$reset" "$REPLY"
-    fi
+    [ "$up" -gt 0 ] && printf '\e[%dA' "$up"
+    printf '\r\e[J'
+    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then PS1="${_c_ok}${_g_sym:-❯}${_R} "
+    else PS1="${_c_sym_err}${_g_sym:-❯}${_R} "; fi
+    _bga_transient_active=0
 }
 
 # Install the Enter remap once at source time, only in interactive shells.

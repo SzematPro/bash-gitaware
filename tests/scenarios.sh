@@ -230,7 +230,7 @@ scenario_osc_disabled() {
 }
 
 scenario_transient_basic() {
-    section "transient: collapse prints symbol + typed command (exit 0)"
+    section "transient: collapse clears the prompt and swaps PS1 (exit 0)"
     local out
     out="$(bash --norc --noprofile -i -c "
         export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120
@@ -240,15 +240,16 @@ scenario_transient_basic() {
         _bga_transient_active=1
         READLINE_LINE='ls -la'
         __bga_transient_collapse
+        printf '|PS1=%s' \"\${PS1@P}\"
     " 2>/dev/null)"
     # Move up 2 rows (lines - 1 = 2) -> ESC[2A.
     assert_contains "$out" $'\e[2A' "moves cursor up (\e[2A) for 3-line prompt"
     # Clear from cursor to end of screen.
     assert_contains "$out" $'\e[J'  "clears to end of screen (\e[J)"
-    # Bold green for success.
-    assert_contains "$out" $'\e[1;38;5;114m' "theme 'ok' color on exit 0 (Aware, 256 colors)"
-    # The typed command is preserved in scrollback.
-    assert_contains "$out" "ls -la" "preserves the typed command"
+    # PS1 becomes the collapsed symbol, in the theme's 'ok' color; readline
+    # redraws it with the typed line, so the line itself is not printed.
+    assert_contains "$out" $'|PS1=\001\e[1;38;5;114m\002❯' "PS1 swapped to the 'ok' symbol (Aware, 256 colors)"
+    assert_lacks    "${out%%|PS1=*}" "ls -la" "typed command not printed by the collapse (readline draws it)"
 }
 
 scenario_transient_error_exit() {
@@ -262,9 +263,9 @@ scenario_transient_error_exit() {
         _bga_transient_active=1
         READLINE_LINE='false'
         __bga_transient_collapse
+        printf '|PS1=%s' \"\${PS1@P}\"
     " 2>/dev/null)"
-    assert_contains "$out" $'\e[1;38;5;204m' "theme 'sym_err' color on non-zero exit (Aware, 256 colors)"
-    assert_contains "$out" "false"     "preserves the typed command"
+    assert_contains "$out" $'|PS1=\001\e[1;38;5;204m\002❯' "PS1 swapped to the 'sym_err' symbol (Aware, 256 colors)"
 }
 
 scenario_transient_disabled() {

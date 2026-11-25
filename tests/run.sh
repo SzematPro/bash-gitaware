@@ -28,6 +28,8 @@ source "$HERE/gitconfig.sh"
 source "$HERE/width.sh"
 # shellcheck source=theme.sh
 source "$HERE/theme.sh"
+# shellcheck source=lean.sh
+source "$HERE/lean.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -37,6 +39,8 @@ scenario_sandbox_clean
 # Tests run without a tty, which would auto-select plain mode; plain mode has
 # its own scenarios (tests/plain.sh) that unset this.
 export BASHGITAWARE_MODE=full
+# The scenarios written for v2 assert the classic layout; tests/lean.sh unsets this.
+export BASHGITAWARE_STYLE=classic
 # Never read the developer's own config file; tests/config.sh sets its own.
 export BASHGITAWARE_CONFIG=/nonexistent/bash-gitaware-test-config
 lib_syntax_check
@@ -127,6 +131,13 @@ scenario_width_engine_linear
 # Themes.
 scenario_theme_depths
 scenario_theme_tokens_complete
+
+# Lean layout.
+scenario_lean_layout
+scenario_lean_right_block
+scenario_lean_wide_path
+scenario_lean_result_line
+scenario_lean_untrusted
 
 # Shell-state independence.
 scenario_shell_state_independence

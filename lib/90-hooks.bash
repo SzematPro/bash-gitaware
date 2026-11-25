@@ -52,7 +52,7 @@ __bga_pre() {
 # The two entries that open PROMPT_COMMAND. The first must be a plain
 # assignment so it sees the command's status before anything else runs.
 # shellcheck disable=SC2016  # expanded when PROMPT_COMMAND runs, not here
-_bga_pc_save='_bga_exit=$?'
+_bga_pc_save='_bga_exit=$? _bga_in_pc=1'
 # shellcheck disable=SC2016,SC2089  # shell code for PROMPT_COMMAND, not argv
 _bga_pc_pre='__bga_pre "${_bga_dbg_done-$(trap -p DEBUG)}"'
 
@@ -96,8 +96,17 @@ __bga_hooks_install() {
 _bga_timer_start="${_bga_timer_start:-}"
 _bga_last_duration=''
 _bga_exit=''
+_bga_in_pc=''
 
-__bga_timer_start() { _bga_timer_start="${_bga_timer_start:-$SECONDS}"; }
+# Starts the timer for a command the user runs. The DEBUG trap also fires for
+# PROMPT_COMMAND entries (the first one sets _bga_in_pc, cleared at the end of
+# __bga_prompt) and for the transient bind -x function; those are not user
+# commands, and counting them made an empty Enter look like a command ran.
+__bga_timer_start() {
+    [ -n "${_bga_in_pc:-}" ] && return 0
+    case "$BASH_COMMAND" in '_bga_exit=$? '* | __bga_transient_collapse*) return 0 ;; esac
+    _bga_timer_start="${_bga_timer_start:-$SECONDS}"
+}
 
 # ---------------------------------------------------------------------------
 # Async (M5): initialise the cache path + install the cleanup EXIT trap.

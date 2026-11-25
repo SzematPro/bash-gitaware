@@ -30,7 +30,14 @@ __bga_prompt() {
 
     if [ "${_bga_plain:-0}" = 1 ]; then
         __bga_prompt_plain "$exit_code"
-        _bga_timer_start=''
+        _bga_timer_start='' _bga_in_pc=''
+        return
+    fi
+
+    if [ "${BASHGITAWARE_STYLE:-lean}" != classic ]; then
+        __bga_lean_result "$exit_code"
+        __bga_prompt_lean "$exit_code"
+        _bga_timer_start='' _bga_in_pc=''
         return
     fi
 
@@ -40,16 +47,8 @@ __bga_prompt() {
     ps1+="$(__bga_osc_ps1 '133;A')"
 
     # Optional OSC window title.
-    if [ "$_bga_title" = 1 ]; then
-        # Not \w: bash 5.1+ passes control characters in it through, so a
-        # directory name could end the title early and inject other OSC
-        # sequences (e.g. a clipboard write). Use the escaped path instead.
-        local REPLY t_path="$PWD" t_chroot=''
-        case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
-        [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
-        __bga_ps1_lit "$t_path"
-        ps1+="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
-    fi
+    local REPLY
+    __bga_title_ps1; ps1+="$REPLY"
 
     # --- Line 1: context ----------------------------------------------------
     # Untrusted text (paths, git refs, commit subjects, ...) is embedded only
@@ -136,7 +135,7 @@ __bga_prompt() {
         _bga_transient_active=1
     fi
 
-    _bga_timer_start=''      # reset for the next command (must be the last thing here)
+    _bga_timer_start='' _bga_in_pc=''      # reset for the next command (must be the last thing here)
 }
 
 # Plain mode (lib/10-detect.bash): "<path> (<branch>[ *])[ [exit N]] $ ".
@@ -153,4 +152,18 @@ __bga_prompt_plain() {
     if [ "$_bga_root" = 1 ]; then ps1+=" # "; else ps1+=" \$ "; fi
     PS1="$ps1"
     _bga_transient_active=0
+}
+
+# Window title (OSC 0) as PS1 text in REPLY; empty when the terminal has none.
+# Not \w: bash 4.4-5.1 pass control characters in it through, so a directory
+# name could end the title early and inject other OSC sequences (e.g. a
+# clipboard write). The escaped path is used instead.
+__bga_title_ps1() {
+    REPLY=''
+    [ "$_bga_title" = 1 ] || return 0
+    local t_path="$PWD" t_chroot=''
+    case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
+    [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
+    __bga_ps1_lit "$t_path"
+    REPLY="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
 }

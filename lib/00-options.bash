@@ -53,7 +53,8 @@ __bga_config_valid() {
         show_host)    case "$2" in auto | always | never) ;; *) return 1 ;; esac ;;
         mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
         theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
-        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config)
+        style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
+        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock)
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)
                       case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;

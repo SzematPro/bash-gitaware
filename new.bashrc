@@ -55,7 +55,8 @@ __bga_config_valid() {
         show_host)    case "$2" in auto | always | never) ;; *) return 1 ;; esac ;;
         mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
         theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
-        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config)
+        style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
+        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock)
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)
                       case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;
@@ -458,7 +459,7 @@ _R='' _Rr=''
 _c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
 _c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit='' _c_node=''
 _c_py='' _c_rust='' _c_go='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
-_cr_ok='' _cr_sym_err=''
+_cr_dim='' _cr_err='' _cr_timer='' _cr_ok='' _cr_sym_err='' _cr_py='' _cr_node='' _cr_rust='' _cr_go=''
 
 # Every token a theme must define (the test suite checks each theme).
 _bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash commit node py rust go tag timer err ok sym_err'
@@ -953,7 +954,14 @@ __bga_prompt() {
 
     if [ "${_bga_plain:-0}" = 1 ]; then
         __bga_prompt_plain "$exit_code"
-        _bga_timer_start=''
+        _bga_timer_start='' _bga_in_pc=''
+        return
+    fi
+
+    if [ "${BASHGITAWARE_STYLE:-lean}" != classic ]; then
+        __bga_lean_result "$exit_code"
+        __bga_prompt_lean "$exit_code"
+        _bga_timer_start='' _bga_in_pc=''
         return
     fi
 
@@ -963,16 +971,8 @@ __bga_prompt() {
     ps1+="$(__bga_osc_ps1 '133;A')"
 
     # Optional OSC window title.
-    if [ "$_bga_title" = 1 ]; then
-        # Not \w: bash 5.1+ passes control characters in it through, so a
-        # directory name could end the title early and inject other OSC
-        # sequences (e.g. a clipboard write). Use the escaped path instead.
-        local REPLY t_path="$PWD" t_chroot=''
-        case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
-        [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
-        __bga_ps1_lit "$t_path"
-        ps1+="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
-    fi
+    local REPLY
+    __bga_title_ps1; ps1+="$REPLY"
 
     # --- Line 1: context ----------------------------------------------------
     # Untrusted text (paths, git refs, commit subjects, ...) is embedded only
@@ -1059,7 +1059,7 @@ __bga_prompt() {
         _bga_transient_active=1
     fi
 
-    _bga_timer_start=''      # reset for the next command (must be the last thing here)
+    _bga_timer_start='' _bga_in_pc=''      # reset for the next command (must be the last thing here)
 }
 
 # Plain mode (lib/10-detect.bash): "<path> (<branch>[ *])[ [exit N]] $ ".
@@ -1076,6 +1076,161 @@ __bga_prompt_plain() {
     if [ "$_bga_root" = 1 ]; then ps1+=" # "; else ps1+=" \$ "; fi
     PS1="$ps1"
     _bga_transient_active=0
+}
+
+# Window title (OSC 0) as PS1 text in REPLY; empty when the terminal has none.
+# Not \w: bash 4.4-5.1 pass control characters in it through, so a directory
+# name could end the title early and inject other OSC sequences (e.g. a
+# clipboard write). The escaped path is used instead.
+__bga_title_ps1() {
+    REPLY=''
+    [ "$_bga_title" = 1 ] || return 0
+    local t_path="$PWD" t_chroot=''
+    case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
+    [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
+    __bga_ps1_lit "$t_path"
+    REPLY="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
+}
+
+# ---------------------------------------------------------------------------
+# Lean layout: the default style (ADR-0007). BASHGITAWARE_STYLE=classic keeps
+# the v2 three-line stack (lib/60-render.bash).
+#
+#   ❯ make test                     <- ledger line (transient, lib/80)
+#   ...output...
+#     ✘1 · 3s                       <- result line: failed or slow commands
+#   ~/src/repo  main ● ↑1                         python 3.12 · 14:02
+#   ❯ _
+#
+# Untrusted text is escaped once, by __bga_ps1_lit, where each piece is
+# added; widths are measured on the raw text with __bga_width. The right
+# block is drawn inside \[ \] with save-cursor / column / restore-cursor, so
+# readline counts it as zero width and a width error only misplaces it.
+# ---------------------------------------------------------------------------
+
+# Result line for the command that just finished: only when one ran (the
+# DEBUG trap set the timer; an empty Enter does not) and it failed or reached
+# the duration threshold. Printed directly, so it uses raw color tokens.
+__bga_lean_result() {
+    local code="$1" out='' sep=' · '
+    [ -n "${_bga_timer_start:-}" ] || return 0
+    [ "$_bga_glyphs" = ascii ] && sep=' | '
+    if [ "$code" -ne 0 ]; then
+        if [ "$_bga_glyphs" = ascii ]; then out="${_cr_err}exit ${code}${_Rr}"
+        else out="${_cr_err}✘${code}${_Rr}"; fi
+    fi
+    if [ -n "${_bga_last_duration:-}" ]; then
+        [ -n "$out" ] && out+="${_cr_dim}${sep}${_Rr}"
+        out+="${_cr_timer}${_bga_last_duration}${_Rr}"
+    fi
+    [ -n "$out" ] && printf '  %s\n' "$out"
+    return 0
+}
+
+# Append untrusted text $2 in token $1 to the left side: PS1 text in
+# _bga_l, raw text in _bga_lr (for the width).
+__bga_lean_add() {
+    local tok="_c_$1" REPLY
+    __bga_ps1_lit "$2"
+    _bga_l+="${!tok}${REPLY}${_R}"
+    _bga_lr+="$2"
+}
+
+# Build the left side for path $1 into _bga_l / _bga_lr.
+__bga_lean_left() {
+    _bga_l='' _bga_lr=''
+    [ -n "${debian_chroot:-}" ] && __bga_lean_add tag "(${debian_chroot}) "
+    [ "$_bga_container" = 1 ]   && __bga_lean_add tag '[container] '
+    local show_host="${BASHGITAWARE_SHOW_HOST:-auto}"
+    if [ "$show_host" = always ] || { [ "$show_host" != never ] && { [ "$_bga_ssh" = 1 ] || [ "$_bga_root" = 1 ]; }; }; then
+        __bga_lean_add user "${USER:-}"; __bga_lean_add dim '@'
+        if [ "$_bga_ssh" = 1 ]; then __bga_lean_add host_ssh "${HOSTNAME%%.*} "
+        else __bga_lean_add host "${HOSTNAME%%.*} "; fi
+    fi
+    __bga_lean_add path "$1"
+    if [ "$_bga_in_git" = 1 ]; then
+        __bga_lean_add dim '  '
+        __bga_lean_add branch "${_g_branch}${_bga_git_branch}"
+        [ -n "$_bga_git_state" ]                 && __bga_lean_add state " $_bga_git_state"
+        [ "$_bga_git_dirty" = 1 ]                && __bga_lean_add dirty " $_g_dirty"
+        [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null && __bga_lean_add ahead " ${_g_ahead}${_bga_git_ahead}"
+        [ "$_bga_git_behind" -gt 0 ] 2>/dev/null && __bga_lean_add behind " ${_g_behind}${_bga_git_behind}"
+        [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null && __bga_lean_add stash " ${_g_stash}${_bga_git_stash}"
+        [ "${_bga_async_pending:-0}" = 1 ]       && __bga_lean_add dim " $_g_ell"
+    fi
+    return 0
+}
+
+__bga_prompt_lean() {
+    local exit_code="$1" REPLY cols="${COLUMNS:-80}" ps1='' path
+    case "$cols" in '' | *[!0-9]*) cols=80 ;; esac
+    local sep=' · '; [ "$_bga_glyphs" = ascii ] && sep=' | '
+
+    ps1+="$(__bga_osc_ps1 '133;A')"
+    __bga_title_ps1; ps1+="$REPLY"
+
+    # --- Left: tags, user@host, path, git -------------------------------------
+    path="$(__bga_path)"
+    __bga_lean_left "$path"
+    __bga_width "$_bga_lr"; local wl="$REPLY"
+    # Too wide even without the right block: keep only the last component.
+    if [ "$wl" -ge "$cols" ] && [ "$path" != "${path##*/}" ]; then
+        __bga_lean_left "${path##*/}"
+        __bga_width "$_bga_lr"; wl="$REPLY"
+    fi
+    ps1+="$_bga_l"
+
+    # --- Right: runtimes, optional clock ---------------------------------------
+    local -a rt=() rw=()
+    local item tok label rtok
+    __bga_runtime
+    for item in "${_bga_rt_items[@]}"; do
+        tok="${item%%|*}" label="${item#*|}"
+        rtok="_cr_$tok"; __bga_ps1_lit "$label"
+        rt+=("${!rtok}${REPLY}${_Rr}")
+        __bga_width "$label"; rw+=("$REPLY")
+    done
+    if [ "${BASHGITAWARE_CLOCK:-0}" = 1 ]; then
+        printf -v label '%(%H:%M)T' -1
+        rt+=("${_cr_dim}${label}${_Rr}"); rw+=("${#label}")
+    fi
+    # Drop from the end (clock first, then the last runtimes) until it fits.
+    local n="${#rt[@]}" wr i sepw="${#sep}"
+    while [ "$n" -gt 0 ]; do
+        wr=0; for (( i = 0; i < n; i++ )); do wr=$(( wr + rw[i] )); done
+        wr=$(( wr + (n - 1) * sepw ))
+        [ $(( wl + wr + 2 )) -le "$cols" ] && break
+        n=$(( n - 1 ))
+    done
+    if [ "$n" -gt 0 ]; then
+        local right=''
+        for (( i = 0; i < n; i++ )); do
+            [ "$i" -gt 0 ] && right+="${_cr_dim}${sep}${_Rr}"
+            right+="${rt[i]}"
+        done
+        ps1+="\\[\\e7\\e[$(( cols - wr + 1 ))G${right}\\e8\\]"
+    fi
+
+    # --- Optional commit subject, then the symbol line --------------------------
+    local lines=2
+    if [ "${BASHGITAWARE_COMMIT_LINE:-0}" = 1 ] && [ "$_bga_in_git" = 1 ] && [ -n "$_bga_git_msg" ]; then
+        local msg="$_bga_git_msg" w=$(( cols - 3 ))
+        [ "$w" -lt 12 ] && w=12
+        if [ "${#msg}" -gt "$w" ]; then msg="${msg:0:$(( w - ${#_g_ell} ))}${_g_ell}"; fi
+        __bga_ps1_lit "$msg"
+        ps1+="\\n${_c_commit}${_g_commit:+$_g_commit }${REPLY}${_R}"
+        lines=3
+    fi
+    if [ "$exit_code" -eq 0 ]; then ps1+="\\n${_c_ok}${_g_sym}${_R} "
+    else                            ps1+="\\n${_c_sym_err}${_g_sym}${_R} "; fi
+    ps1+="$(__bga_osc_ps1 '133;B')"
+    PS1="$ps1"
+
+    if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ]; then
+        _bga_transient_lines="$lines"
+        _bga_transient_exit="$exit_code"
+        _bga_transient_active=1
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -1143,8 +1298,8 @@ fi
 # accept-line then echoes \n and the command runs as usual; the modern terminal
 # (via OSC 133;C from PS0) still gets the command-start mark in the right place.
 #
-# The reprinted form includes READLINE_LINE so scrollback stays useful: each
-# collapsed prompt is "❯ <command>", not just "❯" -- matches Powerlevel10k.
+# The collapsed form keeps the typed command ("❯ <command>"), drawn by
+# readline itself after PS1 is swapped, so scrollback stays useful.
 # (This refines ADR-0004 step 2: the original 'minimal form ("❯ only")' was
 # directional; in practice the typed command must remain visible in scrollback.)
 #
@@ -1175,26 +1330,17 @@ __bga_transient_collapse() {
     [ "${BASHGITAWARE_TRANSIENT:-1}" = 0 ] && return 0
     [ "${_bga_transient_active:-0}" = 1 ] || return 0
 
+    # Move to the first line of the prompt and clear to the end of the screen,
+    # then swap PS1 for the collapsed form. Readline redraws the prompt and
+    # the typed line itself when the bind -x function returns: printing the
+    # line here as well left it twice on screen (bash 4.4-5.3), and readline
+    # shows control characters in it safely as ^[.
     local up=$(( ${_bga_transient_lines:-1} - 1 ))
-    [ "$up" -lt 0 ] && up=0
-
-    # Theme tokens (raw form): empty without color, so NO_COLOR is honored.
-    local color reset="${_Rr:-}"
-    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then color="${_cr_ok:-}"
-    else color="${_cr_sym_err:-}"
-    fi
-
-    local sym="${_g_sym:-❯}" REPLY
-    # The typed line is echoed raw by printf: a pasted command can hide escape
-    # sequences that readline displays safely as ^[. Neutralize them (tabs
-    # become spaces first so ordinary commands look the same).
-    __bga_term_safe "${READLINE_LINE//$'\t'/ }"
-
-    if [ "$up" -gt 0 ]; then
-        printf '\r\e[%dA\e[J%s%s%s %s' "$up" "$color" "$sym" "$reset" "$REPLY"
-    else
-        printf '\r\e[J%s%s%s %s' "$color" "$sym" "$reset" "$REPLY"
-    fi
+    [ "$up" -gt 0 ] && printf '\e[%dA' "$up"
+    printf '\r\e[J'
+    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then PS1="${_c_ok}${_g_sym:-❯}${_R} "
+    else PS1="${_c_sym_err}${_g_sym:-❯}${_R} "; fi
+    _bga_transient_active=0
 }
 
 # Install the Enter remap once at source time, only in interactive shells.
@@ -1388,7 +1534,7 @@ __bga_pre() {
 # The two entries that open PROMPT_COMMAND. The first must be a plain
 # assignment so it sees the command's status before anything else runs.
 # shellcheck disable=SC2016  # expanded when PROMPT_COMMAND runs, not here
-_bga_pc_save='_bga_exit=$?'
+_bga_pc_save='_bga_exit=$? _bga_in_pc=1'
 # shellcheck disable=SC2016,SC2089  # shell code for PROMPT_COMMAND, not argv
 _bga_pc_pre='__bga_pre "${_bga_dbg_done-$(trap -p DEBUG)}"'
 
@@ -1432,8 +1578,17 @@ __bga_hooks_install() {
 _bga_timer_start="${_bga_timer_start:-}"
 _bga_last_duration=''
 _bga_exit=''
+_bga_in_pc=''
 
-__bga_timer_start() { _bga_timer_start="${_bga_timer_start:-$SECONDS}"; }
+# Starts the timer for a command the user runs. The DEBUG trap also fires for
+# PROMPT_COMMAND entries (the first one sets _bga_in_pc, cleared at the end of
+# __bga_prompt) and for the transient bind -x function; those are not user
+# commands, and counting them made an empty Enter look like a command ran.
+__bga_timer_start() {
+    [ -n "${_bga_in_pc:-}" ] && return 0
+    case "$BASH_COMMAND" in '_bga_exit=$? '* | __bga_transient_collapse*) return 0 ;; esac
+    _bga_timer_start="${_bga_timer_start:-$SECONDS}"
+}
 
 # ---------------------------------------------------------------------------
 # Async (M5): initialise the cache path + install the cleanup EXIT trap.

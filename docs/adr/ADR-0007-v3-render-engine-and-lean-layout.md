@@ -23,24 +23,26 @@ corruption, quadratic idioms, and differences between glibc and musl.
 ### Layout (Lean)
 
 ```
-~/src/bash-gitaware  main ●2 ↑1                     py 3.12 · 3s · ✘1
+❯ make test
+...output...
+  ✘1 · 3s
+~/src/bash-gitaware  main ● ↑1                          python 3.12 · 14:02
 ❯ _
 ```
 
 - Line 1, left: path, then git (branch, state, dirty count, ahead/behind,
   stash).
-- Line 1, right: context, aligned to the last column. The segments are the
-  runtime/version, the last command's duration (only when it reaches the
-  threshold), its exit status (only on failure), and an optional clock (off by
-  default).
+- Line 1, right: context, aligned to the last column: the runtime/version
+  segments and an optional clock (`BASHGITAWARE_CLOCK=1`, off by default).
 - Line 2: the prompt symbol, colored by the last exit status.
 - The commit subject is off by default in Lean (`commit_line=1` brings it back
   as its own line).
 - **Ledger.** On Enter, the two-line prompt collapses into one ledger line,
   `❯ <command>` (ADR-0004 mechanism). When the command ends and it failed or
-  reached the duration threshold, the next prompt is preceded by a dim result
+  reached the duration threshold, the next prompt is preceded by a result
   line, `  ✘1 · 3s`, so the scrollback reads as command, output, result.
-  Successful fast commands add nothing.
+  Successful fast commands add nothing. The exit status and duration are not
+  repeated in the right block: they would sit right below the result line.
 
 ### Render engine
 
@@ -65,9 +67,8 @@ corruption, quadratic idioms, and differences between glibc and musl.
    width, so a width error can misplace the right block but never breaks
    line editing or wrapping. `col = COLUMNS - right_width + 1`.
 4. **Narrow terminals.** When `left + right + 1 > COLUMNS`, right segments
-   are dropped in this order: clock, runtime, duration, exit status. If the
-   left part alone does not fit, the path is shortened first (fewer trailing
-   components, down to one), and git keeps the branch only. `COLUMNS` is read
+   are dropped in this order: clock, then runtimes (last first). If the left
+   part alone does not fit, the path is cut to its last component. `COLUMNS` is read
    on every prompt (`checkwinsize`), so a resize applies on the next prompt.
 5. **Colors** come only from semantic tokens (`T1.4`), never from literal
    escapes in segment code.

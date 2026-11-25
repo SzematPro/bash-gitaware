@@ -25,7 +25,7 @@ scenario_hooks_prompt_command_string() {
         case "$PS1" in *133\;A*) echo "ps1=built" ;; esac')"
     assert_contains "$out" "seen=3"        "user hook still sees the command's exit status"
     assert_contains "$out" "ps1=built"     "bash-gitaware prompt still built"
-    assert_contains "$out" 'pc=_bga_exit=$? | __bga_pre "${_bga_dbg_done-$(trap -p DEBUG)}" | _uh; history -a; | __bga_prompt' "order: ours, user hooks, prompt"
+    assert_contains "$out" 'pc=_bga_exit=$? _bga_in_pc=1 | __bga_pre "${_bga_dbg_done-$(trap -p DEBUG)}" | _uh; history -a; | __bga_prompt' "order: ours, user hooks, prompt"
 }
 
 scenario_hooks_prompt_command_comment() {

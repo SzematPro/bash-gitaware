@@ -202,7 +202,7 @@ scenario_security_transient_line() {
         __bga_transient_collapse
     " 2>/dev/null)"
     assert_lacks    "$out" $'\e]52' "no raw OSC 52 from the typed line"
-    assert_contains "$out" "echo hi" "typed text still shown"
+    assert_lacks    "$out" "echo hi" "typed line left to readline, which shows controls as ^["
 }
 
 scenario_security_c1_in_c_locale() {

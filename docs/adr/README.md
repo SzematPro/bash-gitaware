@@ -12,6 +12,10 @@ MADR-style template (see [`template.md`](template.md)).
 | 0004 | [Transient prompt](ADR-0004-transient-prompt.md)                                               | Accepted |
 | 0005 | [Async / non-blocking rendering](ADR-0005-async-rendering.md)                                  | Accepted |
 | 0006 | [Bash-only, bash 4.4+](ADR-0006-bash-only-bash-44-plus.md)                                     | Accepted |
+| 0007 | [v3 render engine and Lean layout](ADR-0007-v3-render-engine-and-lean-layout.md) | Accepted |
+| 0008 | [v3 git worker, trust model and state directory](ADR-0008-v3-git-worker-trust-and-state.md) | Accepted |
+| 0009 | [v3 command-line surface (`bga`)](ADR-0009-v3-cli-surface.md) | Accepted |
+| 0010 | [Shell-defaults module, off for new installs](ADR-0010-shell-defaults-module.md) | Accepted |
 
 ## Conventions
 

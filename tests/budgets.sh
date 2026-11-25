@@ -4,8 +4,9 @@
 # containers and about 14 ms on a Linux laptop (system bash-completion);
 # render 9-11 ms everywhere. Hosted macOS runners fork more slowly and are not
 # measured yet, hence the wide headroom. Lower the budgets as v3 tightens the
-# code; never raise one without a ruling in docs/v3/RULINGS.md.
+# code; never raise one without a ruling in docs/v3/RULINGS.md (render:
+# 40 -> 60 ms, ruling R-6).
 # shellcheck shell=bash disable=SC2034  # consumed by tests/perf.sh
 
 BGA_BUDGET_STARTUP_MS=100
-BGA_BUDGET_RENDER_MS=40
+BGA_BUDGET_RENDER_MS=60

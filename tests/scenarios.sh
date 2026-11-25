@@ -382,13 +382,14 @@ scenario_transient_state_tracked() {
 scenario_install_replace() {
     section "install.sh --replace (writes new.bashrc to target)"
     local target; target="$(mktemp "${TMPDIR:-/tmp}/bga-install-XXXXXX")"
-    bash "$REPO/install.sh" --replace --target "$target" --no-backup >/dev/null 2>&1
-    if cmp -s "$REPO/new.bashrc" "$target"; then
+    local c; c="$(_in_copy)"
+    bash "$c/repo/install.sh" --replace --target "$target" --no-backup >/dev/null 2>&1
+    if cmp -s "$c/repo/new.bashrc" "$target"; then
         ok   "install.sh --replace: target matches new.bashrc"
     else
         fail "install.sh --replace: target differs from new.bashrc"
     fi
-    rm -f "$target"
+    rm -rf "$target" "$c"
 }
 
 scenario_install_append_idempotent() {
@@ -396,10 +397,11 @@ scenario_install_append_idempotent() {
     local target; target="$(mktemp "${TMPDIR:-/tmp}/bga-install-XXXXXX")"
     printf '# pre-existing user content\nexport USER_VAR=42\n' > "$target"
 
-    bash "$REPO/install.sh" --append --target "$target" >/dev/null 2>&1
-    local count1; count1="$(grep -c -F "$REPO/new.bashrc" "$target" || true)"
-    bash "$REPO/install.sh" --append --target "$target" >/dev/null 2>&1
-    local count2; count2="$(grep -c -F "$REPO/new.bashrc" "$target" || true)"
+    local c; c="$(_in_copy)"
+    bash "$c/repo/install.sh" --append --target "$target" >/dev/null 2>&1
+    local count1; count1="$(grep -c -F "$c/repo/new.bashrc" "$target" || true)"
+    bash "$c/repo/install.sh" --append --target "$target" >/dev/null 2>&1
+    local count2; count2="$(grep -c -F "$c/repo/new.bashrc" "$target" || true)"
 
     if [ "$count1" = 1 ] && [ "$count2" = 1 ]; then
         ok   "install.sh --append: source line present exactly once after 2 runs (idempotent)"
@@ -411,7 +413,7 @@ scenario_install_append_idempotent() {
     else
         fail "install.sh --append: pre-existing content was lost"
     fi
-    rm -f "$target"
+    rm -rf "$target" "$c"
 }
 
 scenario_install_help() {

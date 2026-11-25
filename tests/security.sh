@@ -152,7 +152,8 @@ scenario_async_without_state_dir_falls_back() {
     section "async: no state directory -> synchronous, dirty still shown"
     local d; d="$(mktemp_repo)"
     git -C "$d" commit --allow-empty -qm init; : > "$d/f"
-    local out; out="$(TMPDIR="$d/missing" XDG_RUNTIME_DIR='' bga_render "$d" BASHGITAWARE_ASYNC=1)"
+    local out; out="$(TMPDIR="$d/missing" XDG_RUNTIME_DIR='' bga_render "$d" BASHGITAWARE_ASYNC=1 BASHGITAWARE_PATH_MAXDEPTH=0)"
+    # PATH_MAXDEPTH=0: a long temp path (macOS) would add its own ellipsis.
     assert_contains "$out" "●" "dirty marker shown without async cache"
     assert_lacks    "$out" "…" "no stuck pending indicator"
     rm -rf "$d"

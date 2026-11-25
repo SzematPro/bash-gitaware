@@ -15,6 +15,7 @@
 | F3 | Low | `${k^^}` and `${k,,}` follow the locale. Under `tr_TR.UTF-8`, `i` becomes a dotted capital I, so `printf -v` fails ("not a valid identifier"). Any key containing `i` did not apply, while `doctor` still listed it as locked. This was also present in the 3.0 user config parser | Key case folding runs in `LC_ALL=C` (`__bga_key_lc`, `__bga_key_uc`), only for the conversion. The warnings keep the user's locale, so UTF-8 C1 controls are still stripped | Ubuntu image, `tr_TR.UTF-8`: same result as `C.UTF-8`. A test runs where the locale is installed |
 
 Blocked correctly (no change needed):
+
 - `_BGA_POLICY` exported, set with `declare -x` or `declare -rx`, or passed through `bin/bga`;
 - a policy that is a symlink, FIFO, `/dev/null` or `/dev/zero`;
 - files owned by other users or with group/other write;

@@ -34,6 +34,8 @@ source "$HERE/lean.sh"
 source "$HERE/cli.sh"
 # shellcheck source=install.sh
 source "$HERE/install.sh"
+# shellcheck source=shell.sh
+source "$HERE/shell.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -135,6 +137,8 @@ scenario_config_file
 scenario_config_file_validation
 scenario_config_file_permissions
 scenario_config_file_sticky_dir
+scenario_shell_defaults
+scenario_shell_path_untouched
 
 # Plain mode.
 scenario_plain_mode

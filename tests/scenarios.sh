@@ -4,6 +4,13 @@
 # expanded PS1 string. Sourced by run.sh; uses helpers from lib.sh.
 # shellcheck shell=bash
 
+scenario_sandbox_clean() {
+    section "sandbox: no inherited prompt state"
+    local left; left="$(bash --norc --noprofile -c 'compgen -v | grep -E "^(_bga_|_BGA_|BASHGITAWARE_|NO_COLOR$)"')"
+    if [ -z "$left" ]; then ok "child shells inherit no _bga_/BASHGITAWARE_ variables"
+    else fail "inherited prompt state: ${left//$'\n'/ }"; fi
+}
+
 scenario_non_git_path() {
     section "non-git path"
     local out; out="$(bga_render /tmp)"

@@ -36,6 +36,18 @@ assert_lacks() {
     esac
 }
 
+# Remove prompt state inherited from the developer's own shell (a v2 prompt
+# exports some _bga_* variables; BASHGITAWARE_* knobs would change renders).
+# Child shells only inherit exported variables, so unsetting them here keeps
+# every render in the suite deterministic. NO_COLOR is dropped for the same
+# reason; scenarios that need it set it explicitly.
+sandbox_scrub() {
+    local v
+    for v in $(compgen -v); do
+        case "$v" in _bga_* | _BGA_* | BASHGITAWARE_* | NO_COLOR) unset "$v" ;; esac
+    done
+}
+
 # Create a fresh empty git repo in a temp dir. Echoes the dir path.
 mktemp_repo() {
     local d; d="$(mktemp -d "${TMPDIR:-/tmp}/bga-test-XXXXXX")"

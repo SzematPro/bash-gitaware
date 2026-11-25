@@ -23,7 +23,7 @@
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
 | T0.1 | R12 | Startup and per-prompt budget harness | `tests/perf.sh` reports startup ms and render ms; CI fails over budget; budgets stored in one file | todo |
-| T0.2 | all | Test sandbox hardening | Each test runs with inherited `_bga_*`/`_BGA_*`/`BASHGITAWARE_*` cleared; a missing tool becomes a skip, not a failure | todo |
+| T0.2 | all | Test sandbox hardening | Each test runs with inherited `_bga_*`/`_BGA_*`/`BASHGITAWARE_*`/`NO_COLOR` cleared (a polluted environment caused 15 failures before the fix, 0 after); the helper that turns a missing tool into a skip is added with its first consumer | done |
 | T0.3 | R10 | State-directory primitive | `__bga_state_dir` returns a directory that the user owns with mode 0700, under `XDG_RUNTIME_DIR` or a `mktemp -d` fallback; it refuses a directory owned by someone else or writable by group or others; tests cover a planted symlink and a planted directory | todo |
 | T0.4 | R10 | Shell-state independence | Prompt output is the same with `extglob`, `nullglob`, `failglob`, `expand_aliases`, `patsub_replacement` and `promptvars` each turned on or off; one test per option | todo |
 | T0.5 | R8 | Plain/agent mode detection | `TERM=dumb`, no tty, `CI`, `AGENT`, `AI_AGENT` or `BASHGITAWARE_MODE=plain` produce a one-line ASCII prompt with no escape sequences; `BASHGITAWARE_MODE=full` overrides the detection | todo |

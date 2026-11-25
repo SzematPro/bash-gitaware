@@ -17,7 +17,9 @@ source "$HERE/perf.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
-# Sanity gates.
+# Hermetic environment, then sanity gates.
+sandbox_scrub
+scenario_sandbox_clean
 lib_syntax_check
 build_freshness_check
 

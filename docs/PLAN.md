@@ -1,5 +1,7 @@
 # bash-gitaware v2 — Build Plan
 
+> **Historical (v2).** This is the v2 build plan, kept for reference. The current plan is [docs/v3/PLAN.md](v3/PLAN.md).
+
 This breaks the work in [`SPEC.md`](SPEC.md) into milestones. Each milestone is a
 coherent slice that ends in a buildable, testable state; commits within a
 milestone are atomic and follow Conventional Commits. Tags:

@@ -1,5 +1,7 @@
 # bash-gitaware v2 — Specification
 
+> **Historical (v2).** This is the v2 specification, kept for reference. The current spec is [docs/v3/SPEC.md](v3/SPEC.md).
+
 **Status:** draft. This document is the source of truth for what bash-gitaware v2
 is and is not. The decisions are recorded as ADRs in `docs/adr/`; the work is
 broken into milestones in `docs/PLAN.md`; the render pipeline is drawn in

@@ -1,5 +1,7 @@
 # ADR-0001: Module architecture and the build pipeline
 
+> **Historical (v2).** v3 keeps this module and build layout. The v3 design decisions are in [ADR-0007](ADR-0007-v3-render-engine-and-lean-layout.md), [ADR-0008](ADR-0008-v3-git-worker-trust-and-state.md) and [ADR-0009](ADR-0009-v3-cli-surface.md).
+
 - Status: Accepted
 - Date: 2026-05-13
 

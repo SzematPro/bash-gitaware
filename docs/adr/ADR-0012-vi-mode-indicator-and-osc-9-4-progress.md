@@ -72,5 +72,8 @@ R-5). Anything printed from the side corrupts the input.
 - The vi-mode tests do not run `set -o vi` in `bash -i -c` without a tty.
   bash 4.4 to 5.2 crash there, with or without bash-gitaware, and 5.3
   fixes it. The real vi mode is tested in a pty.
+- Some terminals use OSC 9 for desktop notifications (older iTerm2), so
+  `progress = 1` may show pop-ups there. This is another reason it is
+  opt-in.
 - OSC 9;4 was checked as bytes in the test suite. How it looks on Windows
   Terminal, ConEmu and Ghostty has not been checked on a real terminal.

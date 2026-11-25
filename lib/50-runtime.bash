@@ -9,7 +9,7 @@ __bga_runtime() {
     local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}"
     if [ "$key" = "${_bga_rt_key:-}" ]; then printf '%s' "${_bga_rt_str:-}"; return; fi
     _bga_rt_key="$key"; _bga_rt_str=""
-    local out="" v f s
+    local out="" v f s REPLY
 
     # --- Python: an active virtualenv / conda env, or a Python project marker ---
     local pyenv=""
@@ -33,7 +33,7 @@ __bga_runtime() {
             v="${v#Python }"; v="${v%% *}"
         fi
         s="python"; [ -n "$v" ] && s="python $v"; [ -n "$pyenv" ] && s="$s ($pyenv)"
-        out="$out ${_c_dim}via ${_R}${_c_py}${s}${_R}"
+        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_py}${REPLY}${_R}"
     fi
 
     # --- Node: a package.json in the current directory ---
@@ -44,21 +44,21 @@ __bga_runtime() {
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"
-        out="$out ${_c_dim}via ${_R}${_c_node}${s}${_R}"
+        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_node}${REPLY}${_R}"
     fi
 
     # --- Rust: a Cargo.toml in the current directory ---
     if [ -e "$PWD/Cargo.toml" ]; then
         v=""; command -v rustc >/dev/null 2>&1 && { v="$(rustc --version 2>/dev/null)"; v="${v#rustc }"; v="${v%% *}"; }
         s="rust"; [ -n "$v" ] && s="rust $v"
-        out="$out ${_c_dim}via ${_R}${_c_rust}${s}${_R}"
+        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_rust}${REPLY}${_R}"
     fi
 
     # --- Go: a go.mod in the current directory ---
     if [ -e "$PWD/go.mod" ]; then
         v=""; command -v go >/dev/null 2>&1 && { v="$(go env GOVERSION 2>/dev/null)"; v="${v#go}"; }
         s="go"; [ -n "$v" ] && s="go $v"
-        out="$out ${_c_dim}via ${_R}${_c_go}${s}${_R}"
+        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_go}${REPLY}${_R}"
     fi
 
     _bga_rt_str="$out"

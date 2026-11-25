@@ -14,6 +14,8 @@ source "$HERE/lib.sh"
 source "$HERE/scenarios.sh"
 # shellcheck source=perf.sh
 source "$HERE/perf.sh"
+# shellcheck source=security.sh
+source "$HERE/security.sh"
 
 # Sanity gates.
 lib_syntax_check
@@ -47,6 +49,15 @@ scenario_install_replace
 scenario_install_append_idempotent
 scenario_install_help
 scenario_path_maxdepth
+
+# Security: untrusted text is never evaluated by the prompt.
+scenario_security_branch_name
+scenario_security_commit_subject
+scenario_security_directory_name
+scenario_security_version_file
+scenario_security_control_chars
+scenario_security_special_chars
+scenario_security_promptvars_off
 
 # Performance.
 scenario_perf_budget

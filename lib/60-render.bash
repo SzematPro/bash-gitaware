@@ -25,7 +25,7 @@ __bga_prompt() {
 
     __bga_git_info
 
-    local ps1=""
+    local ps1="" nl=0   # nl: number of "\n" line breaks added (transient)
 
     # OSC 133;A: prompt begin (wrapped in \[ \] for readline width arithmetic).
     ps1+="$(__bga_osc_ps1 '133;A')"
@@ -36,7 +36,12 @@ __bga_prompt() {
     fi
 
     # --- Line 1: context ----------------------------------------------------
-    [ -n "${debian_chroot:-}" ] && ps1+="${_c_tag}(${debian_chroot})${_R} "
+    # Untrusted text (paths, git refs, commit subjects, ...) is embedded only
+    # through __bga_ps1_lit (lib/15-escape.bash): never paste it raw.
+    local REPLY
+    if [ -n "${debian_chroot:-}" ]; then
+        __bga_ps1_lit "$debian_chroot"; ps1+="${_c_tag}(${REPLY})${_R} "
+    fi
     [ "$_bga_container" = 1 ]   && ps1+="${_c_tag}[container]${_R} "
 
     # user@host -- shown only when it matters, unless overridden.
@@ -48,15 +53,18 @@ __bga_prompt() {
 
     # Path (repo-relative when inside a repo).
     local pwd_str; pwd_str="$(__bga_path)"
-    ps1+="${_c_path}${pwd_str}${_R}"
+    __bga_ps1_lit "$pwd_str"; ps1+="${_c_path}${REPLY}${_R}"
 
     # Git: " on [glyph]branch[@hash][ STATE][ ^ahead][ vbehind][ dirty][ stashN]"
     if [ "$_bga_in_git" = 1 ]; then
-        ps1+=" ${_c_dim}on ${_R}${_c_branch}${_g_branch}${_bga_git_branch}${_R}"
+        __bga_ps1_lit "$_bga_git_branch"
+        ps1+=" ${_c_dim}on ${_R}${_c_branch}${_g_branch}${REPLY}${_R}"
         if [ -n "$_bga_git_hash" ] && [ "$_bga_git_branch" != "detached@${_bga_git_hash}" ]; then
-            ps1+="${_c_hash}@${_bga_git_hash}${_R}"
+            __bga_ps1_lit "$_bga_git_hash"; ps1+="${_c_hash}@${REPLY}${_R}"
         fi
-        [ -n "$_bga_git_state" ]                  && ps1+=" ${_c_state}${_bga_git_state}${_R}"
+        if [ -n "$_bga_git_state" ]; then
+            __bga_ps1_lit "$_bga_git_state"; ps1+=" ${_c_state}${REPLY}${_R}"
+        fi
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_ahead}${_g_ahead}${_bga_git_ahead}${_R}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
         [ "$_bga_git_dirty"  = 1 ]                && ps1+=" ${_c_dirty}${_g_dirty}${_R}"
@@ -83,12 +91,14 @@ __bga_prompt() {
         local msg="$_bga_git_msg" w=$(( ${COLUMNS:-80} - 3 ))
         [ "$w" -lt 12 ] && w=12
         if [ "${#msg}" -gt "$w" ]; then msg="${msg:0:$(( w - ${#_g_ell} ))}${_g_ell}"; fi
+        __bga_ps1_lit "$msg"; msg="$REPLY"; nl=$(( nl + 1 ))
         if [ -n "$_g_commit" ]; then ps1+="\n${_c_commit}${_g_commit} ${msg}${_R}"
         else                         ps1+="\n${_c_commit}commit: ${msg}${_R}"
         fi
     fi
 
     # --- Line 3: the prompt symbol ------------------------------------------
+    nl=$(( nl + 1 ))
     if [ "$exit_code" -eq 0 ]; then ps1+="\n${_c_ok}${_g_sym}${_R} "
     else                            ps1+="\n${_c_sym_err}${_g_sym}${_R} "
     fi
@@ -102,10 +112,10 @@ __bga_prompt() {
     # M4 transient: record the just-built prompt's physical line count and
     # exit code so __bga_transient_collapse (bind -x on Enter) can move the
     # cursor up the right number of rows and pick the matching symbol color.
-    # Line count = count of literal "\n" sequences in the PS1 string + 1.
     if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ]; then
-        local _ps1_stripped="${ps1//\\n/}"
-        _bga_transient_lines=$(( (${#ps1} - ${#_ps1_stripped}) / 2 + 1 ))
+        # Count our own line breaks: escaped untrusted text may contain a
+        # literal backslash-n, so scanning PS1 for "\n" would over-count.
+        _bga_transient_lines=$(( nl + 1 ))
         _bga_transient_exit="$exit_code"
         _bga_transient_active=1
     fi

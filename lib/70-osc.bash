@@ -33,7 +33,8 @@ __bga_osc_ps1() {
 __bga_osc_prompt_cycle_start() {
     [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return
     printf '\e]133;D;%s\a' "$1"
-    printf '\e]7;file://%s%s\a' "${HOSTNAME:-localhost}" "$PWD"
+    local REPLY; __bga_term_safe "$PWD"
+    printf '\e]7;file://%s%s\a' "${HOSTNAME:-localhost}" "$REPLY"
 }
 
 # 133;C: command begin. Set via PS0 so it fires exactly once per user command,

@@ -111,6 +111,43 @@ if [ "${NO_COLOR+set}" != set ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Escaping untrusted text for PS1.
+#
+# Branch names, commit subjects, directory names, version files and env names
+# are attacker-controlled (any cloned repo). PS1 goes through two layers before
+# it is shown: backslash-escape decoding (\u, \w, \\ ...) and then, with
+# `shopt -s promptvars` (the default), parameter expansion, command
+# substitution and arithmetic expansion. Text pasted raw into PS1 therefore
+# runs `$(...)` and backticks on every prompt.
+#
+# __bga_ps1_lit "<text>" sets REPLY to a form that both layers turn back into
+# <text> verbatim:
+#   1. control characters (C0, DEL, and C1 in UTF-8 locales) become '?', so the
+#      text cannot inject terminal sequences or break readline's width count;
+#   2. with promptvars on: \ -> \\, $ -> \$, ` -> \`   (expansion layer);
+#   3. \ -> \\  (decoding layer); in posix mode also ! -> !! (history number).
+# Sets REPLY instead of printing so callers avoid a subshell per segment.
+# ---------------------------------------------------------------------------
+__bga_ps1_lit() {
+    local s="$1" bs=\\ dl='$' bt='`'
+    s="${s//[[:cntrl:]]/?}"
+    if shopt -q promptvars; then
+        s="${s//"$bs"/"$bs$bs"}"
+        s="${s//"$dl"/"$bs$dl"}"
+        s="${s//"$bt"/"$bs$bt"}"
+    fi
+    s="${s//"$bs"/"$bs$bs"}"
+    if shopt -oq posix; then s="${s//!/!!}"; fi
+    REPLY="$s"
+}
+
+# Strip control characters only (for text written straight to the terminal,
+# outside PS1, e.g. the OSC 7 cwd report). Sets REPLY.
+__bga_term_safe() {
+    REPLY="${1//[[:cntrl:]]/?}"
+}
+
+# ---------------------------------------------------------------------------
 # Color palette
 # ---------------------------------------------------------------------------
 if [ "$_bga_color" = 1 ]; then
@@ -364,7 +401,7 @@ __bga_runtime() {
     local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}"
     if [ "$key" = "${_bga_rt_key:-}" ]; then printf '%s' "${_bga_rt_str:-}"; return; fi
     _bga_rt_key="$key"; _bga_rt_str=""
-    local out="" v f s
+    local out="" v f s REPLY
 
     # --- Python: an active virtualenv / conda env, or a Python project marker ---
     local pyenv=""
@@ -388,7 +425,7 @@ __bga_runtime() {
             v="${v#Python }"; v="${v%% *}"
         fi
         s="python"; [ -n "$v" ] && s="python $v"; [ -n "$pyenv" ] && s="$s ($pyenv)"
-        out="$out ${_c_dim}via ${_R}${_c_py}${s}${_R}"
+        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_py}${REPLY}${_R}"
     fi
 
     # --- Node: a package.json in the current directory ---
@@ -399,21 +436,21 @@ __bga_runtime() {
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"
-        out="$out ${_c_dim}via ${_R}${_c_node}${s}${_R}"
+        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_node}${REPLY}${_R}"
     fi
 
     # --- Rust: a Cargo.toml in the current directory ---
     if [ -e "$PWD/Cargo.toml" ]; then
         v=""; command -v rustc >/dev/null 2>&1 && { v="$(rustc --version 2>/dev/null)"; v="${v#rustc }"; v="${v%% *}"; }
         s="rust"; [ -n "$v" ] && s="rust $v"
-        out="$out ${_c_dim}via ${_R}${_c_rust}${s}${_R}"
+        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_rust}${REPLY}${_R}"
     fi
 
     # --- Go: a go.mod in the current directory ---
     if [ -e "$PWD/go.mod" ]; then
         v=""; command -v go >/dev/null 2>&1 && { v="$(go env GOVERSION 2>/dev/null)"; v="${v#go}"; }
         s="go"; [ -n "$v" ] && s="go $v"
-        out="$out ${_c_dim}via ${_R}${_c_go}${s}${_R}"
+        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_go}${REPLY}${_R}"
     fi
 
     _bga_rt_str="$out"
@@ -446,7 +483,7 @@ __bga_prompt() {
 
     __bga_git_info
 
-    local ps1=""
+    local ps1="" nl=0   # nl: number of "\n" line breaks added (transient)
 
     # OSC 133;A: prompt begin (wrapped in \[ \] for readline width arithmetic).
     ps1+="$(__bga_osc_ps1 '133;A')"
@@ -457,7 +494,12 @@ __bga_prompt() {
     fi
 
     # --- Line 1: context ----------------------------------------------------
-    [ -n "${debian_chroot:-}" ] && ps1+="${_c_tag}(${debian_chroot})${_R} "
+    # Untrusted text (paths, git refs, commit subjects, ...) is embedded only
+    # through __bga_ps1_lit (lib/15-escape.bash): never paste it raw.
+    local REPLY
+    if [ -n "${debian_chroot:-}" ]; then
+        __bga_ps1_lit "$debian_chroot"; ps1+="${_c_tag}(${REPLY})${_R} "
+    fi
     [ "$_bga_container" = 1 ]   && ps1+="${_c_tag}[container]${_R} "
 
     # user@host -- shown only when it matters, unless overridden.
@@ -469,15 +511,18 @@ __bga_prompt() {
 
     # Path (repo-relative when inside a repo).
     local pwd_str; pwd_str="$(__bga_path)"
-    ps1+="${_c_path}${pwd_str}${_R}"
+    __bga_ps1_lit "$pwd_str"; ps1+="${_c_path}${REPLY}${_R}"
 
     # Git: " on [glyph]branch[@hash][ STATE][ ^ahead][ vbehind][ dirty][ stashN]"
     if [ "$_bga_in_git" = 1 ]; then
-        ps1+=" ${_c_dim}on ${_R}${_c_branch}${_g_branch}${_bga_git_branch}${_R}"
+        __bga_ps1_lit "$_bga_git_branch"
+        ps1+=" ${_c_dim}on ${_R}${_c_branch}${_g_branch}${REPLY}${_R}"
         if [ -n "$_bga_git_hash" ] && [ "$_bga_git_branch" != "detached@${_bga_git_hash}" ]; then
-            ps1+="${_c_hash}@${_bga_git_hash}${_R}"
+            __bga_ps1_lit "$_bga_git_hash"; ps1+="${_c_hash}@${REPLY}${_R}"
         fi
-        [ -n "$_bga_git_state" ]                  && ps1+=" ${_c_state}${_bga_git_state}${_R}"
+        if [ -n "$_bga_git_state" ]; then
+            __bga_ps1_lit "$_bga_git_state"; ps1+=" ${_c_state}${REPLY}${_R}"
+        fi
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_ahead}${_g_ahead}${_bga_git_ahead}${_R}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
         [ "$_bga_git_dirty"  = 1 ]                && ps1+=" ${_c_dirty}${_g_dirty}${_R}"
@@ -504,12 +549,14 @@ __bga_prompt() {
         local msg="$_bga_git_msg" w=$(( ${COLUMNS:-80} - 3 ))
         [ "$w" -lt 12 ] && w=12
         if [ "${#msg}" -gt "$w" ]; then msg="${msg:0:$(( w - ${#_g_ell} ))}${_g_ell}"; fi
+        __bga_ps1_lit "$msg"; msg="$REPLY"; nl=$(( nl + 1 ))
         if [ -n "$_g_commit" ]; then ps1+="\n${_c_commit}${_g_commit} ${msg}${_R}"
         else                         ps1+="\n${_c_commit}commit: ${msg}${_R}"
         fi
     fi
 
     # --- Line 3: the prompt symbol ------------------------------------------
+    nl=$(( nl + 1 ))
     if [ "$exit_code" -eq 0 ]; then ps1+="\n${_c_ok}${_g_sym}${_R} "
     else                            ps1+="\n${_c_sym_err}${_g_sym}${_R} "
     fi
@@ -523,10 +570,10 @@ __bga_prompt() {
     # M4 transient: record the just-built prompt's physical line count and
     # exit code so __bga_transient_collapse (bind -x on Enter) can move the
     # cursor up the right number of rows and pick the matching symbol color.
-    # Line count = count of literal "\n" sequences in the PS1 string + 1.
     if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ]; then
-        local _ps1_stripped="${ps1//\\n/}"
-        _bga_transient_lines=$(( (${#ps1} - ${#_ps1_stripped}) / 2 + 1 ))
+        # Count our own line breaks: escaped untrusted text may contain a
+        # literal backslash-n, so scanning PS1 for "\n" would over-count.
+        _bga_transient_lines=$(( nl + 1 ))
         _bga_transient_exit="$exit_code"
         _bga_transient_active=1
     fi
@@ -568,7 +615,8 @@ __bga_osc_ps1() {
 __bga_osc_prompt_cycle_start() {
     [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return
     printf '\e]133;D;%s\a' "$1"
-    printf '\e]7;file://%s%s\a' "${HOSTNAME:-localhost}" "$PWD"
+    local REPLY; __bga_term_safe "$PWD"
+    printf '\e]7;file://%s%s\a' "${HOSTNAME:-localhost}" "$REPLY"
 }
 
 # 133;C: command begin. Set via PS0 so it fires exactly once per user command,

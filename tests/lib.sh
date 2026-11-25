@@ -68,6 +68,7 @@ bga_render() {
         $prelude
         cd '$dir' 2>/dev/null
         source '$REPO/new.bashrc'
+        if [ -n \"\${BGA_TEST_NOPROMPTVARS:-}\" ]; then shopt -u promptvars; fi
         __bga_prompt
         printf '%s' \"\${PS1@P}\"
     " 2>/dev/null

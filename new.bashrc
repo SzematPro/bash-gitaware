@@ -1541,7 +1541,8 @@ fi
 #     Kills any still-running background job and removes the cache file.
 #
 # Cache file:
-#   ${XDG_RUNTIME_DIR:-/tmp}/bga-${$}.cache
+#   <state dir>/cache, in the private per-shell directory of lib/16-state.bash
+#   (bga.XXXXXXXX under $XDG_RUNTIME_DIR or ${TMPDIR:-/tmp}, mode 0700).
 #   Plain key=value lines. Parsed defensively (no `source`): we accept only
 #   four known keys and ignore everything else.
 # ---------------------------------------------------------------------------

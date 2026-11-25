@@ -85,6 +85,7 @@ scenario_install_tamper_check
 scenario_install_uninstall
 scenario_install_hostile_path
 scenario_install_interactive
+scenario_install_shell_defaults
 scenario_path_maxdepth
 scenario_runtime_cache
 

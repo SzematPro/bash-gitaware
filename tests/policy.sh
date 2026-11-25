@@ -76,7 +76,8 @@ scenario_policy_applied() {
     assert_contains "$out" "theme=contrast state=applied" "root-owned directory symlink accepted"
     # SR5 F1: the file read is the physical path that was checked, so a
     # symlink on the way cannot be swapped between check and read.
-    assert_contains "$out" "real=$_PF/ok/policy" "the checked physical path is the one read"
+    local phys; phys="$(cd -P "$_PF/ok" && pwd -P)"   # /private/etc on macOS
+    assert_contains "$out" "real=$phys/policy" "the checked physical path is the one read"
 
     out="$(_pol_run "$_PF/badlines/policy" '' 'echo "theme=$BASHGITAWARE_THEME glyphs=${BASHGITAWARE_GLYPHS:-unset}"')"
     assert_contains "$out" "policy:3: unknown key 'bogus'" "bad policy line warned with its number"

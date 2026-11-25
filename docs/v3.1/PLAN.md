@@ -36,7 +36,7 @@ no new input surface.
 | T6.4 | M2 | CLI respects locks | `bga config set`/`unset` on a locked key exits 1 and names the policy file; `bga config list` marks locked keys; `bga theme set` goes through the same check (`tests/cli.sh`) | done |
 | T6.5 | M2 | Doctor | Shows the policy path, its state (absent, applied, refused and why) and the locked keys; a refused policy makes `doctor` exit 1 | done |
 | T6.6 | M2 | Test seam | The policy path can be changed only for the test suite, and only a uid-0-owned file is accepted there too; documented in ADR-0011; no user-facing variable can point the loader to a user-owned policy (test) | done |
-| T6.7 | M2 | Docs for admins | README (EN/ES) "For administrators" section with an example policy; CHANGELOG | todo |
+| T6.7 | M2 | Docs for admins | README (EN/ES) "For administrators" section with an example policy; CHANGELOG | done |
 
 Exit gate: review (security, correctness, compatibility) and **SR5** (policy
 trust check, parser, lock bypass through env, `bga`, `bga reload` and

@@ -15,6 +15,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a terminal and keeps an existing value). When it is not set, they
   stay on as in 3.0, and `bga doctor` asks you to choose.
 
+- **Administrator policy** (`/etc/bash-gitaware/policy`). Root can set and
+  lock settings for every user. The policy is used only when root owns it
+  and no one else can write it, and `bga doctor` shows what it locks.
+
 ### Changed
 
 - Startup is about 12 ms faster with `shell_defaults = 0` where

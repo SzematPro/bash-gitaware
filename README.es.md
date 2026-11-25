@@ -98,6 +98,26 @@ instalación de 3.0), los ajustes siguen activos y `bga doctor` te pide que
 elijas. bash-gitaware nunca cambia tu `PATH`. Más detalles en
 [ADR-0010](docs/adr/ADR-0010-shell-defaults-module.md).
 
+## Para administradores
+
+En máquinas compartidas o gestionadas, root puede fijar y bloquear ajustes
+para todos los usuarios en `/etc/bash-gitaware/policy`. Usa el mismo
+formato `clave = valor` que el config del usuario:
+
+```bash
+# /etc/bash-gitaware/policy (owned by root, mode 0644)
+mode = plain
+async = 0
+```
+
+Las claves del policy tienen prioridad sobre el entorno y el config del
+usuario, y `bga config set` se niega a cambiarlas. El archivo solo se usa si
+él y todos los directorios por encima pertenecen a root y nadie más puede
+escribirlos; si no, se ignora con un aviso y `bga doctor` explica el motivo.
+El policy fija valores por defecto; no impide que un usuario prescinda de
+bash-gitaware. Más detalles en
+[ADR-0011](docs/adr/ADR-0011-admin-policy-file.md).
+
 ## Modo plain
 
 En una terminal "dumb", sin tty, o cuando están definidas `CI`, `AGENT` o

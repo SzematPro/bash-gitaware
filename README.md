@@ -96,6 +96,25 @@ settings stay on and `bga doctor` asks you to choose. bash-gitaware never
 changes your `PATH`. See
 [ADR-0010](docs/adr/ADR-0010-shell-defaults-module.md).
 
+## For administrators
+
+On shared or managed machines, root can set and lock settings for every
+user in `/etc/bash-gitaware/policy`. It uses the same `key = value` format
+as the user config:
+
+```bash
+# /etc/bash-gitaware/policy (owned by root, mode 0644)
+mode = plain
+async = 0
+```
+
+Keys in the policy win over the environment and the user config, and
+`bga config set` refuses to change them. The file is used only if it and
+every directory above it are owned by root and nobody else can write them;
+otherwise it is ignored with a warning and `bga doctor` reports why. The
+policy sets defaults; it does not stop users from skipping bash-gitaware.
+See [ADR-0011](docs/adr/ADR-0011-admin-policy-file.md).
+
 ## Plain mode
 
 On a dumb terminal, without a tty, or when `CI`, `AGENT` or `AI_AGENT` is

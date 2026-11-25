@@ -17,6 +17,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   drivers ran. The `rev-parse` output is now captured with a sentinel, must
   have exactly three newline-terminated lines, and the background job runs
   in the shell's own directory instead of a re-derived path.
+- **Shell lock-up from a FIFO (found by an independent audit).** A FIFO or a
+  `/dev/tty` symlink at `.git/config`, `HEAD`, `index`, `packed-refs` or any
+  other path git reads blocked the prompt for good (Ctrl-C only restarted
+  it), and in async mode each prompt left another stuck `git status` that
+  outlived the shell. Every prompt git call now has a hard time limit
+  (`timeout -s KILL`, or a watchdog where `timeout` is missing): 1 s each,
+  3 s for a synchronous `git status`, 10 s in the background job. The first
+  timeout makes the rest of that prompt skip git.
+
+The same audit checked about 30 other command-valued git settings and hooks
+reachable from the prompt's git calls and found them closed.
 
 ## [2.0.3] - 2026-11-25
 

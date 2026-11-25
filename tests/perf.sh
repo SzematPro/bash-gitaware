@@ -57,10 +57,14 @@ scenario_perf_budget() {
     local n=50 total per
     total="$(_perf_median_ms 3 "$env; source '$REPO/new.bashrc'; i=0; while [ \$i -lt $n ]; do __bga_prompt; i=\$(( i + 1 )); done")"
     per=$(( (total - src) / n )); [ "$per" -lt 0 ] && per=0
-    if [ "$per" -le "$BGA_BUDGET_RENDER_MS" ]; then
-        ok "perf: ${per}ms/render across $n renders (budget ${BGA_BUDGET_RENDER_MS}ms)"
+    local budget="$BGA_BUDGET_RENDER_MS" how="timeout(1)"
+    if ! command -v timeout >/dev/null 2>&1 && ! command -v gtimeout >/dev/null 2>&1; then
+        budget="$BGA_BUDGET_RENDER_WATCHDOG_MS" how="watchdog"
+    fi
+    if [ "$per" -le "$budget" ]; then
+        ok "perf: ${per}ms/render across $n renders (budget ${budget}ms, $how)"
     else
-        fail "perf: ${per}ms/render exceeds budget ${BGA_BUDGET_RENDER_MS}ms"
+        fail "perf: ${per}ms/render exceeds budget ${budget}ms ($how)"
     fi
 
     rm -rf "$d"

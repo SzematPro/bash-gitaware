@@ -16,6 +16,8 @@ source "$HERE/scenarios.sh"
 source "$HERE/perf.sh"
 # shellcheck source=shellstate.sh
 source "$HERE/shellstate.sh"
+# shellcheck source=hooks.sh
+source "$HERE/hooks.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -65,6 +67,15 @@ scenario_security_promptvars_off
 scenario_security_async_cache_private
 scenario_security_state_dir
 scenario_async_without_state_dir_falls_back
+
+# Coexistence with the user's hooks.
+scenario_hooks_prompt_command_string
+scenario_hooks_prompt_command_array
+scenario_hooks_idempotent
+scenario_hooks_traps_chained
+scenario_hooks_bash_preexec
+scenario_hooks_async_exit_chained
+scenario_hooks_ps0_and_exports
 
 # Shell-state independence.
 scenario_shell_state_independence

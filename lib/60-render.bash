@@ -4,6 +4,9 @@
 # ---------------------------------------------------------------------------
 __bga_prompt() {
     local exit_code=$?
+    # __bga_pre (first in PROMPT_COMMAND) saved the status before other hooks
+    # could change it.
+    if [ -n "${_bga_exit:-}" ]; then exit_code="$_bga_exit"; _bga_exit=''; fi
 
     # OSC 133;D + OSC 7: must be emitted before PS1 is assembled, so the
     # terminal sees the just-finished command's exit and the new cwd before

@@ -48,7 +48,7 @@ __bga_async_init() {
     __bga_state_dir_init || return
     _bga_async_dir="$_bga_state_dir"
     _bga_async_cache="$_bga_async_dir/cache"
-    trap '__bga_async_cleanup' EXIT
+    __bga_trap_add __bga_async_cleanup EXIT "$(trap -p EXIT)"
 }
 
 __bga_async_cleanup() {

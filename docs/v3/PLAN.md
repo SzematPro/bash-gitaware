@@ -27,7 +27,7 @@
 | T0.3 | R10 | State-directory primitive | `__bga_state_dir` returns a directory that the user owns with mode 0700, under `XDG_RUNTIME_DIR` or a `mktemp -d` fallback; it refuses a directory owned by someone else or writable by group or others; tests cover a planted symlink and a planted directory | done |
 | T0.4 | R10 | Shell-state independence | The prompt renders identically with `extglob`, `nullglob`, `failglob`, `nocaseglob`, `nocasematch`, `globstar`, `dotglob`, `expand_aliases`, `patsub_replacement`, `xpg_echo`, `set -f`, `set -u`, `set -o posix`, `IFS=:` (`tests/shellstate.sh`); `promptvars` off is covered in `tests/security.sh` | done |
 | T0.5 | R8 | Plain/agent mode detection | `TERM=dumb`, no tty, `CI`, `AGENT`, `AI_AGENT` or `BASHGITAWARE_MODE=plain` produce a one-line ASCII prompt with no escape sequences; `BASHGITAWARE_MODE=full` overrides the detection | todo |
-| T0.6 | R9 | Hook coexistence | Existing `PROMPT_COMMAND` (string or array), `PS0`, DEBUG and EXIT traps keep working; sourcing twice is idempotent; `PROMPT_COMMAND`, `PS0` and `PS1` are not exported | todo |
+| T0.6 | R9 | Hook coexistence | Existing `PROMPT_COMMAND` (string or array), `PS0`, DEBUG and EXIT traps keep working and the exit status reaches the user's hooks; bash-preexec gets the timer through `preexec_functions`; sourcing twice is idempotent; `PROMPT_COMMAND`, `PS0` and `PS1` are unexported (`tests/hooks.sh`, plus a pty run: `took 3s`, user DEBUG trap chained) | done |
 | T0.7 | R10 | Config loader | `~/.config/bash-gitaware/config` is parsed as `key=value` lines and never sourced; unknown keys produce a warning; values are validated per key | todo |
 
 Exit gate: SR1 (state directory, config parsing, escaping).

@@ -41,6 +41,11 @@ __bga_osc_prompt_cycle_start() {
 # at the right moment (after Enter, before execution). PS0 is expanded like
 # PS1 but no \[ \] wrappers are needed (the line has been submitted; readline
 # is no longer counting columns).
+# The user's own PS0, if any, is kept after the mark; re-sourcing does not
+# add the mark twice.
 if [ "${BASHGITAWARE_OSC:-1}" != 0 ]; then
-    PS0=$'\e]133;C\a'
+    case "${PS0:-}" in
+        *$'\e]133;C\a'*) ;;
+        *) PS0=$'\e]133;C\a'"${PS0:-}" ;;
+    esac
 fi

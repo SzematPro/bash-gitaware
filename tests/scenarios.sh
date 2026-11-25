@@ -459,3 +459,23 @@ scenario_runtime_cache() {
     else fail "node --version ran $n times for 3 prompts"; fi
     rm -rf "$base"
 }
+
+scenario_async_stale_result_discarded() {
+    section "async: a result computed for another directory is discarded"
+    local a b; a="$(mktemp_repo)"; b="$(mktemp_repo)"
+    git -C "$a" commit --allow-empty -qm a; : > "$a/dirty"
+    git -C "$b" commit --allow-empty -qm b
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=1 BASHGITAWARE_MODE=full
+        source '$REPO/new.bashrc'
+        cd '$a'; __bga_prompt
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            __bga_prompt; [ \"\$_bga_async_pending\" = 0 ] && break; sleep 0.1
+        done
+        echo \"a=\$_bga_git_dirty\"
+        cd '$b'; __bga_prompt; echo \"b=\$_bga_git_dirty pending=\$_bga_async_pending\"" 2>/dev/null)"
+    assert_contains "$out" "a=1"           "repo A: dirty from its own result"
+    assert_contains "$out" "b=0 pending=1" "repo B: A's cached result not applied, job pending"
+    rm -rf "$a" "$b"
+}

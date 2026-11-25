@@ -85,6 +85,34 @@ scrollback stays compact. Disable with `BASHGITAWARE_TRANSIENT=0`.
       in scrollback as full multi-line entries, no collapse.
 - [ ] Set `BASHGITAWARE_GLYPHS=ascii` (or `BASHGITAWARE_PRESET=minimal`):
       the collapsed symbol is `>`, not `❯`.
+- [ ] (v3) Each collapsed line shows the command once. Before v3 it showed
+      twice, `❯ ls❯ ls`, because the collapse printed the line and readline
+      then redrew it. Readline now draws it: paste a command containing an
+      escape character and check it shows as `^[` instead of acting on the
+      terminal.
+
+## Lean layout (v3, default style)
+
+The default style since v3 (ADR-0007). `BASHGITAWARE_STYLE=classic` brings
+back the v2 stack.
+
+- [ ] In a git repo the prompt is two lines: path and git on line 1, the
+      symbol on line 2. No `on`, `via` or `took` connector words.
+- [ ] In a Node or Python project the runtime appears at the right edge of
+      line 1. Resize the terminal narrower: on the next prompt the right
+      block moves with the edge, and disappears when it would touch the left
+      side.
+- [ ] `BASHGITAWARE_CLOCK=1`: the time appears after the runtimes, and is
+      the first thing dropped when space runs out.
+- [ ] Run `false`: the next prompt is preceded by `  ✘1`. Run something that
+      takes 3 s or more: `  3s` (both: `  ✘1 · 3s`). A fast successful
+      command, or Enter on an empty line, adds no result line.
+- [ ] Type at the prompt when the right block is visible: the cursor and
+      line editing (arrows, Ctrl-A/E, history) behave normally; the right
+      block never pushes or wraps the typed text.
+- [ ] A directory with wide characters (e.g. `日本語`) or emoji: the right
+      block still lines up with the right edge, give or take a cell for
+      emoji sequences (ADR-0007 accepts that drift).
 
 ## Async rendering (M5)
 

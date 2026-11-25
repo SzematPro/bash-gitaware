@@ -40,3 +40,15 @@ scenario_theme_tokens_complete() {
     if [ -z "$hits" ]; then ok "no literal color escapes outside lib/19-theme.bash"
     else fail "literal color escapes: $hits"; fi
 }
+
+scenario_theme_contrast() {
+    section "themes: WCAG contrast of every token (bin/check-contrast.py)"
+    if ! command -v python3 >/dev/null 2>&1; then skip "contrast check (needs python3)"; return; fi
+    local out rc; out="$(python3 -I "$REPO/bin/check-contrast.py" "$REPO/lib/19-theme.bash" 2>&1)"; rc=$?
+    if [ "$rc" = 0 ]; then ok "all themes meet their contrast minimums"
+    else fail "contrast: $(printf '%s\n' "$out" | grep LOW | tr '\n' ';')"; fi
+    for t in light contrast; do
+        out="$(_th_render BASHGITAWARE_THEME="$t")"
+        assert_contains "$out" $'\e[' "theme '$t' renders with colors"
+    done
+}

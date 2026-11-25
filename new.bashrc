@@ -444,7 +444,7 @@ user     5ccfe6  80 36 0
 host     5ccfe6  80 36 0
 host_ssh ff9f5a 215 33 1
 branch   b48cf2 141 95 1
-hash     5c6582  60 90 0
+hash     6c7591  66 90 0
 state    ff6b81 204 91 1
 ahead    5ccfe6  80 96 0
 behind   5ccfe6  80 96 0
@@ -460,6 +460,59 @@ timer    e6b450 179 93 0
 err      ff6b81 204 91 1
 ok       8ccf7e 114 92 1
 sym_err  ff6b81 204 91 1
+'
+
+# Light: for light backgrounds; darker, saturated tones (WCAG 4.5:1 on white,
+# 3:1 for muted tokens; bin/check-contrast.py).
+# Contrast: high contrast on dark backgrounds (7:1 on black for every token).
+_bga_theme_light='
+dim      5f6b7a  60 90 0
+path     1d5fd1  26 34 1
+user     0b6e83  24 36 0
+host     0b6e83  24 36 0
+host_ssh a34a06 130 33 1
+branch   6d32d8  62 35 1
+hash     5f6b7a  60 90 0
+state    b5172f 124 31 1
+ahead    0b6e83  24 36 0
+behind   0b6e83  24 36 0
+dirty    8a5300  94 33 0
+stash    34538a  60 34 0
+commit   5f6b7a  60 90 0
+node     26702a  22 32 0
+py       8a5300  94 33 0
+rust     a34a06 130 33 0
+go       0b6e83  24 36 0
+tag      a34a06 130 33 0
+timer    8a5300  94 33 0
+err      b5172f 124 31 1
+ok       26702a  22 32 1
+sym_err  b5172f 124 31 1
+'
+
+_bga_theme_contrast='
+dim      c8c8c8 251 37 0
+path     6cb6ff  75 94 1
+user     00e5ff  45 96 0
+host     00e5ff  45 96 0
+host_ssh ffb000 214 93 1
+branch   dcb4ff 183 95 1
+hash     c8c8c8 251 37 0
+state    ff6b6b 203 91 1
+ahead    00e5ff  45 96 0
+behind   00e5ff  45 96 0
+dirty    ffe600 220 93 0
+stash    b4d7ff 153 94 0
+commit   c8c8c8 251 37 0
+node     8cff8c 120 92 0
+py       ffe600 220 93 0
+rust     ffb46e 215 93 0
+go       00e5ff  45 96 0
+tag      ffb000 214 93 0
+timer    ffe600 220 93 0
+err      ff6b6b 203 91 1
+ok       8cff8c 120 92 1
+sym_err  ff6b6b 203 91 1
 '
 
 # Static defaults (no color) so every token exists even before a theme

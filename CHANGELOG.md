@@ -47,6 +47,76 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docs/v3/reviews/`, and the design is in
   `docs/adr/ADR-0008-v3-git-worker-trust-and-state.md`.
 
+## [2.0.4] - 2026-11-25
+
+### Security
+
+- **Another bypass of the `.git` trust check.** Command substitution strips
+  trailing newlines, so a repository path ending in a newline lost it and
+  named a sibling directory. The background status job then ran
+  `git status` in that sibling, without checking its config, so its filter
+  drivers ran. The `rev-parse` output is now captured with a sentinel, must
+  have exactly three newline-terminated lines, and the background job runs
+  in the shell's own directory instead of a re-derived path.
+- **Shell lock-up from a FIFO (found by an independent audit).** A FIFO or a
+  `/dev/tty` symlink at `.git/config`, `HEAD`, `index`, `packed-refs` or any
+  other path git reads blocked the prompt for good (Ctrl-C only restarted
+  it), and in async mode each prompt left another stuck `git status` that
+  outlived the shell. Every prompt git call now has a hard time limit
+  (`timeout -s KILL`, or a watchdog where `timeout` is missing): 1 s each,
+  3 s for a synchronous `git status`, 10 s in the background job. The first
+  timeout makes the rest of that prompt skip git.
+
+The same audit checked about 30 other command-valued git settings and hooks
+reachable from the prompt's git calls and found them closed.
+
+## [2.0.3] - 2026-11-25
+
+### Security
+
+- **Bypass of the 2.0.2 `.git` trust check.** The check read only the first
+  256 characters of a linked worktree's `.git/commondir`, while git reads the
+  whole file. With a longer path, the check scanned a decoy config at the
+  truncated prefix while git loaded the real one, so that config's filter
+  drivers ran. The common directory now comes from
+  `git rev-parse --git-common-dir`, in the call the prompt already makes,
+  and a missing config fails closed.
+- **Newline in a repository path.** That output was split on newlines, so a
+  directory name containing a newline (possible in an archive) shifted the
+  fields and could point the check at a planted decoy config. Output with
+  an unexpected number of lines now means no git info at all.
+
+## [2.0.2] - 2026-11-25
+
+### Security
+
+- **Commands from a hostile `.git` directory (high).** `git clone` never
+  copies `.git/config`, but an extracted archive can ship one. The prompt's
+  own git calls could then run commands named there on every `cd`:
+  `core.fsmonitor`, clean/process filter drivers (any freshly extracted tree
+  has stale stat data), the `post-index-change` hook, `gpg.program` for a
+  forged signed commit with `log.showSignature`, a lazy fetch in a partial
+  clone, and the same settings inside submodules. Every git call the prompt
+  makes now runs with `--no-optional-locks`, `core.hooksPath=/dev/null`,
+  `core.fsmonitor` and `log.showSignature` off and `GIT_NO_LAZY_FETCH=1`;
+  filter drivers defined in the repository's own config are neutralized
+  (git itself lists them); `git status` skips submodule contents; and a
+  repository config that uses `include`/`includeIf` or is a partial clone
+  makes the prompt show only the branch. Users
+  whose repositories legitimately define local filters (git-crypt,
+  `git lfs install --local`) can set `BASHGITAWARE_TRUST_REPO_CONFIG=1`.
+- **Prompt hang.** A version file or `.git` file that is a symlink to
+  `/dev/zero`, `/dev/tty` or a FIFO hung every prompt. Such files are now
+  read only when they are regular files, and at most 256 bytes.
+- **Escape injection through the window title** (bash 4.4 to 5.1, where `\w`
+  passes control characters through), through the transient prompt's echo
+  of the typed line, and through C1 control characters in the C locale.
+
+### Added
+
+- `tests/gitconfig.sh` and new `tests/security.sh` scenarios for each case.
+  Every one of them fails on 2.0.1.
+
 ## [2.0.1] - 2026-11-25
 
 ### Security

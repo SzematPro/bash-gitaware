@@ -272,3 +272,28 @@ scenario_gitconfig_trust_cache() {
     assert_contains "$c" "filter.y.clean=" "another worktree does not reuse the verdict"
     rm -rf "$d" "$d.wt"
 }
+
+scenario_gitconfig_trust_cache_multibyte() {
+    section "trust check: invalid multibyte bytes cannot hide a config over 64 KB"
+    local d; d="$(_gc_repo)"
+    mkdir -p "$d/d1" "$d/d2"
+    # A long comment of invalid UTF-8 makes read -N stop early in a UTF-8
+    # locale while ${#var} counts fewer characters (SR3 F1).
+    python3 -I -c '
+import sys
+p = sys.argv[1]
+pat = bytes.fromhex("80e2f4908080" "80e2f4908080")
+open(p, "wb").write(b"[core]\n\trepositoryformatversion = 0\n#" + pat * 25000 + b"\n[user]\n\tname = x\n")
+' "$d/.git/config" 2>/dev/null || { skip "needs python3"; rm -rf "$d"; return; }
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=0 BASHGITAWARE_MODE=full
+        source '$REPO/new.bashrc'
+        cd '$d/d1'; __bga_prompt
+        python3 -I -c 'import sys; p=sys.argv[1]; b=open(p,\"rb\").read(); open(p,\"wb\").write(b.replace(b\"[user]\n\tname = x\n\", b\"[filter \\\"x\\\"]\n\tclean = touch $d/PWNED; cat\n\"))' '$d/.git/config'
+        touch '$d/f.txt'; cd '$d/d2'; __bga_prompt
+        printf 'args=%s\n' \"\${_bga_git_args[*]}\"" 2>/dev/null)"
+    if [ -e "$d/PWNED" ]; then fail "hidden filter ran (cache reused for a >64 KB config)"
+    else ok "hidden filter not run"; fi
+    rm -rf "$d"
+}

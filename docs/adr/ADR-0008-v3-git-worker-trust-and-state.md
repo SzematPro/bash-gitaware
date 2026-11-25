@@ -71,6 +71,10 @@ around them need one recorded design.
 - Repositories that rely on local filter drivers (git-crypt,
   `git lfs install --local`) show branch-only information unless the user
   sets `BASHGITAWARE_TRUST_REPO_CONFIG=1`.
+- Residual race: bash cannot open a file without blocking. An attacker who
+  swaps a config file for a FIFO in the microseconds between the `-f` check
+  and the open can block that prompt. That attacker needs live write access
+  to the repository while the user is in it, which already allows worse.
 - Running git by hand in an untrusted extracted `.git` directory is as
   risky as git itself makes it. These protections cover only the prompt's
   own calls.

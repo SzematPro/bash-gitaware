@@ -87,6 +87,11 @@ __bga_async_apply_or_dispatch() {
             _bga_git_ahead="$ahead"
             _bga_git_behind="$behind"
             _bga_async_pending=0
+            # A command just ran (the timer is set): it may have changed the
+            # tree, so refresh in the background. The cached values stay on
+            # screen meanwhile; no pending marker. Without this the first
+            # result was kept for as long as the shell stayed here.
+            [ -n "${_bga_timer_start:-}" ] && __bga_async_dispatch "$key" "$_bga_git_top"
             return
         fi
     fi

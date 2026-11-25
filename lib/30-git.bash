@@ -205,11 +205,11 @@ __bga_git_trust() {
     # 64 KB, 1 s timeout in case one is swapped for a FIFO) and must match
     # what was checked. Modification times are not
     # trusted: `tar xf` can restore an old one over new content.
-    local c1='' c2=''
-    [ -f "$gd/config" ] && IFS= read -r -t 1 -d '' -N 65536 c1 < "$gd/config" 2>/dev/null
-    if [ -f "$wt" ]; then IFS= read -r -t 1 -d '' -N 65536 c2 < "$wt" 2>/dev/null; c2="wt:$c2"; fi
+    local c1='' c2='' cacheable=1 REPLY
+    __bga_read_whole "$gd/config" && c1="$REPLY" || cacheable=0
+    if [ -f "$wt" ]; then __bga_read_whole "$wt" && c2="wt:$REPLY" || cacheable=0; fi
     key="$gd|${_bga_git_dir:-}|$c1|$c2"
-    if [ "${#c1}" -lt 65536 ] && [ "${#c2}" -lt 65536 ] && [ "$key" = "${_bga_trust_key:-}" ]; then
+    if [ "$cacheable" = 1 ] && [ "$key" = "${_bga_trust_key:-}" ]; then
         _bga_git_args=("${_bga_trust_args[@]}")
         return "$_bga_trust_rc"
     fi
@@ -217,15 +217,28 @@ __bga_git_trust() {
     # Cache only if the files still hold what was read before the scan, so
     # the verdict is bound to the bytes git actually checked.
     local d1='' d2=''
-    [ -f "$gd/config" ] && IFS= read -r -t 1 -d '' -N 65536 d1 < "$gd/config" 2>/dev/null
-    if [ -f "$wt" ]; then IFS= read -r -t 1 -d '' -N 65536 d2 < "$wt" 2>/dev/null; d2="wt:$d2"; fi
-    if [ "$d1" = "$c1" ] && [ "$d2" = "$c2" ]; then
+    __bga_read_whole "$gd/config" && d1="$REPLY" || cacheable=0
+    if [ -f "$wt" ]; then __bga_read_whole "$wt" && d2="wt:$REPLY" || cacheable=0; fi
+    if [ "$cacheable" = 1 ] && [ "$d1" = "$c1" ] && [ "$d2" = "$c2" ]; then
         _bga_trust_key="$key" _bga_trust_rc="$rc"
         _bga_trust_args=("${_bga_git_args[@]}")
     else
         _bga_trust_key=''
     fi
     return "$rc"
+}
+
+# Whole content of a small regular file into REPLY; returns 1 if it is not a
+# regular file, cannot be read within 1 s, or is 64 KB or larger. Byte
+# semantics (LC_ALL=C): in a UTF-8 locale read -N and ${#var} count invalid
+# sequences differently, which once let a larger file pass as complete. One
+# extra byte is read to prove EOF was reached.
+__bga_read_whole() {
+    local LC_ALL=C x=''
+    REPLY=''
+    [ -f "$1" ] || return 1
+    { IFS= read -r -t 1 -d '' -N 65536 REPLY; IFS= read -r -t 1 -N 1 x; } < "$1" 2>/dev/null
+    [ -z "$x" ] && [ "${#REPLY}" -lt 65536 ]
 }
 
 # The uncached check: list the repository's filter drivers and the settings

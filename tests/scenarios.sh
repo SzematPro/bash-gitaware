@@ -479,3 +479,22 @@ scenario_async_stale_result_discarded() {
     assert_contains "$out" "b=0 pending=1" "repo B: A's cached result not applied, job pending"
     rm -rf "$a" "$b"
 }
+
+scenario_async_refreshes_after_command() {
+    section "async: the result is refreshed after a command, not frozen per directory"
+    local d; d="$(mktemp_repo)"
+    git -C "$d" commit --allow-empty -qm init; : > "$d/dirty"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=1 BASHGITAWARE_MODE=full
+        source '$REPO/new.bashrc'; cd '$d'
+        settle() { for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            __bga_prompt; [ \"\$_bga_async_pending\" = 0 ] && [ \"\$_bga_git_dirty\" = \"\$1\" ] && return; sleep 0.1; done; }
+        settle 1; echo \"before=\$_bga_git_dirty\"
+        rm -f dirty; _bga_timer_start=\$SECONDS     # a command ran
+        __bga_prompt                                 # shows the old value, starts a refresh
+        settle 0; echo \"after=\$_bga_git_dirty\"" 2>/dev/null)"
+    assert_contains "$out" "before=1" "dirty before"
+    assert_contains "$out" "after=0"  "clean after the file is removed"
+    rm -rf "$d"
+}

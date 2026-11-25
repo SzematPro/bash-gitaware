@@ -72,6 +72,7 @@ scenario_transient_first_prompt
 scenario_async_first_render_no_dirty
 scenario_async_two_render_cache_hit
 scenario_async_stale_result_discarded
+scenario_async_refreshes_after_command
 scenario_async_exit_trap_installed
 scenario_async_disabled_no_trap
 scenario_transient_state_tracked
@@ -115,6 +116,7 @@ scenario_gitconfig_newline_paths
 scenario_gitconfig_trailing_newline_path
 scenario_gitconfig_fifo_no_hang
 scenario_gitconfig_trust_cache
+scenario_gitconfig_trust_cache_multibyte
 scenario_gitconfig_trust_knob
 
 # Coexistence with the user's hooks.

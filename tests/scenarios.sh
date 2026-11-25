@@ -4,6 +4,13 @@
 # expanded PS1 string. Sourced by run.sh; uses helpers from lib.sh.
 # shellcheck shell=bash
 
+scenario_sandbox_clean() {
+    section "sandbox: no inherited prompt state"
+    local left; left="$(bash --norc --noprofile -c 'compgen -v | grep -E "^(_bga_|_BGA_|BASHGITAWARE_|NO_COLOR$|COLORTERM$)"')"
+    if [ -z "$left" ]; then ok "child shells inherit no _bga_/BASHGITAWARE_ variables"
+    else fail "inherited prompt state: ${left//$'\n'/ }"; fi
+}
+
 scenario_non_git_path() {
     section "non-git path"
     local out; out="$(bga_render /tmp)"
@@ -223,7 +230,7 @@ scenario_osc_disabled() {
 }
 
 scenario_transient_basic() {
-    section "transient: collapse prints symbol + typed command (exit 0)"
+    section "transient: collapse clears the prompt and swaps PS1 (exit 0)"
     local out
     out="$(bash --norc --noprofile -i -c "
         export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' COLUMNS=120
@@ -233,15 +240,16 @@ scenario_transient_basic() {
         _bga_transient_active=1
         READLINE_LINE='ls -la'
         __bga_transient_collapse
+        printf '|PS1=%s' \"\${PS1@P}\"
     " 2>/dev/null)"
     # Move up 2 rows (lines - 1 = 2) -> ESC[2A.
     assert_contains "$out" $'\e[2A' "moves cursor up (\e[2A) for 3-line prompt"
     # Clear from cursor to end of screen.
     assert_contains "$out" $'\e[J'  "clears to end of screen (\e[J)"
-    # Bold green for success.
-    assert_contains "$out" $'\e[1;32m' "bold green symbol on exit 0"
-    # The typed command is preserved in scrollback.
-    assert_contains "$out" "ls -la" "preserves the typed command"
+    # PS1 becomes the collapsed symbol, in the theme's 'ok' color; readline
+    # redraws it with the typed line, so the line itself is not printed.
+    assert_contains "$out" $'|PS1=\001\e[1;38;5;114m\002❯' "PS1 swapped to the 'ok' symbol (Aware, 256 colors)"
+    assert_lacks    "${out%%|PS1=*}" "ls -la" "typed command not printed by the collapse (readline draws it)"
 }
 
 scenario_transient_error_exit() {
@@ -255,9 +263,9 @@ scenario_transient_error_exit() {
         _bga_transient_active=1
         READLINE_LINE='false'
         __bga_transient_collapse
+        printf '|PS1=%s' \"\${PS1@P}\"
     " 2>/dev/null)"
-    assert_contains "$out" $'\e[1;31m' "bold red symbol on non-zero exit"
-    assert_contains "$out" "false"     "preserves the typed command"
+    assert_contains "$out" $'|PS1=\001\e[1;38;5;204m\002❯' "PS1 swapped to the 'sym_err' symbol (Aware, 256 colors)"
 }
 
 scenario_transient_disabled() {
@@ -319,8 +327,10 @@ scenario_async_two_render_cache_hit() {
         cd '$d' 2>/dev/null
         source '$REPO/new.bashrc'
         __bga_prompt
-        [ -n \"\$_bga_async_pid\" ] && wait \"\$_bga_async_pid\" 2>/dev/null
-        __bga_prompt
+        # The job is disowned, so wait cannot join it: poll, bounded.
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            __bga_prompt; [ \"\$_bga_async_pending\" = 0 ] && break; sleep 0.1
+        done
         printf '%s' \"\${PS1@P}\"
     " 2>/dev/null)"
     assert_contains "$out" "●"           "second render picks up dirty marker from cache"
@@ -374,13 +384,14 @@ scenario_transient_state_tracked() {
 scenario_install_replace() {
     section "install.sh --replace (writes new.bashrc to target)"
     local target; target="$(mktemp "${TMPDIR:-/tmp}/bga-install-XXXXXX")"
-    bash "$REPO/install.sh" --replace --target "$target" --no-backup >/dev/null 2>&1
-    if cmp -s "$REPO/new.bashrc" "$target"; then
+    local c; c="$(_in_copy)"
+    bash "$c/repo/install.sh" --replace --target "$target" --no-backup >/dev/null 2>&1
+    if cmp -s "$c/repo/new.bashrc" "$target"; then
         ok   "install.sh --replace: target matches new.bashrc"
     else
         fail "install.sh --replace: target differs from new.bashrc"
     fi
-    rm -f "$target"
+    rm -rf "$target" "$c"
 }
 
 scenario_install_append_idempotent() {
@@ -388,10 +399,11 @@ scenario_install_append_idempotent() {
     local target; target="$(mktemp "${TMPDIR:-/tmp}/bga-install-XXXXXX")"
     printf '# pre-existing user content\nexport USER_VAR=42\n' > "$target"
 
-    bash "$REPO/install.sh" --append --target "$target" >/dev/null 2>&1
-    local count1; count1="$(grep -c -F "$REPO/new.bashrc" "$target" || true)"
-    bash "$REPO/install.sh" --append --target "$target" >/dev/null 2>&1
-    local count2; count2="$(grep -c -F "$REPO/new.bashrc" "$target" || true)"
+    local c; c="$(_in_copy)"
+    bash "$c/repo/install.sh" --append --target "$target" >/dev/null 2>&1
+    local count1; count1="$(grep -c -F "$c/repo/new.bashrc" "$target" || true)"
+    bash "$c/repo/install.sh" --append --target "$target" >/dev/null 2>&1
+    local count2; count2="$(grep -c -F "$c/repo/new.bashrc" "$target" || true)"
 
     if [ "$count1" = 1 ] && [ "$count2" = 1 ]; then
         ok   "install.sh --append: source line present exactly once after 2 runs (idempotent)"
@@ -403,7 +415,7 @@ scenario_install_append_idempotent() {
     else
         fail "install.sh --append: pre-existing content was lost"
     fi
-    rm -f "$target"
+    rm -rf "$target" "$c"
 }
 
 scenario_install_help() {
@@ -430,4 +442,63 @@ scenario_path_maxdepth() {
     assert_lacks    "$out" "…"           "no ellipsis with maxdepth=0"
 
     rm -rf "$base"
+}
+
+scenario_runtime_cache() {
+    section "runtime: version commands run once per directory, not per prompt"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-rt-XXXXXX")"
+    mkdir -p "$base/bin"; printf '{}\n' > "$base/package.json"
+    # A fake node that counts its invocations.
+    printf '#!/bin/sh\necho x >> "%s/calls"\necho v20.1.0\n' "$base" > "$base/bin/node"
+    chmod +x "$base/bin/node"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$base/bin:$PATH' TERM=xterm-256color LANG=C.UTF-8 BASHGITAWARE_ASYNC=0
+        cd '$base' && source '$REPO/new.bashrc'
+        __bga_prompt; __bga_prompt; __bga_prompt
+        printf '%s' \"\${PS1@P}\"" 2>/dev/null)"
+    local n=0; [ -f "$base/calls" ] && n="$(wc -l < "$base/calls")"; n=$(( n ))
+    assert_contains "$out" "node 20.1.0" "node version shown"
+    if [ "$n" = 1 ]; then ok "node --version ran once for 3 prompts"
+    else fail "node --version ran $n times for 3 prompts"; fi
+    rm -rf "$base"
+}
+
+scenario_async_stale_result_discarded() {
+    section "async: a result computed for another directory is discarded"
+    local a b; a="$(mktemp_repo)"; b="$(mktemp_repo)"
+    git -C "$a" commit --allow-empty -qm a; : > "$a/dirty"
+    git -C "$b" commit --allow-empty -qm b
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=1 BASHGITAWARE_MODE=full
+        source '$REPO/new.bashrc'
+        cd '$a'; __bga_prompt
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            __bga_prompt; [ \"\$_bga_async_pending\" = 0 ] && break; sleep 0.1
+        done
+        echo \"a=\$_bga_git_dirty\"
+        cd '$b'; __bga_prompt; echo \"b=\$_bga_git_dirty pending=\$_bga_async_pending\"" 2>/dev/null)"
+    assert_contains "$out" "a=1"           "repo A: dirty from its own result"
+    assert_contains "$out" "b=0 pending=1" "repo B: A's cached result not applied, job pending"
+    rm -rf "$a" "$b"
+}
+
+scenario_async_refreshes_after_command() {
+    section "async: the result is refreshed after a command, not frozen per directory"
+    local d; d="$(mktemp_repo)"
+    git -C "$d" commit --allow-empty -qm init; : > "$d/dirty"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=1 BASHGITAWARE_MODE=full
+        source '$REPO/new.bashrc'; cd '$d'
+        settle() { for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            __bga_prompt; [ \"\$_bga_async_pending\" = 0 ] && [ \"\$_bga_git_dirty\" = \"\$1\" ] && return; sleep 0.1; done; }
+        settle 1; echo \"before=\$_bga_git_dirty\"
+        rm -f dirty; _bga_timer_start=\$SECONDS     # a command ran
+        __bga_prompt                                 # shows the old value, starts a refresh
+        settle 0; echo \"after=\$_bga_git_dirty\"" 2>/dev/null)"
+    assert_contains "$out" "before=1" "dirty before"
+    assert_contains "$out" "after=0"  "clean after the file is removed"
+    rm -rf "$d"
 }

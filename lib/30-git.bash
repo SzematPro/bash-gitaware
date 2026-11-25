@@ -95,8 +95,17 @@ __bga_git_info_cheap() {
     fi
 
     # Commit subject: kept sync (fast even on large repos -- it only reads HEAD).
-    if [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ]; then
-        _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null)" || __bga_git_check_timeout $?
+    # The subject is only fetched when it is shown (Lean: off by default;
+    # classic: on), and only its first 2 KB: a commit can carry a subject of
+    # many megabytes.
+    local want_msg=1
+    [ "${BASHGITAWARE_STYLE:-lean}" != classic ] && want_msg=0
+    [ -n "${BASHGITAWARE_COMMIT_LINE:-}" ] && want_msg="$BASHGITAWARE_COMMIT_LINE"
+    if [ "$want_msg" != 0 ] && [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ]; then
+        # git's own status (for the timeout check) via PIPESTATUS: `local -`
+        # with pipefail made bash 4.4 and 5.0 crash.
+        _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null | head -c 2048; exit "${PIPESTATUS[0]}")" \
+            || __bga_git_check_timeout $?
     fi
 
     # Stash count: filesystem-gated, kept sync.
@@ -139,6 +148,7 @@ __bga_git_info_cheap() {
 # repositories that rely on local filters (git-crypt, `git lfs install --local`).
 # ---------------------------------------------------------------------------
 _bga_git_args=()
+_bga_trust_key='' _bga_trust_rc=0 _bga_trust_args=()
 
 # Every git call has a hard time limit: a FIFO or a /dev/tty symlink planted
 # anywhere git reads (.git/config, HEAD, index, packed-refs, .gitattributes,
@@ -188,9 +198,54 @@ __bga_git_trust() {
     [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" = 1 ] && return 0
     # The common dir comes from `git rev-parse --git-common-dir`, so this is
     # the config file git itself loads. Fail closed if it is missing.
-    local gd="${_bga_git_common:-}" cfg names name rc
+    local gd="${_bga_git_common:-}" wt="${_bga_git_dir:-.git}/config.worktree" key
     [ -n "$gd" ] && [ -f "$gd/config" ] || return 1
-    for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
+    # Cache per repository and worktree, validated by content: the files
+    # are read with the read builtin (no fork; only regular files, at most
+    # 64 KB, 1 s timeout in case one is swapped for a FIFO) and must match
+    # what was checked. Modification times are not
+    # trusted: `tar xf` can restore an old one over new content.
+    local c1='' c2='' cacheable=1 REPLY
+    __bga_read_whole "$gd/config" && c1="$REPLY" || cacheable=0
+    if [ -f "$wt" ]; then __bga_read_whole "$wt" && c2="wt:$REPLY" || cacheable=0; fi
+    key="$gd|${_bga_git_dir:-}|$c1|$c2"
+    if [ "$cacheable" = 1 ] && [ "$key" = "${_bga_trust_key:-}" ]; then
+        _bga_git_args=("${_bga_trust_args[@]}")
+        return "$_bga_trust_rc"
+    fi
+    __bga_git_trust_scan "$gd" "$wt"; local rc=$?
+    # Cache only if the files still hold what was read before the scan, so
+    # the verdict is bound to the bytes git actually checked.
+    local d1='' d2=''
+    __bga_read_whole "$gd/config" && d1="$REPLY" || cacheable=0
+    if [ -f "$wt" ]; then __bga_read_whole "$wt" && d2="wt:$REPLY" || cacheable=0; fi
+    if [ "$cacheable" = 1 ] && [ "$d1" = "$c1" ] && [ "$d2" = "$c2" ]; then
+        _bga_trust_key="$key" _bga_trust_rc="$rc"
+        _bga_trust_args=("${_bga_git_args[@]}")
+    else
+        _bga_trust_key=''
+    fi
+    return "$rc"
+}
+
+# Whole content of a small regular file into REPLY; returns 1 if it is not a
+# regular file, cannot be read within 1 s, or is 64 KB or larger. Byte
+# semantics (LC_ALL=C): in a UTF-8 locale read -N and ${#var} count invalid
+# sequences differently, which once let a larger file pass as complete. One
+# extra byte is read to prove EOF was reached.
+__bga_read_whole() {
+    local LC_ALL=C x=''
+    REPLY=''
+    [ -f "$1" ] || return 1
+    { IFS= read -r -t 1 -d '' -N 65536 REPLY; IFS= read -r -t 1 -N 1 x; } < "$1" 2>/dev/null
+    [ -z "$x" ] && [ "${#REPLY}" -lt 65536 ]
+}
+
+# The uncached check: list the repository's filter drivers and the settings
+# that make us fail closed, with git itself.
+__bga_git_trust_scan() {
+    local gd="$1" wt="$2" cfg names name rc
+    for cfg in "$gd/config" "$wt"; do
         [ -f "$cfg" ] || continue
         names="$(__bga_gitrun 1 config --file "$cfg" --no-includes --name-only \
                  --get-regexp '^(filter|include|includeif)\.|^extensions\.partialclone$|^remote\..*\.promisor$' 2>/dev/null)"
@@ -206,6 +261,7 @@ __bga_git_trust() {
             _bga_git_args+=(-c "filter.$name.clean=" -c "filter.$name.process=" -c "filter.$name.smudge=")
         done
     done
+    return 0
 }
 
 __bga_git_status_safe() {
@@ -214,23 +270,39 @@ __bga_git_status_safe() {
     __bga_git status --porcelain=v2 --branch --ignore-submodules=dirty 2>/dev/null
 }
 
+# Parse the head of `git status --porcelain=v2 --branch` into _bga_st_dirty,
+# _bga_st_ahead and _bga_st_behind. Branch headers come first, so the first
+# entry line already answers "dirty"; `head` bounds the output and stops git
+# early on large dirty trees. No process substitution (a syntax and runtime
+# error in posix mode before bash 5.1) and no here-string (a temp file
+# before bash 5.1).
+__bga_git_status_parse() {
+    local st line
+    _bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0
+    st="$(__bga_git_status_safe | head -n 8)"
+    while [ -n "$st" ]; do
+        line="${st%%$'\n'*}"
+        case "$st" in *$'\n'*) st="${st#*$'\n'}" ;; *) st='' ;; esac
+        case "$line" in
+            '# branch.ab '*)
+                _bga_st_ahead="${line#\# branch.ab +}"
+                _bga_st_behind="${_bga_st_ahead##*-}"
+                _bga_st_ahead="${_bga_st_ahead%% -*}" ;;
+            '#'*) ;;
+            ?*) _bga_st_dirty=1; break ;;
+        esac
+    done
+}
+
 # Full sync info: cheap + the expensive porcelain v2 status. Used when
 # BASHGITAWARE_ASYNC=0.
 __bga_git_info_full() {
     __bga_git_info_cheap
     [ "$_bga_in_git" = 1 ] || return
-
-    local line
-    while IFS= read -r line; do
-        case "$line" in
-            '# branch.ab '*)
-                _bga_git_ahead="${line#\# branch.ab +}"
-                _bga_git_behind="${_bga_git_ahead##*-}"
-                _bga_git_ahead="${_bga_git_ahead%% -*}" ;;
-            '#'*) ;;
-            ?*) _bga_git_dirty=1; break ;;
-        esac
-    done < <(__bga_git_status_safe)
+    __bga_git_status_parse
+    _bga_git_dirty="$_bga_st_dirty"
+    _bga_git_ahead="$_bga_st_ahead"
+    _bga_git_behind="$_bga_st_behind"
 }
 
 # Expensive: compute dirty / ahead / behind and emit them as "key=value" lines
@@ -238,24 +310,16 @@ __bga_git_info_full() {
 # touches caller state directly.
 __bga_git_info_expensive_compute() {
     local _bga_status_limit=10
-    local dirty=0 ahead=0 behind=0 line
-    while IFS= read -r line; do
-        case "$line" in
-            '# branch.ab '*)
-                ahead="${line#\# branch.ab +}"
-                behind="${ahead##*-}"
-                ahead="${ahead%% -*}" ;;
-            '#'*) ;;
-            ?*) dirty=1; break ;;
-        esac
-    done < <(__bga_git_status_safe)
+    __bga_git_status_parse
     printf '_bga_async_dirty=%d\n_bga_async_ahead=%d\n_bga_async_behind=%d\n' \
-        "$dirty" "$ahead" "$behind"
+        "$_bga_st_dirty" "$_bga_st_ahead" "$_bga_st_behind"
 }
 
 # Entry point used by the renderer. Picks the sync or async path.
 __bga_git_info() {
-    if [ "${BASHGITAWARE_ASYNC:-1}" = 0 ]; then
+    # Sync when async is off, or when it could not start (no safe state
+    # directory, non-interactive shell): otherwise "pending" never clears.
+    if [ "${BASHGITAWARE_ASYNC:-1}" = 0 ] || [ -z "${_bga_async_cache:-}" ]; then
         __bga_git_info_full
         _bga_async_pending=0
         return

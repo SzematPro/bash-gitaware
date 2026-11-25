@@ -20,11 +20,13 @@
 # See docs/adr/ADR-0003-osc-133-and-osc-7-terminal-integration.md.
 # ---------------------------------------------------------------------------
 
-# Emit a PS1-safe (escape-wrapped) OSC sequence on stdout. Used by __bga_prompt
+# Build a PS1-safe (escape-wrapped) OSC sequence in REPLY. Used by __bga_prompt
 # to embed in the PS1 string for 133;A and 133;B.
+# Sets REPLY (no subshell: this runs twice per prompt).
 __bga_osc_ps1() {
-    [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return
-    printf '\\[\e]%s\a\\]' "$1"
+    REPLY=''
+    [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return 0
+    printf -v REPLY '\\[\e]%s\a\\]' "$1"
 }
 
 # Called from __bga_prompt at the start of each cycle: emit 133;D;<exit> (the
@@ -41,6 +43,11 @@ __bga_osc_prompt_cycle_start() {
 # at the right moment (after Enter, before execution). PS0 is expanded like
 # PS1 but no \[ \] wrappers are needed (the line has been submitted; readline
 # is no longer counting columns).
+# The user's own PS0, if any, is kept after the mark; re-sourcing does not
+# add the mark twice.
 if [ "${BASHGITAWARE_OSC:-1}" != 0 ]; then
-    PS0=$'\e]133;C\a'
+    case "${PS0:-}" in
+        *$'\e]133;C\a'*) ;;
+        *) PS0=$'\e]133;C\a'"${PS0:-}" ;;
+    esac
 fi

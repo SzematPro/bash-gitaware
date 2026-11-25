@@ -41,6 +41,7 @@ __bga_term_safe() {
 # C1 controls (U+0080-U+009F, UTF-8 bytes C2 80-9F; C2 9B is CSI) are only
 # [[:cntrl:]] in a UTF-8 locale. A shell in the C locale talking to a UTF-8
 # terminal would pass them through, so match the bytes under LC_ALL=C.
+# Called only when the text contains a C2 byte, which is rare.
 __bga_strip_c1() {
     local LC_ALL=C
     REPLY="${1//$'\xc2'[$'\x80'-$'\x9f']/?}"
@@ -48,7 +49,8 @@ __bga_strip_c1() {
 
 # Read the first line of a small file into REPLY (at most 256 bytes). Only
 # regular files: a cloned repo can ship .python-version -> /dev/zero, /dev/tty
-# or a FIFO, and an unbounded `read` there hangs every prompt.
+# or a FIFO, and an unbounded `read` there hangs every prompt. Returns 1 (and
+# empties REPLY) for anything else.
 __bga_read_line() {
     REPLY=''
     [ -f "$1" ] && [ -r "$1" ] || return 1

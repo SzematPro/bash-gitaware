@@ -109,6 +109,58 @@ scenario_security_async_cache_private() {
     rm -rf "$tmp"
 }
 
+# Run __bga_state_dir_init in an interactive child with the given env and
+# print "<state dir>|<mode>", or REFUSED.
+_sec_state_dir() {
+    env -u XDG_RUNTIME_DIR "$@" bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=0
+        source '$REPO/new.bashrc'
+        if __bga_state_dir_init; then
+            printf '%s|' \"\$_bga_state_dir\"
+            stat -c '%a' \"\$_bga_state_dir\" 2>/dev/null || stat -f '%Lp' \"\$_bga_state_dir\"
+            __bga_state_dir_cleanup
+        else
+            printf 'REFUSED'
+        fi
+    " 2>/dev/null
+}
+
+scenario_security_state_dir() {
+    section "security: state directory placement"
+    local tmp; tmp="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
+    local priv="$tmp/xdg" open="$tmp/open" link="$tmp/link" out
+    mkdir -m 700 "$priv" "$tmp/t"; mkdir -m 777 "$open"; ln -s "$priv" "$link"
+
+    out="$(_sec_state_dir XDG_RUNTIME_DIR="$priv" TMPDIR="$tmp/t")"
+    case "$out" in "$priv"/bga.*\|700) ok "private XDG_RUNTIME_DIR is used" ;; *) fail "private XDG not used (got: $out)" ;; esac
+
+    out="$(_sec_state_dir XDG_RUNTIME_DIR="$open" TMPDIR="$tmp/t")"
+    case "$out" in "$tmp/t"/bga.*\|700) ok "world-writable XDG_RUNTIME_DIR is refused" ;; *) fail "open XDG accepted (got: $out)" ;; esac
+
+    out="$(_sec_state_dir XDG_RUNTIME_DIR="$link" TMPDIR="$tmp/t")"
+    case "$out" in "$tmp/t"/bga.*\|700) ok "symlinked XDG_RUNTIME_DIR is refused" ;; *) fail "symlinked XDG accepted (got: $out)" ;; esac
+
+    out="$(_sec_state_dir TMPDIR="$tmp/missing")"
+    assert_contains "$out" "REFUSED" "no usable base directory -> refused"
+
+    local left; left="$(find "$priv" "$tmp/t" -mindepth 1 2>/dev/null)"
+    if [ -z "$left" ]; then ok "state dirs removed by cleanup"; else fail "leftovers: $left"; fi
+    rm -rf "$tmp"
+}
+
+scenario_async_without_state_dir_falls_back() {
+    section "async: no state directory -> synchronous, dirty still shown"
+    local d; d="$(mktemp_repo)"
+    git -C "$d" commit --allow-empty -qm init; : > "$d/f"
+    local out; out="$(TMPDIR="$d/missing" XDG_RUNTIME_DIR='' bga_render "$d" BASHGITAWARE_ASYNC=1 BASHGITAWARE_PATH_MAXDEPTH=0)"
+    # PATH_MAXDEPTH=0: a long temp path (macOS) would add its own ellipsis.
+    assert_contains "$out" "●" "dirty marker shown without async cache"
+    assert_lacks    "$out" "…" "no stuck pending indicator"
+    rm -rf "$d"
+}
+
+# --- SR1 findings (2026-11-25) -----------------------------------------------
+
 scenario_security_special_files() {
     section "security: version files that are devices or FIFOs do not hang the prompt"
     local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
@@ -151,7 +203,7 @@ scenario_security_transient_line() {
         __bga_transient_collapse
     " 2>/dev/null)"
     assert_lacks    "$out" $'\e]52' "no raw OSC 52 from the typed line"
-    assert_contains "$out" "echo hi" "typed text still shown"
+    assert_lacks    "$out" "echo hi" "typed line left to readline, which shows controls as ^["
 }
 
 scenario_security_c1_in_c_locale() {
@@ -161,4 +213,44 @@ scenario_security_c1_in_c_locale() {
         source '$REPO/lib/15-escape.bash'
         __bga_ps1_lit \$'a\xc2\x9b31mb'; printf '%s' \"\$REPLY\"" 2>/dev/null)"
     assert_lacks "$out" $'\xc2\x9b' "C1 CSI (C2 9B) removed under LC_ALL=C"
+}
+
+# --- SR2 findings (2026-11-25) -----------------------------------------------
+
+scenario_security_theme_from_env() {
+    section "security: theme name and table from the environment are data"
+    local w; w="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
+    local tbl; tbl="$(printf '\npath 6fa8ff $(touch${IFS}%s/T2) 94 1\n' "$w")"
+    bga_render "$w" "BASHGITAWARE_THEME='aware[\$(touch $w/T1)]'" >/dev/null
+    _bga_theme_evil="$tbl" bga_render "$w" BASHGITAWARE_THEME=evil >/dev/null
+    if [ -e "$w/T1" ]; then fail "theme name subscript executed"; else ok "theme name subscript not executed"; fi
+    if [ -e "$w/T2" ]; then fail "theme table field executed"; else ok "theme table field not executed"; fi
+    rm -rf "$w"
+}
+
+scenario_security_commit_subject_bounded() {
+    section "security: the commit subject is fetched only when shown, and bounded"
+    local d; d="$(mktemp_repo)"
+    head -c 60000 /dev/zero | tr '\0' 'x' > "$d/.msg"
+    git -C "$d" commit --allow-empty -q -F "$d/.msg"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=0 BASHGITAWARE_MODE=full
+        cd '$d'; source '$REPO/new.bashrc'
+        BASHGITAWARE_STYLE=lean; unset BASHGITAWARE_COMMIT_LINE; __bga_git_info; echo \"lean=\${#_bga_git_msg}\"
+        BASHGITAWARE_STYLE=classic; __bga_git_info; echo \"classic=\${#_bga_git_msg}\"" 2>/dev/null)"
+    assert_contains "$out" "lean=0"       "Lean (commit line off): subject not fetched"
+    assert_contains "$out" "classic=2048" "classic: subject capped at 2 KB"
+    rm -rf "$d"
+}
+
+scenario_security_control_chars_width() {
+    section "security: control characters are measured as displayed"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
+    { printf '3.12'; head -c 200 /dev/zero | tr '\0' '\001'; } > "$base/.python-version"
+    local out; out="$(env -u BASHGITAWARE_STYLE bash -c "$(declare -f bga_render); REPO='$REPO'; bga_render '$base'")"
+    # 'python 3.12' + 200 '?' cannot fit in 120 columns: the block is dropped,
+    # not placed as if it were 11 cells wide.
+    assert_lacks "$out" $'\e7\e[110G' "right block not placed as 11 cells wide"
+    rm -rf "$base"
 }

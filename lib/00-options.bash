@@ -24,11 +24,93 @@
 #   BASHGITAWARE_SHOW_HOST=auto|always|never Show user@host. "auto" = only over SSH or as root. Default: auto.
 #   NO_COLOR                                 If set (any value), disable all color. https://no-color.org
 
-# If not running interactively, do nothing.
+# Where this file lives (bga reload re-sources it).
+_bga_src="${BASH_SOURCE[0]}"
+
+# If not running interactively, do nothing -- except for bin/bga, which sets
+# _BGA_CLI=1 to load the CLI and the settings it reports on.
 case $- in
     *i*) ;;
-      *) return ;;
+      # Only a plain (unexported) _BGA_CLI counts: an exported one would
+      # change every non-interactive script that sources this file.
+      *) { [ -n "${_BGA_CLI:-}" ] && [[ "${_BGA_CLI@a}" != *x* ]]; } || return ;;
 esac
+
+# ---------------------------------------------------------------------------
+# Config file: ${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-~/.config}/bash-gitaware/config}
+#
+#   # comment
+#   preset = minimal          (keys are the BASHGITAWARE_* names, lowercase,
+#   glyphs = "unicode"         without the prefix; quotes are optional)
+#
+# The file is parsed as data and never sourced. Each key has a fixed set of
+# valid values; anything else is reported on stderr with its line number and
+# ignored. Precedence: environment > config file > preset defaults. The file is
+# refused when someone else owns it or group/others can write it (a symlink is
+# fine if its target passes).
+# ---------------------------------------------------------------------------
+# Warnings echo keys and paths from the file: strip control characters so a
+# hostile config cannot send escape sequences to the terminal.
+__bga_config_warn() { local m="$*"; printf 'bash-gitaware: %s\n' "${m//[[:cntrl:]]/?}" >&2; }
+
+# Valid values per key, as a case pattern. Echoes nothing; returns 1 if invalid.
+__bga_config_valid() {
+    case "$1" in
+        preset)       case "$2" in minimal | default | powerline | full) ;; *) return 1 ;; esac ;;
+        glyphs)       case "$2" in nerd | unicode | ascii) ;; *) return 1 ;; esac ;;
+        show_host)    case "$2" in auto | always | never) ;; *) return 1 ;; esac ;;
+        mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
+        theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
+        style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
+        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline)
+                      case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
+        timer_threshold | path_maxdepth)
+                      case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;
+        *) return 2 ;;
+    esac
+}
+
+__bga_config_load() {
+    local f="${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/bash-gitaware/config}"
+    [ -e "$f" ] || return 0
+    if [ ! -f "$f" ] || [ ! -r "$f" ]; then
+        __bga_config_warn "$f: not a readable file, ignored"; return 0
+    fi
+    # The directory matters too: if others can write it they can swap the
+    # file between this check and the read.
+    # The file: ours, and nobody else may write it. Its directory: nobody
+    # else may write it either, unless it is sticky (like /tmp), where other
+    # users cannot replace a file they do not own -- but they can plant a
+    # symlink there, so a symlinked config in such a directory is refused.
+    if [ ! -O "$f" ] || [ -n "$(find -L "$f" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ] \
+       || [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) ! -perm -1000 2>/dev/null)" ] \
+       || { [ -L "$f" ] && [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]; }; then
+        __bga_config_warn "$f: owned or writable by other users, ignored"; return 0
+    fi
+    local line k v n=0 var q=\'
+    while IFS= read -r line || [ -n "$line" ]; do
+        n=$(( n + 1 ))
+        line="${line%$'\r'}"
+        # Trim leading/trailing blanks.
+        line="${line#"${line%%[![:blank:]]*}"}"; line="${line%"${line##*[![:blank:]]}"}"
+        case "$line" in '' | '#'*) continue ;; esac
+        case "$line" in *=*) ;; *) __bga_config_warn "config:$n: expected key = value"; continue ;; esac
+        k="${line%%=*}"; v="${line#*=}"
+        k="${k%"${k##*[![:blank:]]}"}"; v="${v#"${v%%[![:blank:]]*}"}"
+        case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; "$q"*"$q") v="${v#"$q"}"; v="${v%"$q"}" ;; esac
+        k="${k,,}"
+        __bga_config_valid "$k" "$v"
+        case $? in
+            0) ;;
+            2) __bga_config_warn "config:$n: unknown key '$k'"; continue ;;
+            *) __bga_config_warn "config:$n: invalid value for '$k'"; continue ;;
+        esac
+        var="BASHGITAWARE_${k^^}"
+        # Environment wins: only fill variables that are not set yet.
+        [ -n "${!var+set}" ] || printf -v "$var" '%s' "$v"
+    done < "$f"
+}
+__bga_config_load
 
 # ---------------------------------------------------------------------------
 # Presets -- BASHGITAWARE_PRESET sets a set of defaults; individual

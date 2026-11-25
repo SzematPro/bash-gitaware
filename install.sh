@@ -3,13 +3,23 @@
 # (markdown-style backticks appear in usage/error strings, not command subs.)
 # install.sh -- install bash-gitaware as ~/.bashrc (or merge by `source`).
 #
-# Two modes:
+# Modes:
 #   --replace   (default) copy new.bashrc on top of ~/.bashrc (after a backup).
 #               The shipped new.bashrc is a complete sensible .bashrc
 #               (history, ls colors, aliases, completion, PATH) so this just
 #               works for most setups.
 #   --append    append a `source <repo>/new.bashrc` line to your existing
 #               ~/.bashrc, leaving the rest of your config untouched.
+#   --uninstall remove the appended source block, or restore the newest
+#               backup over a replaced ~/.bashrc.
+#
+# Without a mode flag, on a terminal, the script asks for the mode, theme and
+# glyph set (the last two go to the config file through bin/bga). --yes skips
+# the questions and uses the defaults.
+#
+# Tamper check: new.bashrc and its directory must not be writable by other
+# users (writable by your own primary group is accepted, ruling L-37), since
+# every shell you open would run whatever someone writes there.
 #
 # Examples:
 #   ./install.sh                 # replace ~/.bashrc with new.bashrc (backup first)
@@ -45,8 +55,9 @@ fi
 # ---------------------------------------------------------------------------
 # Defaults + arg parsing.
 # ---------------------------------------------------------------------------
-mode='replace'
+mode=''
 do_backup=1
+assume_yes=0
 target="$HOME/.bashrc"
 
 usage() {
@@ -56,8 +67,10 @@ Usage: install.sh [options]
 Modes (mutually exclusive):
   --replace        Replace \$HOME/.bashrc with new.bashrc (default).
   --append         Append a 'source <repo>/new.bashrc' line to \$HOME/.bashrc.
+  --uninstall      Remove the source block, or restore the newest backup.
 
 Options:
+  --yes            Do not ask questions; use the defaults.
   --no-backup      Skip the timestamped backup before --replace.
   --target FILE    Write to FILE instead of \$HOME/.bashrc (testing).
   -h, --help       Show this help.
@@ -68,6 +81,8 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --replace)   mode='replace'  ;;
         --append)    mode='append'   ;;
+        --uninstall) mode='uninstall' ;;
+        --yes | -y)  assume_yes=1    ;;
         --no-backup) do_backup=0     ;;
         --target)
             shift
@@ -96,6 +111,134 @@ if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ] \
 fi
 
 # ---------------------------------------------------------------------------
+# Tamper check (ruling L-37): refuse a new.bashrc that other users can change.
+# ---------------------------------------------------------------------------
+# Prints "uid gid mode" for $1 (GNU or BSD stat).
+perm_of() { stat -c '%u %g %a' -- "$1" 2>/dev/null || stat -f '%u %g %Lp' -- "$1"; }
+
+check_private() {
+    local p="$1" uid gid m me mygid
+    read -r uid gid m <<< "$(perm_of "$p")"
+    me="$(id -u)"; mygid="$(id -g)"
+    if [ "$uid" != "$me" ] && [ "$uid" != 0 ]; then
+        printf 'install: refusing: %s is owned by uid %s, not you or root\n' "$p" "$uid" >&2; return 1
+    fi
+    if [ $(( 8#$m & 2 )) -ne 0 ]; then
+        printf 'install: refusing: %s is writable by any user (mode %s)\n' "$p" "$m" >&2; return 1
+    fi
+    if [ $(( 8#$m & 16 )) -ne 0 ] && [ "$gid" != "$mygid" ]; then
+        printf 'install: refusing: %s is writable by group %s, not your primary group\n' "$p" "$gid" >&2; return 1
+    fi
+}
+
+# Named ACL entries can grant write access that the mode bits do not show.
+check_acl() {
+    command -v getfacl >/dev/null 2>&1 || return 0
+    if getfacl -cp -- "$1" 2>/dev/null | grep -Eq '^(user|group):[^:]+:.w'; then
+        printf 'install: refusing: %s has ACL entries granting write access\n' "$1" >&2; return 1
+    fi
+}
+
+# Every ancestor directory up to / must not let others swap the path: owned
+# by root or you; group-writable only by your primary group; writable by
+# others only with the sticky bit (like /tmp); no ACL write grants.
+check_ancestors() {
+    local d="$1" uid gid m me mygid; me="$(id -u)"; mygid="$(id -g)"
+    while :; do
+        d="$(dirname -- "$d")"
+        read -r uid gid m <<< "$(perm_of "$d")"
+        if [ "$uid" != 0 ] && [ "$uid" != "$me" ]; then
+            printf 'install: refusing: ancestor %s is owned by uid %s\n' "$d" "$uid" >&2; return 1
+        fi
+        if [ $(( 8#$m & 16 )) -ne 0 ] && [ "$gid" != "$mygid" ] && [ $(( 8#$m & 512 )) -eq 0 ]; then
+            printf 'install: refusing: ancestor %s is writable by group %s\n' "$d" "$gid" >&2; return 1
+        fi
+        if [ $(( 8#$m & 2 )) -ne 0 ] && [ $(( 8#$m & 512 )) -eq 0 ]; then
+            printf 'install: refusing: ancestor %s is writable by any user\n' "$d" >&2; return 1
+        fi
+        check_acl "$d" || return 1
+        [ "$d" = / ] && return 0
+    done
+}
+
+if [ "$mode" != uninstall ]; then
+    { check_private "$artifact" && check_private "$script_dir" \
+      && check_acl "$artifact" && check_acl "$script_dir" && check_ancestors "$script_dir"; } || exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Interactive choices (a terminal, no mode flag, no --yes).
+# ---------------------------------------------------------------------------
+want_theme='' want_glyphs=''
+if [ -z "$mode" ] && [ "$assume_yes" = 0 ] && [ -t 0 ] && [ -t 1 ]; then
+    ask() {  # ask <prompt> <default> -> REPLY
+        local a; printf '%s [%s]: ' "$1" "$2"; IFS= read -r a || a=''
+        REPLY="${a:-$2}"
+    }
+    while :; do
+        ask 'Install mode: append (source from your ~/.bashrc) or replace (backup first)' append
+        case "$REPLY" in append | replace) mode="$REPLY"; break ;; *) echo "  answer append or replace" ;; esac
+    done
+    themes="$(grep -o '^_bga_theme_[a-z0-9_]*=' "$artifact" | sed 's/^_bga_theme_//; s/=$//' | grep -vx tokens | tr '\n' ' ')"
+    while :; do
+        ask "Theme (${themes% })" aware
+        case " $themes " in *" $REPLY "*) want_theme="$REPLY"; break ;; *) echo "  unknown theme" ;; esac
+    done
+    while :; do
+        ask 'Glyphs: auto, unicode, nerd (needs a Nerd Font) or ascii' auto
+        case "$REPLY" in auto) break ;; unicode | nerd | ascii) want_glyphs="$REPLY"; break ;; *) echo "  answer auto, unicode, nerd or ascii" ;; esac
+    done
+fi
+[ -n "$mode" ] || mode='replace'
+
+# ---------------------------------------------------------------------------
+# Uninstall.
+# ---------------------------------------------------------------------------
+if [ "$mode" = uninstall ]; then
+    if [ -f "$target" ] && grep -qE '^# (>>> )?bash-gitaware' "$target" && grep -qF 'new.bashrc' "$target"; then
+        # Drop only what --append wrote: the marked block (v3), or the exact
+        # three lines of the v2 block. Other lines, even ones mentioning
+        # bash-gitaware, are kept.
+        out='' skip=0 c1='# bash-gitaware -- modern, git-aware bash prompt.'
+        c2='# Repo: https://github.com/SzematPro/bash-gitaware'
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+                '# >>> bash-gitaware >>>') skip=1; continue ;;
+                '# <<< bash-gitaware <<<') skip=0; continue ;;
+            esac
+            [ "$skip" = 1 ] && continue
+            [ "$line" = "$c1" ] || [ "$line" = "$c2" ] && continue
+            case "$line" in 'source "'*'/new.bashrc"  # bash-gitaware') continue ;; esac
+            out+="$line"$'\n'
+        done < "$target"
+        printf '%s' "$out" > "$target"
+        printf 'install: removed the bash-gitaware source block from %s\n' "$target"
+        exit 0
+    fi
+    if [ -f "$target" ] && head -n 1 "$target" | grep -qF 'Generated by bin/build.sh'; then
+        newest=''
+        for b in "$target".bak-*; do
+            if [ ! -f "$b" ] || [ -L "$b" ] || [ ! -O "$b" ]; then continue; fi
+            # Same rule as the tamper check: nobody else may have written it.
+            read -r _ bg bm <<< "$(perm_of "$b")"
+            [ $(( 8#$bm & 2 )) -eq 0 ] || continue
+            if [ $(( 8#$bm & 16 )) -ne 0 ] && [ "$bg" != "$(id -g)" ]; then continue; fi
+            if [ -z "$newest" ] || [ "$b" -nt "$newest" ]; then newest="$b"; fi
+        done
+        if [ -n "$newest" ]; then
+            cp -p -- "$newest" "$target"
+            printf 'install: restored %s from %s\n' "$target" "$newest"
+            exit 0
+        fi
+        printf 'install: %s is the bash-gitaware file but there is no backup to restore;\n' "$target" >&2
+        printf 'install: move it away by hand (e.g. mv %s %s.bga)\n' "$target" "$target" >&2
+        exit 1
+    fi
+    printf 'install: %s does not use bash-gitaware; nothing to do.\n' "$target"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # Optional backup.
 # ---------------------------------------------------------------------------
 if [ "$do_backup" = 1 ] && [ "$mode" = 'replace' ] && [ -e "$target" ]; then
@@ -107,25 +250,37 @@ fi
 # ---------------------------------------------------------------------------
 # Install.
 # ---------------------------------------------------------------------------
+if [ -L "$target" ]; then
+    printf 'install: refusing: %s is a symlink; point --target at the real file\n' "$target" >&2
+    exit 1
+fi
+
 case "$mode" in
     replace)
         cp -p -- "$artifact" "$target"
         printf 'install: wrote %s (%d bytes)\n' "$target" "$(wc -c < "$target")"
         ;;
     append)
-        source_line="source \"$artifact\"  # bash-gitaware"
-        if [ -f "$target" ] && grep -qF "$artifact" "$target"; then
+        # %q quotes the path for the shell: a repository directory named
+        # with $(...), backticks, quotes or newlines must not run anything.
+        printf -v source_line 'source %q' "$artifact"
+        if [ -f "$target" ] && { grep -qxF "$source_line" "$target" || grep -qF "$artifact" "$target"; }; then
             printf 'install: %s already sources %s; no change.\n' "$target" "$artifact"
         else
             {
-                printf '\n# bash-gitaware -- modern, git-aware bash prompt.\n'
+                printf '\n# >>> bash-gitaware >>>\n'
                 printf '# Repo: https://github.com/SzematPro/bash-gitaware\n'
                 printf '%s\n' "$source_line"
+                printf '# <<< bash-gitaware <<<\n'
             } >> "$target"
             printf 'install: appended source line to %s\n' "$target"
         fi
         ;;
 esac
+
+# Store the interactive choices in the config file.
+if [ -n "$want_theme" ]; then "$script_dir/bin/bga" config set theme "$want_theme"; fi
+if [ -n "$want_glyphs" ]; then "$script_dir/bin/bga" config set glyphs "$want_glyphs"; fi
 
 # ---------------------------------------------------------------------------
 # Next steps.
@@ -134,8 +289,8 @@ cat <<EOF
 
 Next steps:
   - Open a new terminal, or run: source "$target"
-  - Try a preset:    export BASHGITAWARE_PRESET=minimal|default|powerline|full
-  - Nerd Font glyph: export BASHGITAWARE_NERD_FONT=1   (requires a Nerd Font)
-  - See README.md and lib/00-options.bash for all BASHGITAWARE_* knobs.
+  - Check the setup: $script_dir/bin/bga doctor
+  - Change settings: $script_dir/bin/bga config set KEY VALUE   (bga theme list)
+  - Undo:            $script_dir/install.sh --uninstall
 
 EOF

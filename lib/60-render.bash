@@ -4,6 +4,9 @@
 # ---------------------------------------------------------------------------
 __bga_prompt() {
     local exit_code=$?
+    # __bga_pre (first in PROMPT_COMMAND) saved the status before other hooks
+    # could change it.
+    if [ -n "${_bga_exit:-}" ]; then exit_code="$_bga_exit"; _bga_exit=''; fi
 
     # OSC 133;D + OSC 7: must be emitted before PS1 is assembled, so the
     # terminal sees the just-finished command's exit and the new cwd before
@@ -25,22 +28,27 @@ __bga_prompt() {
 
     __bga_git_info
 
+    if [ "${_bga_plain:-0}" = 1 ]; then
+        __bga_prompt_plain "$exit_code"
+        _bga_timer_start='' _bga_in_pc=''
+        return
+    fi
+
+    if [ "${BASHGITAWARE_STYLE:-lean}" != classic ]; then
+        __bga_lean_result "$exit_code"
+        __bga_prompt_lean "$exit_code"
+        _bga_timer_start='' _bga_in_pc=''
+        return
+    fi
+
     local ps1="" nl=0   # nl: number of "\n" line breaks added (transient)
 
     # OSC 133;A: prompt begin (wrapped in \[ \] for readline width arithmetic).
-    ps1+="$(__bga_osc_ps1 '133;A')"
+    __bga_osc_ps1 '133;A'; ps1+="$REPLY"
 
     # Optional OSC window title.
-    if [ "$_bga_title" = 1 ]; then
-        # Not \w: bash 4.4-5.1 pass control characters in it through, so a
-        # directory name could end the title early and inject other OSC
-        # sequences (e.g. a clipboard write). Use the escaped path instead.
-        local REPLY t_path="$PWD" t_chroot=''
-        case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
-        [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
-        __bga_ps1_lit "$t_path"
-        ps1+="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
-    fi
+    local REPLY
+    __bga_title_ps1; ps1+="$REPLY"
 
     # --- Line 1: context ----------------------------------------------------
     # Untrusted text (paths, git refs, commit subjects, ...) is embedded only
@@ -59,7 +67,7 @@ __bga_prompt() {
     fi
 
     # Path (repo-relative when inside a repo).
-    local pwd_str; pwd_str="$(__bga_path)"
+    local pwd_str; __bga_path; pwd_str="$REPLY"
     __bga_ps1_lit "$pwd_str"; ps1+="${_c_path}${REPLY}${_R}"
 
     # Git: " on [glyph]branch[@hash][ STATE][ ^ahead][ vbehind][ dirty][ stashN]"
@@ -83,7 +91,7 @@ __bga_prompt() {
     fi
 
     # Runtime / version module(s), only when the directory calls for it.
-    local rt; rt="$(__bga_runtime)"
+    __bga_runtime; local rt="$_bga_rt_str"
     [ -n "$rt" ] && ps1+="$rt"
 
     # Command duration (if slow), then exit code (on failure only).
@@ -112,7 +120,7 @@ __bga_prompt() {
 
     # OSC 133;B: prompt end / "user types here". Goes after the prompt symbol
     # so the terminal-marked cursor position matches where readline puts it.
-    ps1+="$(__bga_osc_ps1 '133;B')"
+    __bga_osc_ps1 '133;B'; ps1+="$REPLY"
 
     PS1="$ps1"
 
@@ -127,5 +135,35 @@ __bga_prompt() {
         _bga_transient_active=1
     fi
 
-    _bga_timer_start=''      # reset for the next command (must be the last thing here)
+    _bga_timer_start='' _bga_in_pc=''      # reset for the next command (must be the last thing here)
+}
+
+# Plain mode (lib/10-detect.bash): "<path> (<branch>[ *])[ [exit N]] $ ".
+# No colors, no escape sequences, one line; untrusted text still escaped.
+__bga_prompt_plain() {
+    local exit_code="$1" ps1="" REPLY
+    __bga_path; __bga_ps1_lit "$REPLY"; ps1="$REPLY"
+    if [ "$_bga_in_git" = 1 ]; then
+        __bga_ps1_lit "$_bga_git_branch"; ps1+=" ($REPLY"
+        [ "$_bga_git_dirty" = 1 ] && ps1+=" *"
+        ps1+=")"
+    fi
+    [ "$exit_code" -ne 0 ] && ps1+=" [exit $exit_code]"
+    if [ "$_bga_root" = 1 ]; then ps1+=" # "; else ps1+=" \$ "; fi
+    PS1="$ps1"
+    _bga_transient_active=0
+}
+
+# Window title (OSC 0) as PS1 text in REPLY; empty when the terminal has none.
+# Not \w: bash 4.4-5.1 pass control characters in it through, so a directory
+# name could end the title early and inject other OSC sequences (e.g. a
+# clipboard write). The escaped path is used instead.
+__bga_title_ps1() {
+    REPLY=''
+    [ "$_bga_title" = 1 ] || return 0
+    local t_path="$PWD" t_chroot=''
+    case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
+    [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
+    __bga_ps1_lit "$t_path"
+    REPLY="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
 }

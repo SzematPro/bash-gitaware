@@ -36,6 +36,19 @@ assert_lacks() {
     esac
 }
 
+# Remove prompt state inherited from the developer's own shell (a v2 prompt
+# exports some _bga_* variables; BASHGITAWARE_* knobs would change renders).
+# Child shells only inherit exported variables, so unsetting them here keeps
+# every render in the suite deterministic. NO_COLOR is dropped for the same
+# reason, and so is COLORTERM (it selects 24-bit colors); scenarios that need
+# them set them explicitly.
+sandbox_scrub() {
+    local v
+    for v in $(compgen -v); do
+        case "$v" in _bga_* | _BGA_* | BASHGITAWARE_* | NO_COLOR | COLORTERM) unset "$v" ;; esac
+    done
+}
+
 # Run a command with a time limit, without timeout(1) (stock macOS has none).
 # Returns 124 if it had to be killed, else the command's status.
 #   run_bounded <seconds> <cmd> [args...]

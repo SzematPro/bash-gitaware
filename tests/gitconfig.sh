@@ -245,3 +245,55 @@ scenario_gitconfig_fifo_no_hang() {
                    *) ok "watchdog fallback: prompt returns (${out##*$'\n'}s)" ;; esac
     rm -rf "$base"
 }
+
+scenario_gitconfig_trust_cache() {
+    section "trust check: cache validated by content, per worktree"
+    local d; d="$(_gc_repo)"
+    git -C "$d" worktree add -q "$d.wt" -b wt >/dev/null 2>&1
+    git -C "$d" config extensions.worktreeConfig true
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=1 BASHGITAWARE_MODE=full
+        cd '$d'; source '$REPO/new.bashrc'
+        __bga_prompt; a=\"\${_bga_git_args[*]}\"
+        # New content with an OLD mtime, as tar xf would restore it.
+        git config filter.x.clean 'touch $d/PWNED; cat'
+        touch -t 200001010000 .git/config
+        __bga_prompt; b=\"\${_bga_git_args[*]}\"
+        # A second worktree with its own config.worktree filter.
+        printf '[filter \"y\"]\n\tclean = cat\n' > '$d/.git/worktrees/$(basename "$d.wt")/config.worktree'
+        touch -t 200001010000 '$d/.git/worktrees/$(basename "$d.wt")/config.worktree'
+        cd '$d.wt'; __bga_prompt; c=\"\${_bga_git_args[*]}\"
+        printf 'a=%s\nb=%s\nc=%s\n' \"\$a\" \"\$b\" \"\$c\"" 2>/dev/null)"
+    local a b c
+    a="$(printf '%s\n' "$out" | grep '^a=')"; b="$(printf '%s\n' "$out" | grep '^b=')"; c="$(printf '%s\n' "$out" | grep '^c=')"
+    assert_lacks    "$a" "filter.x.clean=" "first prompt: nothing to neutralize"
+    assert_contains "$b" "filter.x.clean=" "content change with an old mtime invalidates the cache"
+    assert_contains "$c" "filter.y.clean=" "another worktree does not reuse the verdict"
+    rm -rf "$d" "$d.wt"
+}
+
+scenario_gitconfig_trust_cache_multibyte() {
+    section "trust check: invalid multibyte bytes cannot hide a config over 64 KB"
+    local d; d="$(_gc_repo)"
+    mkdir -p "$d/d1" "$d/d2"
+    # A long comment of invalid UTF-8 makes read -N stop early in a UTF-8
+    # locale while ${#var} counts fewer characters (SR3 F1).
+    python3 -I -c '
+import sys
+p = sys.argv[1]
+pat = bytes.fromhex("80e2f4908080" "80e2f4908080")
+open(p, "wb").write(b"[core]\n\trepositoryformatversion = 0\n#" + pat * 25000 + b"\n[user]\n\tname = x\n")
+' "$d/.git/config" 2>/dev/null || { skip "needs python3"; rm -rf "$d"; return; }
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=0 BASHGITAWARE_MODE=full
+        source '$REPO/new.bashrc'
+        cd '$d/d1'; __bga_prompt
+        python3 -I -c 'import sys; p=sys.argv[1]; b=open(p,\"rb\").read(); open(p,\"wb\").write(b.replace(b\"[user]\n\tname = x\n\", b\"[filter \\\"x\\\"]\n\tclean = touch $d/PWNED; cat\n\"))' '$d/.git/config'
+        touch '$d/f.txt'; cd '$d/d2'; __bga_prompt
+        printf 'args=%s\n' \"\${_bga_git_args[*]}\"" 2>/dev/null)"
+    if [ -e "$d/PWNED" ]; then fail "hidden filter ran (cache reused for a >64 KB config)"
+    else ok "hidden filter not run"; fi
+    rm -rf "$d"
+}

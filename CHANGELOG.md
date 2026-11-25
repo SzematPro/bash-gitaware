@@ -6,6 +6,47 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-25
+
+### Added
+
+- **Lean style (default).** Path and git on line 1, runtimes and an optional
+  clock aligned right, symbol on line 2, and a result line (`  ✘1 · 3s`) after
+  failed or slow commands. `style = classic` keeps the v2 layout.
+- **Themes.** `aware` (default), `light` and `contrast`, built from semantic
+  color tokens and resolved for 24-bit, 256, 16 or no color. WCAG contrast
+  is checked in CI.
+- **Powerline separators** with Nerd Font glyphs.
+- **`bga` command:** `config`, `theme`, `doctor`, `reload`, `version`.
+- **Config file** (`~/.config/bash-gitaware/config`), parsed as data and
+  validated per key, with line numbers in warnings.
+- **Plain mode** for dumb terminals, CI and agents (one ASCII line).
+- **Interactive installer** with `--yes`, `--uninstall` and a tamper check.
+- **Spanish README** (`README.es.md`), with a parity check in CI.
+  Migration guide: `docs/MIGRATION.md`.
+
+### Changed
+
+- One git call per prompt on the fast path. In a 100k-file repository the
+  prompt takes about 11 ms with the background worker.
+- bash-gitaware now coexists with your `PROMPT_COMMAND`, `PS0`, DEBUG and
+  EXIT traps, and with bash-preexec, instead of replacing them.
+
+### Fixed
+
+- The transient prompt showed every collapsed command twice (bash 4.4-5.3).
+- Runtime versions were recomputed on every prompt; the cache now works.
+- The async git status was never refreshed while you stayed in a directory.
+- `new.bashrc` failed to load with `set -o posix` on bash 4.4 and 5.0.
+- An empty Enter no longer counts as a command.
+
+### Security
+
+- Four independent reviews (SR1-SR4) and automated reviews. Every finding
+  was reproduced and fixed, with a regression test. The records are in
+  `docs/v3/reviews/`, and the design is in
+  `docs/adr/ADR-0008-v3-git-worker-trust-and-state.md`.
+
 ## [2.0.4] - 2026-11-25
 
 ### Security
@@ -172,7 +213,7 @@ reachable from the prompt's git calls and found them closed.
 - Configurable knobs: `BASHGITAWARE_GLYPHS`, `BASHGITAWARE_NERD_FONT`,
   `BASHGITAWARE_COMMIT_LINE`, `BASHGITAWARE_RUNTIME`,
   `BASHGITAWARE_TIMER_THRESHOLD`, `BASHGITAWARE_PATH_MAXDEPTH`,
-  `BASHGITAWARE_SHOW_HOST`, plus `NO_COLOR` (https://no-color.org).
+  `BASHGITAWARE_SHOW_HOST`, plus `NO_COLOR` (<https://no-color.org>).
 - Test suite: scenario tests, performance budget, lib-syntax gate, build-
   freshness gate (`make test` / `bash tests/run.sh`).
 - GitHub Actions CI workflow: shellcheck (`-x`), build-freshness check,

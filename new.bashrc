@@ -26,11 +26,93 @@
 #   BASHGITAWARE_SHOW_HOST=auto|always|never Show user@host. "auto" = only over SSH or as root. Default: auto.
 #   NO_COLOR                                 If set (any value), disable all color. https://no-color.org
 
-# If not running interactively, do nothing.
+# Where this file lives (bga reload re-sources it).
+_bga_src="${BASH_SOURCE[0]}"
+
+# If not running interactively, do nothing -- except for bin/bga, which sets
+# _BGA_CLI=1 to load the CLI and the settings it reports on.
 case $- in
     *i*) ;;
-      *) return ;;
+      # Only a plain (unexported) _BGA_CLI counts: an exported one would
+      # change every non-interactive script that sources this file.
+      *) { [ -n "${_BGA_CLI:-}" ] && [[ "${_BGA_CLI@a}" != *x* ]]; } || return ;;
 esac
+
+# ---------------------------------------------------------------------------
+# Config file: ${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-~/.config}/bash-gitaware/config}
+#
+#   # comment
+#   preset = minimal          (keys are the BASHGITAWARE_* names, lowercase,
+#   glyphs = "unicode"         without the prefix; quotes are optional)
+#
+# The file is parsed as data and never sourced. Each key has a fixed set of
+# valid values; anything else is reported on stderr with its line number and
+# ignored. Precedence: environment > config file > preset defaults. The file is
+# refused when someone else owns it or group/others can write it (a symlink is
+# fine if its target passes).
+# ---------------------------------------------------------------------------
+# Warnings echo keys and paths from the file: strip control characters so a
+# hostile config cannot send escape sequences to the terminal.
+__bga_config_warn() { local m="$*"; printf 'bash-gitaware: %s\n' "${m//[[:cntrl:]]/?}" >&2; }
+
+# Valid values per key, as a case pattern. Echoes nothing; returns 1 if invalid.
+__bga_config_valid() {
+    case "$1" in
+        preset)       case "$2" in minimal | default | powerline | full) ;; *) return 1 ;; esac ;;
+        glyphs)       case "$2" in nerd | unicode | ascii) ;; *) return 1 ;; esac ;;
+        show_host)    case "$2" in auto | always | never) ;; *) return 1 ;; esac ;;
+        mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
+        theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
+        style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
+        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline)
+                      case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
+        timer_threshold | path_maxdepth)
+                      case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;
+        *) return 2 ;;
+    esac
+}
+
+__bga_config_load() {
+    local f="${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/bash-gitaware/config}"
+    [ -e "$f" ] || return 0
+    if [ ! -f "$f" ] || [ ! -r "$f" ]; then
+        __bga_config_warn "$f: not a readable file, ignored"; return 0
+    fi
+    # The directory matters too: if others can write it they can swap the
+    # file between this check and the read.
+    # The file: ours, and nobody else may write it. Its directory: nobody
+    # else may write it either, unless it is sticky (like /tmp), where other
+    # users cannot replace a file they do not own -- but they can plant a
+    # symlink there, so a symlinked config in such a directory is refused.
+    if [ ! -O "$f" ] || [ -n "$(find -L "$f" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ] \
+       || [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) ! -perm -1000 2>/dev/null)" ] \
+       || { [ -L "$f" ] && [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]; }; then
+        __bga_config_warn "$f: owned or writable by other users, ignored"; return 0
+    fi
+    local line k v n=0 var q=\'
+    while IFS= read -r line || [ -n "$line" ]; do
+        n=$(( n + 1 ))
+        line="${line%$'\r'}"
+        # Trim leading/trailing blanks.
+        line="${line#"${line%%[![:blank:]]*}"}"; line="${line%"${line##*[![:blank:]]}"}"
+        case "$line" in '' | '#'*) continue ;; esac
+        case "$line" in *=*) ;; *) __bga_config_warn "config:$n: expected key = value"; continue ;; esac
+        k="${line%%=*}"; v="${line#*=}"
+        k="${k%"${k##*[![:blank:]]}"}"; v="${v#"${v%%[![:blank:]]*}"}"
+        case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; "$q"*"$q") v="${v#"$q"}"; v="${v%"$q"}" ;; esac
+        k="${k,,}"
+        __bga_config_valid "$k" "$v"
+        case $? in
+            0) ;;
+            2) __bga_config_warn "config:$n: unknown key '$k'"; continue ;;
+            *) __bga_config_warn "config:$n: invalid value for '$k'"; continue ;;
+        esac
+        var="BASHGITAWARE_${k^^}"
+        # Environment wins: only fill variables that are not set yet.
+        [ -n "${!var+set}" ] || printf -v "$var" '%s' "$v"
+    done < "$f"
+}
+__bga_config_load
 
 # ---------------------------------------------------------------------------
 # Presets -- BASHGITAWARE_PRESET sets a set of defaults; individual
@@ -110,6 +192,45 @@ if [ "${NO_COLOR+set}" != set ]; then
     esac
 fi
 
+# Color depth for themes (lib/19-theme.bash): 24 (COLORTERM says so), 256, 16,
+# or 0 (no color, NO_COLOR included).
+_bga_depth=0
+if [ "$_bga_color" = 1 ]; then
+    case "${COLORTERM:-}" in
+        truecolor | 24bit) _bga_depth=24 ;;
+        *)
+            case "${TERM:-}" in
+                *-256color | *-direct | alacritty* | foot* | wezterm* | kitty* | *ghostty*) _bga_depth=256 ;;
+                *) _bga_depth=16 ;;
+            esac ;;
+    esac
+fi
+
+# ---------------------------------------------------------------------------
+# Plain mode: a one-line ASCII prompt with no escape sequences, for dumb
+# terminals, CI logs and automated agents. Generic signals only:
+# TERM=dumb, no terminal on stdin/stderr, CI, AGENT, AI_AGENT.
+# BASHGITAWARE_MODE=plain forces it, BASHGITAWARE_MODE=full disables it.
+# ---------------------------------------------------------------------------
+case "${BASHGITAWARE_MODE:-auto}" in
+    plain) _bga_plain=1 ;;
+    full)  _bga_plain=0 ;;
+    *)
+        if [ "${TERM:-dumb}" = dumb ] || [ ! -t 0 ] || [ ! -t 2 ] \
+           || [ -n "${CI:-}" ] || [ -n "${AGENT:-}" ] || [ -n "${AI_AGENT:-}" ]; then
+            _bga_plain=1
+        else
+            _bga_plain=0
+        fi ;;
+esac
+if [ "$_bga_plain" = 1 ]; then
+    # Every decoration that emits escapes or extra lines is off by default;
+    # an explicit BASHGITAWARE_* setting still wins.
+    _bga_color=0 _bga_depth=0 _bga_title=0
+    : "${BASHGITAWARE_OSC:=0}" "${BASHGITAWARE_TRANSIENT:=0}" "${BASHGITAWARE_ASYNC:=0}"
+    : "${BASHGITAWARE_GLYPHS:=ascii}" "${BASHGITAWARE_COMMIT_LINE:=0}"
+fi
+
 # ---------------------------------------------------------------------------
 # Escaping untrusted text for PS1.
 #
@@ -152,6 +273,7 @@ __bga_term_safe() {
 # C1 controls (U+0080-U+009F, UTF-8 bytes C2 80-9F; C2 9B is CSI) are only
 # [[:cntrl:]] in a UTF-8 locale. A shell in the C locale talking to a UTF-8
 # terminal would pass them through, so match the bytes under LC_ALL=C.
+# Called only when the text contains a C2 byte, which is rare.
 __bga_strip_c1() {
     local LC_ALL=C
     REPLY="${1//$'\xc2'[$'\x80'-$'\x9f']/?}"
@@ -159,7 +281,8 @@ __bga_strip_c1() {
 
 # Read the first line of a small file into REPLY (at most 256 bytes). Only
 # regular files: a cloned repo can ship .python-version -> /dev/zero, /dev/tty
-# or a FIFO, and an unbounded `read` there hangs every prompt.
+# or a FIFO, and an unbounded `read` there hangs every prompt. Returns 1 (and
+# empties REPLY) for anything else.
 __bga_read_line() {
     REPLY=''
     [ -f "$1" ] && [ -r "$1" ] || return 1
@@ -169,38 +292,298 @@ __bga_read_line() {
 }
 
 # ---------------------------------------------------------------------------
+# Private per-shell state directory.
+#
+# __bga_state_dir_init creates (once per shell) a fresh directory for caches
+# and worker results and stores it in _bga_state_dir, or leaves it empty and
+# returns 1 when no safe location exists. The directory is made with mktemp -d
+# (mode 0700, a name nobody can predict) under:
+#   1. $XDG_RUNTIME_DIR, only if it is a real directory (not a symlink) that we
+#      own and that group and others cannot write;
+#   2. otherwise ${TMPDIR:-/tmp}.
+# The result is checked again (a directory, not a symlink, owned by us, mode
+# 0700) before use, so a planted path is refused instead of trusted.
+# ---------------------------------------------------------------------------
+_bga_state_dir=''
+
+# True when $1 is a real directory owned by us that group/others cannot write.
+__bga_dir_private() {
+    [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] || return 1
+    [ -z "$(find "$1" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]
+}
+
+__bga_state_dir_init() {
+    [ -n "$_bga_state_dir" ] && [ -d "$_bga_state_dir" ] && return 0
+    _bga_state_dir=''
+    local base="${XDG_RUNTIME_DIR:-}" d
+    if [ -z "$base" ] || ! __bga_dir_private "$base"; then base="${TMPDIR:-/tmp}"; fi
+    d="$(umask 077 && mktemp -d "${base%/}/bga.XXXXXXXX" 2>/dev/null)" || return 1
+    # mktemp -d gives 0700; anything else means a hostile or broken mktemp.
+    if ! __bga_dir_private "$d" || [ -n "$(find "$d" -maxdepth 0 ! -perm 700 2>/dev/null)" ]; then
+        return 1
+    fi
+    _bga_state_dir="$d"
+}
+
+# Remove the state directory and everything we put in it. Only touches the
+# directory this shell created.
+__bga_state_dir_cleanup() {
+    [ -n "$_bga_state_dir" ] && [ -d "$_bga_state_dir" ] && [ ! -L "$_bga_state_dir" ] || return 0
+    rm -f "$_bga_state_dir"/* 2>/dev/null
+    rmdir "$_bga_state_dir" 2>/dev/null
+    _bga_state_dir=''
+}
+
+# ---------------------------------------------------------------------------
+# Display width (ADR-0007). __bga_width <text> sets REPLY to the number of
+# terminal cells <text> occupies.
+#
+# Everything runs under LC_ALL=C, so the string is handled as bytes: byte
+# ranges like [ -~] mean exactly ASCII (bash 4.4 has globasciiranges off by
+# default), ${s:i:1} is one byte, and no C-library multibyte state is
+# involved (glibc's mbtowc keeps hidden state that a truncated sequence
+# corrupts). UTF-8 is decoded by hand:
+#   * printable ASCII is counted in one pass (one cell per byte), and the
+#     remaining bytes are decoded in a second pass. Invalid bytes on both
+#     sides of ASCII text can therefore decode as one sequence; valid UTF-8 is
+#     unaffected, and the worst case is a few cells of drift;
+#   * C0 controls and DEL count 0 (they are stripped before display anyway);
+#   * a valid sequence is looked up in the table below (binary search):
+#     0 for combining and zero-width format characters, 2 for East Asian
+#     Wide/Fullwidth, 1 otherwise;
+#   * invalid, truncated or overlong sequences, surrogates and code points
+#     above U+10FFFF count one cell per byte, because glibc and musl disagree
+#     on them.
+# Emoji ZWJ sequences are summed per code point (e.g. family emoji count 6,
+# terminals usually draw 2): accepted, the right block only drifts.
+#
+# Table generated by bin/gen-width.py; do not edit by hand.
+# ---------------------------------------------------------------------------
+# Unicode 15.0.0, 469 ranges
+_bga_wlo=(768 1155 1425 1471 1473 1476 1479 1552 1611 1648 1750 1759 1767 1770 1809 1840 1958 2027 2045 2070 2075 2085 2089 2137 2200 2250 2275 2362 2364 2369 2381 2385 2402 2433 2492 2497 2509 2530 2558 2561 2620 2625 2631 2635 2641 2672 2677 2689 2748 2753 2759 2765 2786 2810 2817 2876 2879 2881 2893 2901 2914 2946 3008 3021 3072 3076 3132 3134 3142 3146 3157 3170 3201 3260 3263 3270 3276 3298 3328 3387 3393 3405 3426 3457 3530 3538 3542 3633 3636 3655 3761 3764 3784 3864 3893 3895 3897 3953 3968 3974 3981 3993 4038 4141 4146 4153 4157 4184 4190 4209 4226 4229 4237 4253 4352 4448 4957 5906 5938 5970 6002 6068 6071 6086 6089 6109 6155 6159 6277 6313 6432 6439 6450 6457 6679 6683 6742 6744 6752 6754 6757 6771 6783 6832 6912 6964 6966 6972 6978 7019 7040 7074 7080 7083 7142 7144 7149 7151 7212 7222 7376 7380 7394 7405 7412 7416 7616 8203 8288 8400 8986 9001 9193 9200 9203 9725 9748 9800 9855 9875 9889 9898 9917 9924 9934 9940 9962 9970 9973 9978 9981 9989 9994 10024 10060 10062 10067 10071 10133 10160 10175 11035 11088 11093 11503 11647 11744 11904 11931 12032 12272 12288 12330 12334 12353 12441 12443 12549 12593 12688 12784 12832 12880 19968 42128 42607 42612 42654 42736 43010 43014 43019 43045 43052 43204 43232 43263 43302 43335 43360 43392 43443 43446 43452 43493 43561 43569 43573 43587 43596 43644 43696 43698 43703 43710 43713 43756 43766 44005 44008 44013 44032 63744 64286 65024 65040 65056 65072 65108 65128 65279 65281 65504 66045 66272 66422 68097 68101 68108 68152 68159 68325 68900 69291 69373 69446 69506 69633 69688 69744 69747 69759 69811 69817 69826 69888 69927 69933 70003 70016 70070 70089 70095 70191 70196 70198 70206 70209 70367 70371 70400 70459 70464 70502 70512 70712 70722 70726 70750 70835 70842 70847 70850 71090 71100 71103 71132 71219 71229 71231 71339 71341 71344 71351 71453 71458 71463 71727 71737 71995 71998 72003 72148 72154 72160 72193 72243 72251 72263 72273 72281 72330 72344 72752 72760 72767 72850 72874 72882 72885 73009 73018 73020 73023 73031 73104 73109 73111 73459 73472 73526 73536 73538 78912 78919 92912 92976 94031 94095 94176 94180 94192 94208 100352 101632 110576 110581 110589 110592 110898 110928 110933 110948 110960 113821 118528 118576 119143 119163 119173 119210 119362 121344 121403 121461 121476 121499 121505 122880 122888 122907 122915 122918 123023 123184 123566 123628 124140 125136 125252 126980 127183 127374 127377 127488 127504 127552 127568 127584 127744 127789 127799 127870 127904 127951 127968 127988 127992 128064 128066 128255 128331 128336 128378 128405 128420 128507 128640 128716 128720 128725 128732 128747 128756 128992 129008 129292 129340 129351 129648 129664 129680 129727 129742 129760 129776 131072 196608 917760)
+_bga_whi=(879 1161 1469 1471 1474 1477 1479 1562 1631 1648 1756 1764 1768 1773 1809 1866 1968 2035 2045 2073 2083 2087 2093 2139 2207 2273 2306 2362 2364 2376 2381 2391 2403 2433 2492 2500 2509 2531 2558 2562 2620 2626 2632 2637 2641 2673 2677 2690 2748 2757 2760 2765 2787 2815 2817 2876 2879 2884 2893 2902 2915 2946 3008 3021 3072 3076 3132 3136 3144 3149 3158 3171 3201 3260 3263 3270 3277 3299 3329 3388 3396 3405 3427 3457 3530 3540 3542 3633 3642 3662 3761 3772 3790 3865 3893 3895 3897 3966 3972 3975 3991 4028 4038 4144 4151 4154 4158 4185 4192 4212 4226 4230 4237 4253 4447 4607 4959 5908 5939 5971 6003 6069 6077 6086 6099 6109 6157 6159 6278 6313 6434 6440 6450 6459 6680 6683 6742 6750 6752 6754 6764 6780 6783 6862 6915 6964 6970 6972 6978 7027 7041 7077 7081 7085 7142 7145 7149 7153 7219 7223 7378 7392 7400 7405 7412 7417 7679 8207 8292 8432 8987 9002 9196 9200 9203 9726 9749 9811 9855 9875 9889 9899 9918 9925 9934 9940 9962 9971 9973 9978 9981 9989 9995 10024 10060 10062 10069 10071 10135 10160 10175 11036 11088 11093 11505 11647 11775 11929 12019 12245 12283 12329 12333 12350 12438 12442 12543 12591 12686 12771 12830 12871 19903 42124 42182 42610 42621 42655 42737 43010 43014 43019 43046 43052 43205 43249 43263 43309 43345 43388 43394 43443 43449 43453 43493 43566 43570 43574 43587 43596 43644 43696 43700 43704 43711 43713 43757 43766 44005 44008 44013 55203 64255 64286 65039 65049 65071 65106 65126 65131 65279 65376 65510 66045 66272 66426 68099 68102 68111 68154 68159 68326 68903 69292 69375 69456 69509 69633 69702 69744 69748 69761 69814 69818 69826 69890 69931 69940 70003 70017 70078 70092 70095 70193 70196 70199 70206 70209 70367 70378 70401 70460 70464 70508 70516 70719 70724 70726 70750 70840 70842 70848 70851 71093 71101 71104 71133 71226 71229 71232 71339 71341 71349 71351 71455 71461 71467 71735 71738 71996 71998 72003 72151 72155 72160 72202 72248 72254 72263 72278 72283 72342 72345 72758 72765 72767 72871 72880 72883 72886 73014 73018 73021 73029 73031 73105 73109 73111 73460 73473 73530 73536 73538 78912 78933 92916 92982 94031 94098 94179 94180 94193 100343 101589 101640 110579 110587 110590 110882 110898 110930 110933 110951 111355 113822 118573 118598 119145 119170 119179 119213 119364 121398 121452 121461 121476 121503 121519 122886 122904 122913 122916 122922 123023 123190 123566 123631 124143 125142 125258 126980 127183 127374 127386 127490 127547 127560 127569 127589 127776 127797 127868 127891 127946 127955 127984 127988 128062 128064 128252 128317 128334 128359 128378 128406 128420 128591 128709 128716 128722 128727 128735 128748 128764 129003 129008 129338 129349 129535 129660 129672 129725 129733 129755 129768 129784 196605 262141 917999)
+_bga_ww='0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000022222222222222222222222222222222220002222202202222222220000000000000020000000000000000000002200202220220000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000202222222222222000000000000000000000000002222222222222222222222222222222222222222222222220'
+
+# Width of one code point (decimal) from the table. Sets REPLY.
+__bga_width_cp() {
+    local cp="$1" lo=0 hi=$(( ${#_bga_wlo[@]} - 1 )) mid
+    REPLY=1
+    [ "$cp" -lt 768 ] && return
+    while [ "$lo" -le "$hi" ]; do
+        mid=$(( (lo + hi) / 2 ))
+        if   [ "$cp" -lt "${_bga_wlo[mid]}" ]; then hi=$(( mid - 1 ))
+        elif [ "$cp" -gt "${_bga_whi[mid]}" ]; then lo=$(( mid + 1 ))
+        else REPLY="${_bga_ww:mid:1}"; return
+        fi
+    done
+}
+
+__bga_width() {
+    local LC_ALL=C
+    local s="$1" n r i len b b2 b3 need cp v k ok a
+    # Two linear passes: printable ASCII counts one cell per byte; everything
+    # else is decoded below. (Splitting run by run with ${s:k} copies the
+    # rest of the string each time and goes quadratic on mixed text.)
+    a="${s//[!\ -~]/}"; n=${#a}
+    r="${s//[\ -~]/}"
+    len=${#r} i=0
+    # Decoding costs tens of microseconds per byte. Past 512 non-ASCII bytes
+    # (far more than a prompt line can show) return the byte count instead:
+    # an upper bound on the width, so callers shorten or drop text. A hostile
+    # path or branch cannot slow the prompt down this way.
+    if [ "$len" -gt 512 ]; then REPLY=$(( n + len )); return; fi
+    while [ "$i" -lt "$len" ]; do
+        printf -v v '%d' "'${r:i:1}"; b=$(( v & 255 ))
+        if [ "$b" -lt 128 ]; then i=$(( i + 1 )); continue; fi       # control
+        if   [ "$b" -ge 194 ] && [ "$b" -le 223 ]; then need=1; cp=$(( b & 31 ))
+        elif [ "$b" -ge 224 ] && [ "$b" -le 239 ]; then need=2; cp=$(( b & 15 ))
+        elif [ "$b" -ge 240 ] && [ "$b" -le 244 ]; then need=3; cp=$(( b & 7 ))
+        else n=$(( n + 1 )); i=$(( i + 1 )); continue                    # invalid lead
+        fi
+        if [ $(( i + need )) -ge "$len" ]; then                           # truncated
+            n=$(( n + len - i )); break
+        fi
+        k=1 ok=1
+        while [ "$k" -le "$need" ]; do
+            printf -v v '%d' "'${r:i+k:1}"; b2=$(( v & 255 ))
+            if [ "$b2" -lt 128 ] || [ "$b2" -gt 191 ]; then ok=0; break; fi
+            [ "$k" = 1 ] && b3="$b2"
+            cp=$(( (cp << 6) | (b2 & 63) ))
+            k=$(( k + 1 ))
+        done
+        # Overlong forms, surrogates and > U+10FFFF are invalid.
+        if [ "$ok" = 1 ]; then
+            case "$b" in
+                224) [ "$b3" -ge 160 ] || ok=0 ;;
+                237) [ "$b3" -le 159 ] || ok=0 ;;
+                240) [ "$b3" -ge 144 ] || ok=0 ;;
+                244) [ "$b3" -le 143 ] || ok=0 ;;
+            esac
+        fi
+        if [ "$ok" = 1 ]; then
+            __bga_width_cp "$cp"; n=$(( n + REPLY )); i=$(( i + need + 1 ))
+        else
+            n=$(( n + 1 )); i=$(( i + 1 ))
+        fi
+    done
+    REPLY="$n"
+}
+
+# ---------------------------------------------------------------------------
+# Themes and semantic color tokens (v3 T1.4, ADR-0007).
+#
+# Segment code never writes a color escape. It uses tokens: _c_<name> (wrapped
+# in \[ \] for PS1) and _cr_<name> (raw, for text printed directly, such as the
+# transient line). A theme is a table with one row per token:
+#
+#   <token> <rrggbb> <xterm-256 index> <16-color SGR> <bold 0|1>
+#
+# __bga_theme_apply resolves the table for the terminal's color depth
+# (_bga_depth from lib/10-detect.bash): 24-bit, 256, 16, or 0 (no color,
+# including NO_COLOR). The 256 indices are the nearest xterm-256 colors to
+# the hex value, precomputed. Pick a theme with BASHGITAWARE_THEME or
+# `theme = ...` in the config file; unknown names fall back to aware.
+# ---------------------------------------------------------------------------
+
+# Aware: the signature theme. Calm blues and violets for structure, warm
+# amber for "needs attention", green/red only for success/failure.
+_bga_theme_aware='
+dim      6c7591  66 90 0
+path     6fa8ff  75 94 1
+user     5ccfe6  80 36 0
+host     5ccfe6  80 36 0
+host_ssh ff9f5a 215 33 1
+branch   b48cf2 141 95 1
+hash     6c7591  66 90 0
+state    ff6b81 204 91 1
+ahead    5ccfe6  80 96 0
+behind   5ccfe6  80 96 0
+dirty    e6b450 179 93 0
+stash    8fb0d9 110 94 0
+commit   6c7591  66 90 0
+node     8ccf7e 114 92 0
+py       e6b450 179 93 0
+rust     f29e74 216 33 0
+go       5ccfe6  80 96 0
+tag      ff9f5a 215 33 0
+timer    e6b450 179 93 0
+err      ff6b81 204 91 1
+ok       8ccf7e 114 92 1
+sym_err  ff6b81 204 91 1
+'
+
+# Light: for light backgrounds; darker, saturated tones (WCAG 4.5:1 on white,
+# 3:1 for muted tokens; bin/check-contrast.py).
+# Contrast: high contrast on dark backgrounds (7:1 on black for every token).
+_bga_theme_light='
+dim      5f6b7a  60 90 0
+path     1d5fd1  26 34 1
+user     0b6e83  24 36 0
+host     0b6e83  24 36 0
+host_ssh a34a06 130 33 1
+branch   6d32d8  62 35 1
+hash     5f6b7a  60 90 0
+state    b5172f 124 31 1
+ahead    0b6e83  24 36 0
+behind   0b6e83  24 36 0
+dirty    8a5300  94 33 0
+stash    34538a  60 34 0
+commit   5f6b7a  60 90 0
+node     26702a  22 32 0
+py       8a5300  94 33 0
+rust     a34a06 130 33 0
+go       0b6e83  24 36 0
+tag      a34a06 130 33 0
+timer    8a5300  94 33 0
+err      b5172f 124 31 1
+ok       26702a  22 32 1
+sym_err  b5172f 124 31 1
+'
+
+_bga_theme_contrast='
+dim      c8c8c8 251 37 0
+path     6cb6ff  75 94 1
+user     00e5ff  45 96 0
+host     00e5ff  45 96 0
+host_ssh ffb000 214 93 1
+branch   dcb4ff 183 95 1
+hash     c8c8c8 251 37 0
+state    ff6b6b 203 91 1
+ahead    00e5ff  45 96 0
+behind   00e5ff  45 96 0
+dirty    ffe600 220 93 0
+stash    b4d7ff 153 94 0
+commit   c8c8c8 251 37 0
+node     8cff8c 120 92 0
+py       ffe600 220 93 0
+rust     ffb46e 215 93 0
+go       00e5ff  45 96 0
+tag      ffb000 214 93 0
+timer    ffe600 220 93 0
+err      ff6b6b 203 91 1
+ok       8cff8c 120 92 1
+sym_err  ff6b6b 203 91 1
+'
+
+# Static defaults (no color) so every token exists even before a theme
+# applies; __bga_theme_apply overwrites them.
+_R='' _Rr=''
+_c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
+_c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit='' _c_node=''
+_c_py='' _c_rust='' _c_go='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
+_cr_dim='' _cr_path='' _cr_user='' _cr_host='' _cr_host_ssh='' _cr_branch='' _cr_hash=''
+_cr_state='' _cr_ahead='' _cr_behind='' _cr_dirty='' _cr_stash='' _cr_commit='' _cr_node=''
+_cr_py='' _cr_rust='' _cr_go='' _cr_tag='' _cr_timer='' _cr_err='' _cr_ok='' _cr_sym_err=''
+
+# Every token a theme must define (the test suite checks each theme).
+_bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash commit node py rust go tag timer err ok sym_err'
+
+__bga_theme_apply() {
+    local name="${1:-aware}" table var line tok sgr
+    local IFS=$' \t\n' -
+    set -f                       # word splitting below must not glob
+    # The name selects a variable through ${!var}: an array subscript in it
+    # would be evaluated (command substitution included). Names are plain.
+    case "$name" in '' | *[!a-z0-9_]*) name=aware ;; esac
+    var="_bga_theme_$name"
+    [ -n "${!var+set}" ] || var=_bga_theme_aware
+    table="${!var}"
+    for tok in $_bga_theme_tokens; do printf -v "_c_$tok" '%s' ''; printf -v "_cr_$tok" '%s' ''; done
+    _R='' _Rr=''
+    [ "${_bga_depth:-0}" = 0 ] && return 0
+    _R='\[\033[0m\]' _Rr=$'\e[0m'
+    # One row per line; split with parameter expansion (no here-documents:
+    # they write a temp file before bash 5.1, ruling R-3).
+    table="${table#$'\n'}"
+    while [ -n "$table" ]; do
+        line="${table%%$'\n'*}"
+        case "$table" in *$'\n'*) table="${table#*$'\n'}" ;; *) table='' ;; esac
+        # shellcheck disable=SC2086  # intentional split of a fixed-format row
+        set -- $line
+        [ "$#" = 5 ] || continue
+        # Every field is checked: a theme table can come from the environment,
+        # and its values end up in PS1 (promptvars) and in printf -v names.
+        case " $_bga_theme_tokens " in *" $1 "*) ;; *) continue ;; esac
+        case "$2" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) continue ;; esac
+        case "$3" in '' | *[!0-9]*) continue ;; esac
+        case "$4" in '' | *[!0-9]*) continue ;; esac
+        case "$5" in 0 | 1) ;; *) continue ;; esac
+        case "$_bga_depth" in
+            24)  sgr="38;2;$(( 16#${2:0:2} ));$(( 16#${2:2:2} ));$(( 16#${2:4:2} ))" ;;
+            256) sgr="38;5;$3" ;;
+            *)   sgr="$4" ;;
+        esac
+        [ "$5" = 1 ] && sgr="1;$sgr"
+        printf -v "_c_$1" '\\[\\033[%sm\\]' "$sgr"
+        printf -v "_cr_$1" '\e[%sm' "$sgr"
+    done
+}
+
+# ---------------------------------------------------------------------------
 # Color palette
 # ---------------------------------------------------------------------------
-if [ "$_bga_color" = 1 ]; then
-    _R='\[\033[0m\]'
-    _c_dim='\[\033[38;5;244m\]'         # connector words (on / via / took)
-    _c_path='\[\033[1;38;5;75m\]'       # path -- bold steel blue
-    _c_user='\[\033[38;5;79m\]'         # user -- teal
-    _c_host='\[\033[38;5;79m\]'         # host -- teal
-    _c_host_ssh='\[\033[1;38;5;215m\]'  # host over SSH -- bold amber
-    _c_branch='\[\033[1;38;5;176m\]'    # branch -- bold purple
-    _c_hash='\[\033[38;5;244m\]'        # short hash -- grey
-    _c_state='\[\033[1;38;5;203m\]'     # in-progress state (rebase/merge) -- bold red
-    _c_ahead='\[\033[38;5;179m\]'       # ahead -- yellow
-    _c_behind='\[\033[38;5;179m\]'      # behind -- yellow
-    _c_dirty='\[\033[38;5;179m\]'       # dirty marker -- yellow
-    _c_stash='\[\033[38;5;110m\]'       # stash count -- soft blue
-    _c_commit='\[\033[38;5;244m\]'      # "last commit" line -- grey
-    _c_node='\[\033[38;5;114m\]'        # node runtime -- green
-    _c_py='\[\033[38;5;179m\]'          # python runtime -- yellow
-    _c_rust='\[\033[38;5;173m\]'        # rust runtime -- orange
-    _c_go='\[\033[38;5;80m\]'           # go runtime -- cyan
-    _c_tag='\[\033[38;5;215m\]'         # container / chroot tag -- amber
-    _c_timer='\[\033[38;5;179m\]'       # command duration -- yellow
-    _c_err='\[\033[1;38;5;203m\]'       # exit code -- bold red
-    _c_ok='\[\033[1;38;5;114m\]'        # prompt symbol, success -- bold green
-    _c_sym_err='\[\033[1;38;5;203m\]'   # prompt symbol, failure -- bold red
-else
-    _R=''
-    _c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
-    _c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit=''
-    _c_node='' _c_py='' _c_rust='' _c_go='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
-fi
+# Tokens come from the theme (lib/19-theme.bash); no literal colors here.
+__bga_theme_apply "${BASHGITAWARE_THEME:-aware}"
 
 # ---------------------------------------------------------------------------
 # Glyphs -- tiered: nerd > unicode > ascii
@@ -330,8 +713,17 @@ __bga_git_info_cheap() {
     fi
 
     # Commit subject: kept sync (fast even on large repos -- it only reads HEAD).
-    if [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ]; then
-        _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null)" || __bga_git_check_timeout $?
+    # The subject is only fetched when it is shown (Lean: off by default;
+    # classic: on), and only its first 2 KB: a commit can carry a subject of
+    # many megabytes.
+    local want_msg=1
+    [ "${BASHGITAWARE_STYLE:-lean}" != classic ] && want_msg=0
+    [ -n "${BASHGITAWARE_COMMIT_LINE:-}" ] && want_msg="$BASHGITAWARE_COMMIT_LINE"
+    if [ "$want_msg" != 0 ] && [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ]; then
+        # git's own status (for the timeout check) via PIPESTATUS: `local -`
+        # with pipefail made bash 4.4 and 5.0 crash.
+        _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null | head -c 2048; exit "${PIPESTATUS[0]}")" \
+            || __bga_git_check_timeout $?
     fi
 
     # Stash count: filesystem-gated, kept sync.
@@ -374,6 +766,7 @@ __bga_git_info_cheap() {
 # repositories that rely on local filters (git-crypt, `git lfs install --local`).
 # ---------------------------------------------------------------------------
 _bga_git_args=()
+_bga_trust_key='' _bga_trust_rc=0 _bga_trust_args=()
 
 # Every git call has a hard time limit: a FIFO or a /dev/tty symlink planted
 # anywhere git reads (.git/config, HEAD, index, packed-refs, .gitattributes,
@@ -423,9 +816,54 @@ __bga_git_trust() {
     [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" = 1 ] && return 0
     # The common dir comes from `git rev-parse --git-common-dir`, so this is
     # the config file git itself loads. Fail closed if it is missing.
-    local gd="${_bga_git_common:-}" cfg names name rc
+    local gd="${_bga_git_common:-}" wt="${_bga_git_dir:-.git}/config.worktree" key
     [ -n "$gd" ] && [ -f "$gd/config" ] || return 1
-    for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
+    # Cache per repository and worktree, validated by content: the files
+    # are read with the read builtin (no fork; only regular files, at most
+    # 64 KB, 1 s timeout in case one is swapped for a FIFO) and must match
+    # what was checked. Modification times are not
+    # trusted: `tar xf` can restore an old one over new content.
+    local c1='' c2='' cacheable=1 REPLY
+    __bga_read_whole "$gd/config" && c1="$REPLY" || cacheable=0
+    if [ -f "$wt" ]; then __bga_read_whole "$wt" && c2="wt:$REPLY" || cacheable=0; fi
+    key="$gd|${_bga_git_dir:-}|$c1|$c2"
+    if [ "$cacheable" = 1 ] && [ "$key" = "${_bga_trust_key:-}" ]; then
+        _bga_git_args=("${_bga_trust_args[@]}")
+        return "$_bga_trust_rc"
+    fi
+    __bga_git_trust_scan "$gd" "$wt"; local rc=$?
+    # Cache only if the files still hold what was read before the scan, so
+    # the verdict is bound to the bytes git actually checked.
+    local d1='' d2=''
+    __bga_read_whole "$gd/config" && d1="$REPLY" || cacheable=0
+    if [ -f "$wt" ]; then __bga_read_whole "$wt" && d2="wt:$REPLY" || cacheable=0; fi
+    if [ "$cacheable" = 1 ] && [ "$d1" = "$c1" ] && [ "$d2" = "$c2" ]; then
+        _bga_trust_key="$key" _bga_trust_rc="$rc"
+        _bga_trust_args=("${_bga_git_args[@]}")
+    else
+        _bga_trust_key=''
+    fi
+    return "$rc"
+}
+
+# Whole content of a small regular file into REPLY; returns 1 if it is not a
+# regular file, cannot be read within 1 s, or is 64 KB or larger. Byte
+# semantics (LC_ALL=C): in a UTF-8 locale read -N and ${#var} count invalid
+# sequences differently, which once let a larger file pass as complete. One
+# extra byte is read to prove EOF was reached.
+__bga_read_whole() {
+    local LC_ALL=C x=''
+    REPLY=''
+    [ -f "$1" ] || return 1
+    { IFS= read -r -t 1 -d '' -N 65536 REPLY; IFS= read -r -t 1 -N 1 x; } < "$1" 2>/dev/null
+    [ -z "$x" ] && [ "${#REPLY}" -lt 65536 ]
+}
+
+# The uncached check: list the repository's filter drivers and the settings
+# that make us fail closed, with git itself.
+__bga_git_trust_scan() {
+    local gd="$1" wt="$2" cfg names name rc
+    for cfg in "$gd/config" "$wt"; do
         [ -f "$cfg" ] || continue
         names="$(__bga_gitrun 1 config --file "$cfg" --no-includes --name-only \
                  --get-regexp '^(filter|include|includeif)\.|^extensions\.partialclone$|^remote\..*\.promisor$' 2>/dev/null)"
@@ -441,6 +879,7 @@ __bga_git_trust() {
             _bga_git_args+=(-c "filter.$name.clean=" -c "filter.$name.process=" -c "filter.$name.smudge=")
         done
     done
+    return 0
 }
 
 __bga_git_status_safe() {
@@ -449,23 +888,39 @@ __bga_git_status_safe() {
     __bga_git status --porcelain=v2 --branch --ignore-submodules=dirty 2>/dev/null
 }
 
+# Parse the head of `git status --porcelain=v2 --branch` into _bga_st_dirty,
+# _bga_st_ahead and _bga_st_behind. Branch headers come first, so the first
+# entry line already answers "dirty"; `head` bounds the output and stops git
+# early on large dirty trees. No process substitution (a syntax and runtime
+# error in posix mode before bash 5.1) and no here-string (a temp file
+# before bash 5.1).
+__bga_git_status_parse() {
+    local st line
+    _bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0
+    st="$(__bga_git_status_safe | head -n 8)"
+    while [ -n "$st" ]; do
+        line="${st%%$'\n'*}"
+        case "$st" in *$'\n'*) st="${st#*$'\n'}" ;; *) st='' ;; esac
+        case "$line" in
+            '# branch.ab '*)
+                _bga_st_ahead="${line#\# branch.ab +}"
+                _bga_st_behind="${_bga_st_ahead##*-}"
+                _bga_st_ahead="${_bga_st_ahead%% -*}" ;;
+            '#'*) ;;
+            ?*) _bga_st_dirty=1; break ;;
+        esac
+    done
+}
+
 # Full sync info: cheap + the expensive porcelain v2 status. Used when
 # BASHGITAWARE_ASYNC=0.
 __bga_git_info_full() {
     __bga_git_info_cheap
     [ "$_bga_in_git" = 1 ] || return
-
-    local line
-    while IFS= read -r line; do
-        case "$line" in
-            '# branch.ab '*)
-                _bga_git_ahead="${line#\# branch.ab +}"
-                _bga_git_behind="${_bga_git_ahead##*-}"
-                _bga_git_ahead="${_bga_git_ahead%% -*}" ;;
-            '#'*) ;;
-            ?*) _bga_git_dirty=1; break ;;
-        esac
-    done < <(__bga_git_status_safe)
+    __bga_git_status_parse
+    _bga_git_dirty="$_bga_st_dirty"
+    _bga_git_ahead="$_bga_st_ahead"
+    _bga_git_behind="$_bga_st_behind"
 }
 
 # Expensive: compute dirty / ahead / behind and emit them as "key=value" lines
@@ -473,24 +928,16 @@ __bga_git_info_full() {
 # touches caller state directly.
 __bga_git_info_expensive_compute() {
     local _bga_status_limit=10
-    local dirty=0 ahead=0 behind=0 line
-    while IFS= read -r line; do
-        case "$line" in
-            '# branch.ab '*)
-                ahead="${line#\# branch.ab +}"
-                behind="${ahead##*-}"
-                ahead="${ahead%% -*}" ;;
-            '#'*) ;;
-            ?*) dirty=1; break ;;
-        esac
-    done < <(__bga_git_status_safe)
+    __bga_git_status_parse
     printf '_bga_async_dirty=%d\n_bga_async_ahead=%d\n_bga_async_behind=%d\n' \
-        "$dirty" "$ahead" "$behind"
+        "$_bga_st_dirty" "$_bga_st_ahead" "$_bga_st_behind"
 }
 
 # Entry point used by the renderer. Picks the sync or async path.
 __bga_git_info() {
-    if [ "${BASHGITAWARE_ASYNC:-1}" = 0 ]; then
+    # Sync when async is off, or when it could not start (no safe state
+    # directory, non-interactive shell): otherwise "pending" never clears.
+    if [ "${BASHGITAWARE_ASYNC:-1}" = 0 ] || [ -z "${_bga_async_cache:-}" ]; then
         __bga_git_info_full
         _bga_async_pending=0
         return
@@ -507,6 +954,7 @@ __bga_git_info() {
 # ---------------------------------------------------------------------------
 # Path: repo-name + path-within-repo when inside a repo; ~-relative otherwise.
 # Trimmed to the last N components (the dropped prefix becomes an ellipsis).
+# Sets REPLY (no subshell).
 # ---------------------------------------------------------------------------
 __bga_path() {
     local max="${BASHGITAWARE_PATH_MAXDEPTH:-3}"; case "$max" in '' | *[!0-9]*) max=3 ;; esac
@@ -521,29 +969,44 @@ __bga_path() {
         lead=""                                          # absolute path with no useful "lead"
         rest="${PWD#/}"
     fi
-    [ -z "$rest" ] && { printf '%s' "${lead:-/}"; return; }
+    [ -z "$rest" ] && { REPLY="${lead:-/}"; return; }
 
-    local IFS=/ ; local -a p; read -ra p <<< "$rest"; local n=${#p[@]}
-    if [ "$max" -ne 0 ] && [ "$n" -gt "$max" ]; then
-        local out="" i
-        for (( i = n - max ; i < n ; i++ )); do out="$out/${p[i]}"; done
-        if [ -n "$lead" ]; then printf '%s/%s%s' "$lead" "$_g_ell" "$out"
-        else printf '%s%s' "$_g_ell" "$out"; fi
-        return
+    # Keep the last $max components, cutting from the right with parameter
+    # expansion (no here-string: it writes a temp file before bash 5.1).
+    if [ "$max" -ne 0 ]; then
+        local out="" r="$rest" i=0
+        while [ "$i" -lt "$max" ] && [ -n "$r" ]; do
+            out="/${r##*/}$out"
+            case "$r" in */*) r="${r%/*}" ;; *) r='' ;; esac
+            i=$(( i + 1 ))
+        done
+        if [ -n "$r" ]; then
+            if [ -n "$lead" ]; then REPLY="$lead/$_g_ell$out"
+            else REPLY="$_g_ell$out"; fi
+            return
+        fi
     fi
-    if [ -n "$lead" ]; then printf '%s/%s' "$lead" "$rest"; else printf '/%s' "$rest"; fi
+    if [ -n "$lead" ]; then REPLY="$lead/$rest"; else REPLY="/$rest"; fi
 }
 
 # ---------------------------------------------------------------------------
 # Runtime / version modules -- shown only when the directory (or env) calls for it.
 # Result is cached per (PWD, virtualenv, conda env) so the version commands run
-# once when you cd into a project, not on every prompt.
+# once when you cd into a project, not on every prompt. Sets _bga_rt_str (the
+# PS1 text for the classic layout) and _bga_rt_items (raw labels, one per
+# runtime, for the Lean right block). It prints nothing: calling it in $(...)
+# would lose the cache, which lives in these globals.
 # ---------------------------------------------------------------------------
+# Reset together: a re-source (bga reload) must not keep a key whose items
+# were just cleared, or the cache would "hit" with no runtimes.
+_bga_rt_items=() _bga_rt_key='' _bga_rt_str=''
 __bga_runtime() {
-    [ "${BASHGITAWARE_RUNTIME:-1}" = 0 ] && return
-    local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}"
-    if [ "$key" = "${_bga_rt_key:-}" ]; then printf '%s' "${_bga_rt_str:-}"; return; fi
-    _bga_rt_key="$key"; _bga_rt_str=""
+    if [ "${BASHGITAWARE_RUNTIME:-1}" = 0 ]; then _bga_rt_str=''; _bga_rt_items=(); return; fi
+    # promptvars is part of the key: the cached string is escaped for it.
+    local pv=0; shopt -q promptvars && pv=1
+    local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}|$pv"
+    [ "$key" = "${_bga_rt_key:-}" ] && return
+    _bga_rt_key="$key"; _bga_rt_str=""; _bga_rt_items=()
     local out="" v f s REPLY
 
     # --- Python: an active virtualenv / conda env, or a Python project marker ---
@@ -568,6 +1031,7 @@ __bga_runtime() {
             v="${v#Python }"; v="${v%% *}"
         fi
         s="python"; [ -n "$v" ] && s="python $v"; [ -n "$pyenv" ] && s="$s ($pyenv)"
+        _bga_rt_items+=("py|$s")
         __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_py}${REPLY}${_R}"
     fi
 
@@ -579,6 +1043,7 @@ __bga_runtime() {
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"
+        _bga_rt_items+=("node|$s")
         __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_node}${REPLY}${_R}"
     fi
 
@@ -586,6 +1051,7 @@ __bga_runtime() {
     if [ -e "$PWD/Cargo.toml" ]; then
         v=""; command -v rustc >/dev/null 2>&1 && { v="$(rustc --version 2>/dev/null)"; v="${v#rustc }"; v="${v%% *}"; }
         s="rust"; [ -n "$v" ] && s="rust $v"
+        _bga_rt_items+=("rust|$s")
         __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_rust}${REPLY}${_R}"
     fi
 
@@ -593,11 +1059,11 @@ __bga_runtime() {
     if [ -e "$PWD/go.mod" ]; then
         v=""; command -v go >/dev/null 2>&1 && { v="$(go env GOVERSION 2>/dev/null)"; v="${v#go}"; }
         s="go"; [ -n "$v" ] && s="go $v"
+        _bga_rt_items+=("go|$s")
         __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_go}${REPLY}${_R}"
     fi
 
     _bga_rt_str="$out"
-    printf '%s' "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -605,6 +1071,9 @@ __bga_runtime() {
 # ---------------------------------------------------------------------------
 __bga_prompt() {
     local exit_code=$?
+    # __bga_pre (first in PROMPT_COMMAND) saved the status before other hooks
+    # could change it.
+    if [ -n "${_bga_exit:-}" ]; then exit_code="$_bga_exit"; _bga_exit=''; fi
 
     # OSC 133;D + OSC 7: must be emitted before PS1 is assembled, so the
     # terminal sees the just-finished command's exit and the new cwd before
@@ -626,22 +1095,27 @@ __bga_prompt() {
 
     __bga_git_info
 
+    if [ "${_bga_plain:-0}" = 1 ]; then
+        __bga_prompt_plain "$exit_code"
+        _bga_timer_start='' _bga_in_pc=''
+        return
+    fi
+
+    if [ "${BASHGITAWARE_STYLE:-lean}" != classic ]; then
+        __bga_lean_result "$exit_code"
+        __bga_prompt_lean "$exit_code"
+        _bga_timer_start='' _bga_in_pc=''
+        return
+    fi
+
     local ps1="" nl=0   # nl: number of "\n" line breaks added (transient)
 
     # OSC 133;A: prompt begin (wrapped in \[ \] for readline width arithmetic).
-    ps1+="$(__bga_osc_ps1 '133;A')"
+    __bga_osc_ps1 '133;A'; ps1+="$REPLY"
 
     # Optional OSC window title.
-    if [ "$_bga_title" = 1 ]; then
-        # Not \w: bash 4.4-5.1 pass control characters in it through, so a
-        # directory name could end the title early and inject other OSC
-        # sequences (e.g. a clipboard write). Use the escaped path instead.
-        local REPLY t_path="$PWD" t_chroot=''
-        case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
-        [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
-        __bga_ps1_lit "$t_path"
-        ps1+="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
-    fi
+    local REPLY
+    __bga_title_ps1; ps1+="$REPLY"
 
     # --- Line 1: context ----------------------------------------------------
     # Untrusted text (paths, git refs, commit subjects, ...) is embedded only
@@ -660,7 +1134,7 @@ __bga_prompt() {
     fi
 
     # Path (repo-relative when inside a repo).
-    local pwd_str; pwd_str="$(__bga_path)"
+    local pwd_str; __bga_path; pwd_str="$REPLY"
     __bga_ps1_lit "$pwd_str"; ps1+="${_c_path}${REPLY}${_R}"
 
     # Git: " on [glyph]branch[@hash][ STATE][ ^ahead][ vbehind][ dirty][ stashN]"
@@ -684,7 +1158,7 @@ __bga_prompt() {
     fi
 
     # Runtime / version module(s), only when the directory calls for it.
-    local rt; rt="$(__bga_runtime)"
+    __bga_runtime; local rt="$_bga_rt_str"
     [ -n "$rt" ] && ps1+="$rt"
 
     # Command duration (if slow), then exit code (on failure only).
@@ -713,7 +1187,7 @@ __bga_prompt() {
 
     # OSC 133;B: prompt end / "user types here". Goes after the prompt symbol
     # so the terminal-marked cursor position matches where readline puts it.
-    ps1+="$(__bga_osc_ps1 '133;B')"
+    __bga_osc_ps1 '133;B'; ps1+="$REPLY"
 
     PS1="$ps1"
 
@@ -728,7 +1202,190 @@ __bga_prompt() {
         _bga_transient_active=1
     fi
 
-    _bga_timer_start=''      # reset for the next command (must be the last thing here)
+    _bga_timer_start='' _bga_in_pc=''      # reset for the next command (must be the last thing here)
+}
+
+# Plain mode (lib/10-detect.bash): "<path> (<branch>[ *])[ [exit N]] $ ".
+# No colors, no escape sequences, one line; untrusted text still escaped.
+__bga_prompt_plain() {
+    local exit_code="$1" ps1="" REPLY
+    __bga_path; __bga_ps1_lit "$REPLY"; ps1="$REPLY"
+    if [ "$_bga_in_git" = 1 ]; then
+        __bga_ps1_lit "$_bga_git_branch"; ps1+=" ($REPLY"
+        [ "$_bga_git_dirty" = 1 ] && ps1+=" *"
+        ps1+=")"
+    fi
+    [ "$exit_code" -ne 0 ] && ps1+=" [exit $exit_code]"
+    if [ "$_bga_root" = 1 ]; then ps1+=" # "; else ps1+=" \$ "; fi
+    PS1="$ps1"
+    _bga_transient_active=0
+}
+
+# Window title (OSC 0) as PS1 text in REPLY; empty when the terminal has none.
+# Not \w: bash 4.4-5.1 pass control characters in it through, so a directory
+# name could end the title early and inject other OSC sequences (e.g. a
+# clipboard write). The escaped path is used instead.
+__bga_title_ps1() {
+    REPLY=''
+    [ "$_bga_title" = 1 ] || return 0
+    local t_path="$PWD" t_chroot=''
+    case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
+    [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
+    __bga_ps1_lit "$t_path"
+    REPLY="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
+}
+
+# ---------------------------------------------------------------------------
+# Lean layout: the default style (ADR-0007). BASHGITAWARE_STYLE=classic keeps
+# the v2 three-line stack (lib/60-render.bash).
+#
+#   ❯ make test                     <- ledger line (transient, lib/80)
+#   ...output...
+#     ✘1 · 3s                       <- result line: failed or slow commands
+#   ~/src/repo  main ● ↑1                         python 3.12 · 14:02
+#   ❯ _
+#
+# Untrusted text is escaped once, by __bga_ps1_lit, where each piece is
+# added; widths are measured on the raw text with __bga_width. The right
+# block is drawn inside \[ \] with save-cursor / column / restore-cursor, so
+# readline counts it as zero width and a width error only misplaces it.
+# ---------------------------------------------------------------------------
+
+# Result line for the command that just finished: only when one ran (the
+# DEBUG trap set the timer; an empty Enter does not) and it failed or reached
+# the duration threshold. Printed directly, so it uses raw color tokens.
+__bga_lean_result() {
+    local code="$1" out='' sep=' · '
+    [ -n "${_bga_timer_start:-}" ] || return 0
+    [ "$_bga_glyphs" = ascii ] && sep=' | '
+    if [ "$code" -ne 0 ]; then
+        if [ "$_bga_glyphs" = ascii ]; then out="${_cr_err}exit ${code}${_Rr}"
+        else out="${_cr_err}✘${code}${_Rr}"; fi
+    fi
+    if [ -n "${_bga_last_duration:-}" ]; then
+        [ -n "$out" ] && out+="${_cr_dim}${sep}${_Rr}"
+        out+="${_cr_timer}${_bga_last_duration}${_Rr}"
+    fi
+    [ -n "$out" ] && printf '  %s\n' "$out"
+    return 0
+}
+
+# Append untrusted text $2 in token $1 to the left side: PS1 text in
+# _bga_l, raw text in _bga_lr (for the width).
+__bga_lean_add() {
+    local tok="_c_$1" REPLY
+    __bga_ps1_lit "$2"
+    _bga_l+="${!tok}${REPLY}${_R}"
+    # Measure what is displayed: control characters show as '?'.
+    __bga_term_safe "$2"
+    _bga_lr+="$REPLY"
+}
+
+# Build the left side for path $1 into _bga_l / _bga_lr.
+__bga_lean_left() {
+    _bga_l='' _bga_lr=''
+    [ -n "${debian_chroot:-}" ] && __bga_lean_add tag "(${debian_chroot}) "
+    [ "$_bga_container" = 1 ]   && __bga_lean_add tag '[container] '
+    local show_host="${BASHGITAWARE_SHOW_HOST:-auto}"
+    if [ "$show_host" = always ] || { [ "$show_host" != never ] && { [ "$_bga_ssh" = 1 ] || [ "$_bga_root" = 1 ]; }; }; then
+        __bga_lean_add user "${USER:-}"; __bga_lean_add dim '@'
+        if [ "$_bga_ssh" = 1 ]; then __bga_lean_add host_ssh "${HOSTNAME%%.*} "
+        else __bga_lean_add host "${HOSTNAME%%.*} "; fi
+    fi
+    __bga_lean_add path "$1"
+    if [ "$_bga_in_git" = 1 ]; then
+        # Powerline variant (S2): with Nerd Font glyphs, a thin separator
+        # (U+E0B1) between path and git; plain spacing otherwise.
+        if [ "$_bga_glyphs" = nerd ] && [ "${BASHGITAWARE_POWERLINE:-1}" != 0 ]; then
+            __bga_lean_add dim $' \ue0b1 '
+        else
+            __bga_lean_add dim '  '
+        fi
+        __bga_lean_add branch "${_g_branch}${_bga_git_branch}"
+        [ -n "$_bga_git_state" ]                 && __bga_lean_add state " $_bga_git_state"
+        [ "$_bga_git_dirty" = 1 ]                && __bga_lean_add dirty " $_g_dirty"
+        [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null && __bga_lean_add ahead " ${_g_ahead}${_bga_git_ahead}"
+        [ "$_bga_git_behind" -gt 0 ] 2>/dev/null && __bga_lean_add behind " ${_g_behind}${_bga_git_behind}"
+        [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null && __bga_lean_add stash " ${_g_stash}${_bga_git_stash}"
+        [ "${_bga_async_pending:-0}" = 1 ]       && __bga_lean_add dim " $_g_ell"
+    fi
+    return 0
+}
+
+__bga_prompt_lean() {
+    local exit_code="$1" REPLY cols="${COLUMNS:-80}" ps1='' path
+    case "$cols" in '' | *[!0-9]*) cols=80 ;; esac
+    local sep=' · '
+    [ "$_bga_glyphs" = ascii ] && sep=' | '
+    [ "$_bga_glyphs" = nerd ] && [ "${BASHGITAWARE_POWERLINE:-1}" != 0 ] && sep=$' \ue0b3 '
+
+    __bga_osc_ps1 '133;A'; ps1+="$REPLY"
+    __bga_title_ps1; ps1+="$REPLY"
+
+    # --- Left: tags, user@host, path, git -------------------------------------
+    __bga_path; path="$REPLY"
+    __bga_lean_left "$path"
+    __bga_width "$_bga_lr"; local wl="$REPLY"
+    # Too wide even without the right block: keep only the last component.
+    if [ "$wl" -ge "$cols" ] && [ "$path" != "${path##*/}" ]; then
+        __bga_lean_left "${path##*/}"
+        __bga_width "$_bga_lr"; wl="$REPLY"
+    fi
+    ps1+="$_bga_l"
+
+    # --- Right: runtimes, optional clock ---------------------------------------
+    local -a rt=() rw=()
+    local item tok label rtok
+    __bga_runtime
+    for item in "${_bga_rt_items[@]}"; do
+        tok="${item%%|*}" label="${item#*|}"
+        rtok="_cr_$tok"; __bga_ps1_lit "$label"
+        rt+=("${!rtok}${REPLY}${_Rr}")
+        __bga_term_safe "$label"; __bga_width "$REPLY"; rw+=("$REPLY")
+    done
+    if [ "${BASHGITAWARE_CLOCK:-0}" = 1 ]; then
+        printf -v label '%(%H:%M)T' -1
+        rt+=("${_cr_dim}${label}${_Rr}"); rw+=("${#label}")
+    fi
+    # Drop from the end (clock first, then the last runtimes) until it fits.
+    local n="${#rt[@]}" wr i sepw="${#sep}"
+    while [ "$n" -gt 0 ]; do
+        wr=0; for (( i = 0; i < n; i++ )); do wr=$(( wr + rw[i] )); done
+        wr=$(( wr + (n - 1) * sepw ))
+        [ $(( wl + wr + 2 )) -le "$cols" ] && break
+        n=$(( n - 1 ))
+    done
+    if [ "$n" -gt 0 ]; then
+        local right=''
+        for (( i = 0; i < n; i++ )); do
+            [ "$i" -gt 0 ] && right+="${_cr_dim}${sep}${_Rr}"
+            right+="${rt[i]}"
+        done
+        ps1+="\\[\\e7\\e[$(( cols - wr + 1 ))G${right}\\e8\\]"
+    fi
+
+    # --- Optional commit subject, then the symbol line --------------------------
+    # Line 1 can still wrap (one very long path component): count its rows
+    # so the transient collapse clears all of them.
+    local lines=$(( (wl > 0 ? (wl - 1) / cols : 0) + 2 ))
+    if [ "${BASHGITAWARE_COMMIT_LINE:-0}" = 1 ] && [ "$_bga_in_git" = 1 ] && [ -n "$_bga_git_msg" ]; then
+        local msg="$_bga_git_msg" w=$(( cols - 3 ))
+        [ "$w" -lt 12 ] && w=12
+        if [ "${#msg}" -gt "$w" ]; then msg="${msg:0:$(( w - ${#_g_ell} ))}${_g_ell}"; fi
+        __bga_ps1_lit "$msg"
+        ps1+="\\n${_c_commit}${_g_commit:+$_g_commit }${REPLY}${_R}"
+        lines=$(( lines + 1 ))
+    fi
+    if [ "$exit_code" -eq 0 ]; then ps1+="\\n${_c_ok}${_g_sym}${_R} "
+    else                            ps1+="\\n${_c_sym_err}${_g_sym}${_R} "; fi
+    __bga_osc_ps1 '133;B'; ps1+="$REPLY"
+    PS1="$ps1"
+
+    if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ]; then
+        _bga_transient_lines="$lines"
+        _bga_transient_exit="$exit_code"
+        _bga_transient_active=1
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -752,11 +1409,13 @@ __bga_prompt() {
 # See docs/adr/ADR-0003-osc-133-and-osc-7-terminal-integration.md.
 # ---------------------------------------------------------------------------
 
-# Emit a PS1-safe (escape-wrapped) OSC sequence on stdout. Used by __bga_prompt
+# Build a PS1-safe (escape-wrapped) OSC sequence in REPLY. Used by __bga_prompt
 # to embed in the PS1 string for 133;A and 133;B.
+# Sets REPLY (no subshell: this runs twice per prompt).
 __bga_osc_ps1() {
-    [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return
-    printf '\\[\e]%s\a\\]' "$1"
+    REPLY=''
+    [ "${BASHGITAWARE_OSC:-1}" = 0 ] && return 0
+    printf -v REPLY '\\[\e]%s\a\\]' "$1"
 }
 
 # Called from __bga_prompt at the start of each cycle: emit 133;D;<exit> (the
@@ -773,8 +1432,13 @@ __bga_osc_prompt_cycle_start() {
 # at the right moment (after Enter, before execution). PS0 is expanded like
 # PS1 but no \[ \] wrappers are needed (the line has been submitted; readline
 # is no longer counting columns).
+# The user's own PS0, if any, is kept after the mark; re-sourcing does not
+# add the mark twice.
 if [ "${BASHGITAWARE_OSC:-1}" != 0 ]; then
-    PS0=$'\e]133;C\a'
+    case "${PS0:-}" in
+        *$'\e]133;C\a'*) ;;
+        *) PS0=$'\e]133;C\a'"${PS0:-}" ;;
+    esac
 fi
 
 # ---------------------------------------------------------------------------
@@ -791,8 +1455,8 @@ fi
 # accept-line then echoes \n and the command runs as usual; the modern terminal
 # (via OSC 133;C from PS0) still gets the command-start mark in the right place.
 #
-# The reprinted form includes READLINE_LINE so scrollback stays useful: each
-# collapsed prompt is "❯ <command>", not just "❯" -- matches Powerlevel10k.
+# The collapsed form keeps the typed command ("❯ <command>"), drawn by
+# readline itself after PS1 is swapped, so scrollback stays useful.
 # (This refines ADR-0004 step 2: the original 'minimal form ("❯ only")' was
 # directional; in practice the typed command must remain visible in scrollback.)
 #
@@ -823,28 +1487,17 @@ __bga_transient_collapse() {
     [ "${BASHGITAWARE_TRANSIENT:-1}" = 0 ] && return 0
     [ "${_bga_transient_active:-0}" = 1 ] || return 0
 
+    # Move to the first line of the prompt and clear to the end of the screen,
+    # then swap PS1 for the collapsed form. Readline redraws the prompt and
+    # the typed line itself when the bind -x function returns: printing the
+    # line here as well left it twice on screen (bash 4.4-5.3), and readline
+    # shows control characters in it safely as ^[.
     local up=$(( ${_bga_transient_lines:-1} - 1 ))
-    [ "$up" -lt 0 ] && up=0
-
-    local color reset
-    reset=$'\e[0m'
-    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then
-        color=$'\e[1;32m'
-    else
-        color=$'\e[1;31m'
-    fi
-
-    local sym="${_g_sym:-❯}" REPLY
-    # The typed line is echoed raw by printf: a pasted command can hide escape
-    # sequences that readline displays safely as ^[. Neutralize them (tabs
-    # become spaces first so ordinary commands look the same).
-    __bga_term_safe "${READLINE_LINE//$'\t'/ }"
-
-    if [ "$up" -gt 0 ]; then
-        printf '\r\e[%dA\e[J%s%s%s %s' "$up" "$color" "$sym" "$reset" "$REPLY"
-    else
-        printf '\r\e[J%s%s%s %s' "$color" "$sym" "$reset" "$REPLY"
-    fi
+    [ "$up" -gt 0 ] && printf '\e[%dA' "$up"
+    printf '\r\e[J'
+    if [ "${_bga_transient_exit:-0}" -eq 0 ]; then PS1="${_c_ok}${_g_sym:-❯}${_R} "
+    else PS1="${_c_sym_err}${_g_sym:-❯}${_R} "; fi
+    _bga_transient_active=0
 }
 
 # Install the Enter remap once at source time, only in interactive shells.
@@ -878,7 +1531,7 @@ fi
 #     Reads cache for the current (PWD, gitdir) key; if hit, populates the
 #     dirty/ahead/behind vars. If miss, dispatches a background job.
 #   - __bga_async_dispatch             (here)
-#     Cancels any in-flight previous job (SIGTERM + wait) and spawns a new
+#     Cancels any in-flight previous job (SIGTERM) and spawns a new
 #     subshell that computes expensive info and atomically writes it to the
 #     cache (via rename of a sibling tmpfile).
 #   - __bga_async_cleanup              (EXIT trap)
@@ -899,24 +1552,19 @@ _bga_async_pending=0
 __bga_async_init() {
     [ "${BASHGITAWARE_ASYNC:-1}" = 0 ] && return
     [[ $- == *i* ]] || return
-    # Private per-shell directory: a predictable name in a shared /tmp would
-    # let another local user plant a symlink that the cache write follows.
-    # XDG_RUNTIME_DIR is per-user (0700) when set; mktemp -d makes 0700 too.
-    local base="${XDG_RUNTIME_DIR:-}"
-    if [ -z "$base" ] || [ ! -d "$base" ] || [ ! -O "$base" ]; then base="${TMPDIR:-/tmp}"; fi
-    _bga_async_dir="$(mktemp -d "$base/bga.XXXXXXXX" 2>/dev/null)" || { _bga_async_dir=''; return; }
+    # Private per-shell directory (lib/16-state.bash): never a predictable
+    # name in a shared /tmp. No safe directory -> async stays off.
+    __bga_state_dir_init || return
+    _bga_async_dir="$_bga_state_dir"
     _bga_async_cache="$_bga_async_dir/cache"
-    trap '__bga_async_cleanup' EXIT
+    __bga_trap_add __bga_async_cleanup EXIT "$(trap -p EXIT)"
 }
 
 __bga_async_cleanup() {
     if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
         kill -TERM "$_bga_async_pid" 2>/dev/null
     fi
-    if [ -n "${_bga_async_dir:-}" ] && [ -d "$_bga_async_dir" ]; then
-        rm -f "$_bga_async_dir"/cache "$_bga_async_dir"/cache.tmp.* 2>/dev/null
-        rmdir "$_bga_async_dir" 2>/dev/null
-    fi
+    __bga_state_dir_cleanup
 }
 
 # Try the cache for the current (PWD, gitdir) key. Hit -> populate the
@@ -924,6 +1572,7 @@ __bga_async_cleanup() {
 # dispatch a job, _bga_async_pending=1.
 __bga_async_apply_or_dispatch() {
     local key="${PWD}|${_bga_git_dir}"
+    key="${key//$'\n'/?}"     # the cache is line-based: one line per key
     local cache_key='' dirty='' ahead='' behind=''
 
     if [ -n "$_bga_async_cache" ] && [ -e "$_bga_async_cache" ]; then
@@ -947,6 +1596,11 @@ __bga_async_apply_or_dispatch() {
             _bga_git_ahead="$ahead"
             _bga_git_behind="$behind"
             _bga_async_pending=0
+            # A command just ran (the timer is set): it may have changed the
+            # tree, so refresh in the background. The cached values stay on
+            # screen meanwhile; no pending marker. Without this the first
+            # result was kept for as long as the shell stayed here.
+            [ -n "${_bga_timer_start:-}" ] && __bga_async_dispatch "$key" "$_bga_git_top"
             return
         fi
     fi
@@ -965,7 +1619,6 @@ __bga_async_dispatch() {
     # Cancel a previous in-flight job, if any.
     if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
         kill -TERM "$_bga_async_pid" 2>/dev/null
-        wait "$_bga_async_pid" 2>/dev/null
     fi
     _bga_async_pid=''
 
@@ -976,7 +1629,9 @@ __bga_async_dispatch() {
         local expensive
         expensive="$(__bga_git_info_expensive_compute)"
         # Atomic write: write to a sibling tmpfile and rename into place.
-        local tmp="${cache}.tmp.$$"
+        # $BASHPID, not $$ ($$ is the parent shell in every job): a cancelled
+        # job still running must not share the new job's tmp file.
+        local tmp="${cache}.tmp.$BASHPID"
         {
             printf '_bga_async_key="%s"\n' "$key"
             printf '%s\n' "$expensive"
@@ -987,15 +1642,115 @@ __bga_async_dispatch() {
     # Detach from job control so "Done" messages do not leak into the terminal.
     disown "$_bga_async_pid" 2>/dev/null || true
 }
+# ---------------------------------------------------------------------------
+# Hooks. bash-gitaware shares the shell with the user's own hooks (history -a,
+# direnv, VTE, bash-preexec, ...), so it adds itself without replacing them:
+#   * PROMPT_COMMAND: our head first (saves the exit status and hands it on),
+#     the user's hooks next, __bga_prompt last (so it sees their effects and
+#     resets the timer after the DEBUG trap has fired for all of them);
+#   * DEBUG / EXIT traps: our command first, then the existing one;
+#   * with bash-preexec loaded, the timer goes into preexec_functions instead
+#     of the DEBUG trap, which bash-preexec owns;
+#   * PROMPT_COMMAND, PS0 and PS1 are unexported (ruling L-42): child shells
+#     do not have our functions.
+# Every step is idempotent, so sourcing the file twice changes nothing.
+#
+# Why the DEBUG trap is installed on the first prompt and not here: while a
+# file is being sourced (and inside any function) bash hides the user's DEBUG
+# trap, so `trap -p DEBUG` cannot see it. The head of PROMPT_COMMAND runs at
+# top level, where it is visible; ${_bga_dbg_done-...} makes that one-time
+# read cost a fork only on the first prompt.
+# ---------------------------------------------------------------------------
+
+# Add $1 in front of the trap for signal $2, keeping the old command. $3 is
+# the output of `trap -p <sig>`, read by the caller where the trap is visible.
+__bga_trap_add() {
+    local cmd="$1" sig="$2" raw="${3-}" prev=''
+    local -a t=()
+    # trap -p prints shell-quoted output (trap -- '<cmd>' SIG): safe to eval.
+    [ -n "$raw" ] && eval "t=( $raw )"
+    [ "${#t[@]}" -ge 3 ] && prev="${t[2]}"
+    [ "$prev" = - ] && prev=''        # posix mode prints "trap -- - SIG" for none
+    case "$prev" in "$cmd" | "$cmd; "*) return 0 ;; esac
+    # shellcheck disable=SC2064  # expand now: the trap holds both commands
+    trap "$cmd${prev:+; $prev}" "$sig"
+}
+
+# Second entry of PROMPT_COMMAND. $1 is `trap -p DEBUG` on the first prompt
+# only. Returns the saved exit status so the user's hooks still see it.
+__bga_pre() {
+    if [ -z "${_bga_dbg_done:-}" ]; then
+        _bga_dbg_done=1
+        if [[ "$(declare -p preexec_functions 2>/dev/null)" == "declare -a"* ]]; then
+            case " ${preexec_functions[*]} " in
+                *" __bga_timer_start "*) ;;
+                *) preexec_functions+=(__bga_timer_start) ;;
+            esac
+        else
+            __bga_trap_add __bga_timer_start DEBUG "${1-}"
+        fi
+    fi
+    return "${_bga_exit:-0}"
+}
+
+# The two entries that open PROMPT_COMMAND. The first must be a plain
+# assignment so it sees the command's status before anything else runs.
+# shellcheck disable=SC2016  # expanded when PROMPT_COMMAND runs, not here
+_bga_pc_save='_bga_exit=$? _bga_in_pc=1'
+# shellcheck disable=SC2016,SC2089  # shell code for PROMPT_COMMAND, not argv
+_bga_pc_pre='__bga_pre "${_bga_dbg_done-$(trap -p DEBUG)}"'
+
+# Strip our own entries and surrounding blank lines from a PROMPT_COMMAND
+# string. Entries are joined with newlines, not "; ": a user string that ends
+# in "# comment" or "&" would otherwise swallow or break __bga_prompt.
+__bga_pc_strip() {
+    local s="$1" nl=$'\n' ws=$' \t\n'
+    s="${s#"$_bga_pc_save$nl$_bga_pc_pre$nl"}"; s="${s%"$nl"__bga_prompt}"
+    [ "$s" = __bga_prompt ] && s=''
+    while :; do
+        case "$s" in
+            ["$ws"]*) s="${s#?}" ;;
+            *["$ws"]) s="${s%?}" ;;
+            *) break ;;
+        esac
+    done
+    REPLY="$s"
+}
+
+__bga_hooks_install() {
+    local REPLY
+    if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+        local -a keep=() ; local e
+        for e in "${PROMPT_COMMAND[@]}"; do
+            case "$e" in "$_bga_pc_save" | "$_bga_pc_pre" | __bga_prompt) ;; *) keep+=("$e") ;; esac
+        done
+        PROMPT_COMMAND=("$_bga_pc_save" "$_bga_pc_pre" "${keep[@]}" __bga_prompt)
+    else
+        __bga_pc_strip "${PROMPT_COMMAND:-}"
+        # shellcheck disable=SC2178  # string branch: PROMPT_COMMAND is not an array here
+        PROMPT_COMMAND="$_bga_pc_save"$'\n'"$_bga_pc_pre"$'\n'"${REPLY:+$REPLY$'\n'}__bga_prompt"
+    fi
+    # shellcheck disable=SC2090  # only the export flag changes
+    export -n PROMPT_COMMAND PS0 PS1 2>/dev/null
+}
 
 # ---------------------------------------------------------------------------
-# Command timer (via the DEBUG trap)
+# Command timer (DEBUG trap, or preexec_functions under bash-preexec)
 # ---------------------------------------------------------------------------
-_bga_timer_start=''
+_bga_timer_start="${_bga_timer_start:-}"
 _bga_last_duration=''
+_bga_exit=''
+_bga_in_pc=''
 
-__bga_timer_start() { _bga_timer_start="${_bga_timer_start:-$SECONDS}"; }
-trap '__bga_timer_start' DEBUG
+# Starts the timer for a command the user runs. The DEBUG trap also fires for
+# PROMPT_COMMAND entries (the first one sets _bga_in_pc, cleared at the end of
+# __bga_prompt) and for the transient bind -x function; those are not user
+# commands, and counting them made an empty Enter look like a command ran.
+__bga_timer_start() {
+    [ -n "${_bga_in_pc:-}" ] && return 0
+    case "$BASH_COMMAND" in '_bga_exit=$? '* | __bga_transient_collapse*) return 0 ;; esac
+    _bga_timer_start="${_bga_timer_start:-$SECONDS}"
+}
 
 # ---------------------------------------------------------------------------
 # Async (M5): initialise the cache path + install the cleanup EXIT trap.
@@ -1003,10 +1758,249 @@ trap '__bga_timer_start' DEBUG
 # ---------------------------------------------------------------------------
 __bga_async_init
 
+__bga_hooks_install
+
 # ---------------------------------------------------------------------------
-# Wire the prompt assembler
+# bga: the command-line tool (v3, ADR-0009).
+#
+# Defined as a shell function, so `bga reload` and `bga theme set` can apply
+# to the running shell; bin/bga runs the same code as a script (it sources
+# this file with _BGA_CLI=1). Subcommands:
+#
+#   bga help | version
+#   bga config path | list | get KEY | set KEY VALUE | unset KEY
+#   bga theme list | preview [NAME] | set NAME
+#   bga doctor
+#   bga reload                      (shell function only)
+#
+# Exit status: 0 ok, 1 a check or operation failed, 2 usage error.
 # ---------------------------------------------------------------------------
-PROMPT_COMMAND=__bga_prompt
+_bga_version='3.0.0'
+
+__bga_cli_err() { printf 'bga: %s\n' "$*" >&2; }
+
+__bga_cli_usage() {
+    cat <<'EOF_USAGE'
+usage: bga <command> [args]
+
+  config path                 print the config file path
+  config list                 print the settings in the config file
+  config get KEY              print one setting
+  config set KEY VALUE        validate and store a setting
+  config unset KEY            remove a setting
+  theme list                  list the themes
+  theme preview [NAME]        show a sample prompt in a theme
+  theme set NAME              store the theme in the config file
+  doctor                      check the environment, exit 1 on problems
+  reload                      re-source bash-gitaware (shell function only)
+  version                     print the version
+  help                        this text
+
+Settings take effect in new shells, or after `bga reload`.
+EOF_USAGE
+}
+
+bga() {
+    local cmd="${1:-help}"
+    [ "$#" -gt 0 ] && shift
+    case "$cmd" in
+        help | -h | --help) __bga_cli_usage ;;
+        version | --version) printf 'bash-gitaware %s\n' "$_bga_version" ;;
+        config)  __bga_cli_config "$@" ;;
+        theme)   __bga_cli_theme "$@" ;;
+        doctor)  __bga_cli_doctor "$@" ;;
+        reload)
+            if [ -n "${_BGA_CLI:-}" ]; then __bga_cli_err "reload only works in an interactive shell"; return 1; fi
+            # shellcheck disable=SC1090  # the file this function came from
+            source "$_bga_src"
+            ;;
+        *) __bga_cli_err "unknown command '$cmd'"; __bga_cli_usage >&2; return 2 ;;
+    esac
+}
+
+# --- config ------------------------------------------------------------------
+
+__bga_cli_cfg_path() {
+    REPLY="${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/bash-gitaware/config}"
+}
+
+__bga_cli_config() {
+    local sub="${1:-list}" f key line k
+    [ "$#" -gt 0 ] && shift
+    local REPLY; __bga_cli_cfg_path; f="$REPLY"
+    case "$sub" in
+        path) printf '%s\n' "$f" ;;
+        list)
+            [ -f "$f" ] || return 0
+            while IFS= read -r line || [ -n "$line" ]; do
+                line="${line%$'\r'}"
+                case "$line" in '' | [[:blank:]]*'#'* | '#'*) continue ;; *=*) ;; *) continue ;; esac
+                __bga_term_safe "$line"; printf '%s\n' "$REPLY"
+            done < "$f" ;;
+        get)
+            [ "$#" = 1 ] || { __bga_cli_err "usage: bga config get KEY"; return 2; }
+            __bga_cli_cfg_find "$f" "$1" || return 1
+            __bga_term_safe "$REPLY"; printf '%s\n' "$REPLY" ;;
+        set)
+            [ "$#" = 2 ] || { __bga_cli_err "usage: bga config set KEY VALUE"; return 2; }
+            key="${1,,}"
+            __bga_config_valid "$key" "$2"
+            case $? in
+                0) ;;
+                2) __bga_cli_err "unknown key '$key'"; return 2 ;;
+                *) __bga_cli_err "invalid value for '$key': $2"; return 2 ;;
+            esac
+            __bga_cli_cfg_write "$f" "$key" "$2" ;;
+        unset)
+            [ "$#" = 1 ] || { __bga_cli_err "usage: bga config unset KEY"; return 2; }
+            key="${1,,}"
+            __bga_cli_cfg_write "$f" "$key" ;;
+        *) __bga_cli_err "unknown config command '$sub'"; return 2 ;;
+    esac
+}
+
+# Value of KEY in file $1 into REPLY (last occurrence wins, like the loader).
+__bga_cli_cfg_find() {
+    local f="$1" want="${2,,}" line k v found=1
+    REPLY=''
+    [ -f "$f" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:blank:]]*}"}"
+        case "$line" in '' | '#'*) continue ;; *=*) ;; *) continue ;; esac
+        k="${line%%=*}"; k="${k%"${k##*[![:blank:]]}"}"
+        [ "${k,,}" = "$want" ] || continue
+        v="${line#*=}"; v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
+        case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
+        REPLY="$v" found=0
+    done < "$f"
+    return "$found"
+}
+
+# Rewrite file $1 with KEY $2 set to $3 (or removed when $3 is absent).
+# Comments, other keys and their order are kept. The write is atomic (temp
+# file in the same directory, then mv) and the file stays 0600. A symlinked
+# config is not replaced: the link would silently become a regular file.
+__bga_cli_cfg_write() {
+    local f="$1" key="$2" dir tmp line k done_=0 set_=0 out=''
+    [ "$#" = 3 ] && set_=1
+    if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
+    if [ -e "$f" ] && [ ! -f "$f" ]; then __bga_cli_err "$f is not a regular file"; return 1; fi
+    dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
+    ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
+    # Build the new content first, then write it with one printf whose
+    # status is checked: a full disk must not leave a truncated config.
+    if [ -f "$f" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            k="${line%$'\r'}"; k="${k#"${k%%[![:blank:]]*}"}"
+            case "$k" in
+                '#'* | '') out+="$line"$'\n'; continue ;;
+                *=*) k="${k%%=*}"; k="${k%"${k##*[![:blank:]]}"}" ;;
+                *) out+="$line"$'\n'; continue ;;
+            esac
+            if [ "${k,,}" = "$key" ]; then
+                if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
+                done_=1
+                continue
+            fi
+            out+="$line"$'\n'
+        done < "$f"
+    fi
+    if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
+    tmp="$(umask 077; mktemp "$dir/.config.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
+    if ! printf '%s' "$out" > "$tmp"; then rm -f "$tmp"; __bga_cli_err "write failed; $f unchanged"; return 1; fi
+    mv -f "$tmp" "$f" || { rm -f "$tmp"; __bga_cli_err "cannot replace $f"; return 1; }
+}
+
+# --- theme -------------------------------------------------------------------
+
+__bga_cli_theme() {
+    local sub="${1:-list}" v name
+    [ "$#" -gt 0 ] && shift
+    case "$sub" in
+        list)
+            for v in $(compgen -v _bga_theme_); do
+                [ "$v" = _bga_theme_tokens ] && continue
+                name="${v#_bga_theme_}"
+                if [ "$name" = "${BASHGITAWARE_THEME:-aware}" ]; then printf '%s (current)\n' "$name"
+                else printf '%s\n' "$name"; fi
+            done ;;
+        preview)
+            name="${1:-${BASHGITAWARE_THEME:-aware}}"
+            __bga_cli_theme_known "$name" || { __bga_cli_err "unknown theme '$name'"; return 2; }
+            __bga_cli_theme_preview "$name" ;;
+        set)
+            [ "$#" = 1 ] || { __bga_cli_err "usage: bga theme set NAME"; return 2; }
+            __bga_cli_theme_known "$1" || { __bga_cli_err "unknown theme '$1'"; return 2; }
+            __bga_cli_config set theme "$1" || return 1
+            printf 'theme set to %s; open a new shell or run: bga reload\n' "$1" ;;
+        *) __bga_cli_err "unknown theme command '$sub'"; return 2 ;;
+    esac
+}
+
+__bga_cli_theme_known() {
+    case "$1" in '' | *[!a-z0-9_]* | tokens) return 1 ;; esac
+    local v="_bga_theme_$1"
+    [ -n "${!v+set}" ]
+}
+
+# A sample Lean prompt in theme $1, printed with raw tokens. The current
+# shell's colors are restored afterwards.
+__bga_cli_theme_preview() {
+    local cur="${BASHGITAWARE_THEME:-aware}" sep=' · ' l1 l2 l3
+    __bga_theme_apply "$1"
+    l1="${_cr_path}~/src/project${_Rr}  ${_cr_branch}main${_Rr} ${_cr_dirty}●${_Rr} ${_cr_ahead}↑1${_Rr}"
+    l1+="        ${_cr_py}python 3.12${_Rr}${_cr_dim}${sep}14:02${_Rr}"
+    l2="${_cr_ok}❯${_Rr} make test"
+    l3="  ${_cr_err}✘1${_Rr}${_cr_dim}${sep}${_Rr}${_cr_timer}3s${_Rr}"
+    printf '\n%s\n%s\n%s\n%s\n\n' "$l1" "$l2" "$l3" "${_cr_sym_err}❯${_Rr}"
+    __bga_theme_apply "$cur"
+}
+
+# --- doctor ------------------------------------------------------------------
+
+__bga_cli_doctor() {
+    local bad=0 v REPLY f
+    __bga_doc() { printf '  %-4s %-14s %s\n' "$1" "$2" "$3"; }
+    printf 'bash-gitaware %s\n' "$_bga_version"
+    if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" = 4 ] && [ "${BASH_VERSINFO[1]}" -ge 4 ]; }; then
+        __bga_doc ok bash "$BASH_VERSION"
+    else
+        __bga_doc FAIL bash "$BASH_VERSION (4.4 or newer required)"; bad=1
+    fi
+    if command -v git >/dev/null 2>&1; then
+        v="$(git --version 2>/dev/null)"; v="${v#git version }"
+        local maj="${v%%.*}" rest="${v#*.}"; local min="${rest%%.*}"
+        case "$maj$min" in *[!0-9]*) maj=0 min=0 ;; esac
+        if [ "$maj" -gt 2 ] || { [ "$maj" = 2 ] && [ "$min" -ge 11 ]; }; then __bga_doc ok git "$v"
+        else __bga_doc FAIL git "$v (2.11 or newer required)"; bad=1; fi
+    else
+        __bga_doc FAIL git "not found"; bad=1
+    fi
+    __bga_doc info locale "${LC_ALL:-${LC_CTYPE:-${LANG:-unset}}} (utf8=$_bga_utf8)"
+    __bga_doc info glyphs "$_bga_glyphs"
+    __bga_doc info colors "depth=$_bga_depth TERM=${TERM:-unset}${COLORTERM:+ COLORTERM=$COLORTERM}"
+    __bga_doc info style "${BASHGITAWARE_STYLE:-lean}, theme ${BASHGITAWARE_THEME:-aware}"
+    if [ "${_bga_plain:-0}" = 1 ]; then __bga_doc info mode "plain (dumb terminal, no tty, CI or agent detected)"
+    else __bga_doc info mode "full"; fi
+    if [ -n "${_bga_tmo:-}" ]; then __bga_doc ok timeouts "$_bga_tmo"
+    else __bga_doc ok timeouts "watchdog (no timeout(1))"; fi
+    if [ -n "${_bga_state_dir:-}" ]; then __bga_doc ok state "$_bga_state_dir"
+    else __bga_doc info state "none (async off or non-interactive)"; fi
+    __bga_cli_cfg_path; f="$REPLY"
+    if [ -e "$f" ]; then
+        local msgs; msgs="$( { BASHGITAWARE_CONFIG="$f" __bga_config_load; } 2>&1 >/dev/null )"
+        if [ -z "$msgs" ]; then __bga_doc ok config "$f"
+        else __bga_doc FAIL config "$f"; printf '%s\n' "$msgs" | sed 's/^/         /'; bad=1; fi
+    else
+        __bga_doc info config "$f (not present, defaults in use)"
+    fi
+    return "$bad"
+}
+
+# bin/bga (_BGA_CLI=1) stops here: shell defaults, aliases and completion are
+# for interactive shells only.
+if [ -n "${_BGA_CLI:-}" ]; then return 0; fi
 
 # ---------------------------------------------------------------------------
 # History

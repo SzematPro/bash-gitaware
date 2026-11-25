@@ -22,7 +22,7 @@
 #     Reads cache for the current (PWD, gitdir) key; if hit, populates the
 #     dirty/ahead/behind vars. If miss, dispatches a background job.
 #   - __bga_async_dispatch             (here)
-#     Cancels any in-flight previous job (SIGTERM + wait) and spawns a new
+#     Cancels any in-flight previous job (SIGTERM) and spawns a new
 #     subshell that computes expensive info and atomically writes it to the
 #     cache (via rename of a sibling tmpfile).
 #   - __bga_async_cleanup              (EXIT trap)
@@ -43,24 +43,19 @@ _bga_async_pending=0
 __bga_async_init() {
     [ "${BASHGITAWARE_ASYNC:-1}" = 0 ] && return
     [[ $- == *i* ]] || return
-    # Private per-shell directory: a predictable name in a shared /tmp would
-    # let another local user plant a symlink that the cache write follows.
-    # XDG_RUNTIME_DIR is per-user (0700) when set; mktemp -d makes 0700 too.
-    local base="${XDG_RUNTIME_DIR:-}"
-    if [ -z "$base" ] || [ ! -d "$base" ] || [ ! -O "$base" ]; then base="${TMPDIR:-/tmp}"; fi
-    _bga_async_dir="$(mktemp -d "$base/bga.XXXXXXXX" 2>/dev/null)" || { _bga_async_dir=''; return; }
+    # Private per-shell directory (lib/16-state.bash): never a predictable
+    # name in a shared /tmp. No safe directory -> async stays off.
+    __bga_state_dir_init || return
+    _bga_async_dir="$_bga_state_dir"
     _bga_async_cache="$_bga_async_dir/cache"
-    trap '__bga_async_cleanup' EXIT
+    __bga_trap_add __bga_async_cleanup EXIT "$(trap -p EXIT)"
 }
 
 __bga_async_cleanup() {
     if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
         kill -TERM "$_bga_async_pid" 2>/dev/null
     fi
-    if [ -n "${_bga_async_dir:-}" ] && [ -d "$_bga_async_dir" ]; then
-        rm -f "$_bga_async_dir"/cache "$_bga_async_dir"/cache.tmp.* 2>/dev/null
-        rmdir "$_bga_async_dir" 2>/dev/null
-    fi
+    __bga_state_dir_cleanup
 }
 
 # Try the cache for the current (PWD, gitdir) key. Hit -> populate the
@@ -68,6 +63,7 @@ __bga_async_cleanup() {
 # dispatch a job, _bga_async_pending=1.
 __bga_async_apply_or_dispatch() {
     local key="${PWD}|${_bga_git_dir}"
+    key="${key//$'\n'/?}"     # the cache is line-based: one line per key
     local cache_key='' dirty='' ahead='' behind=''
 
     if [ -n "$_bga_async_cache" ] && [ -e "$_bga_async_cache" ]; then
@@ -91,6 +87,11 @@ __bga_async_apply_or_dispatch() {
             _bga_git_ahead="$ahead"
             _bga_git_behind="$behind"
             _bga_async_pending=0
+            # A command just ran (the timer is set): it may have changed the
+            # tree, so refresh in the background. The cached values stay on
+            # screen meanwhile; no pending marker. Without this the first
+            # result was kept for as long as the shell stayed here.
+            [ -n "${_bga_timer_start:-}" ] && __bga_async_dispatch "$key" "$_bga_git_top"
             return
         fi
     fi
@@ -109,7 +110,6 @@ __bga_async_dispatch() {
     # Cancel a previous in-flight job, if any.
     if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
         kill -TERM "$_bga_async_pid" 2>/dev/null
-        wait "$_bga_async_pid" 2>/dev/null
     fi
     _bga_async_pid=''
 
@@ -120,7 +120,9 @@ __bga_async_dispatch() {
         local expensive
         expensive="$(__bga_git_info_expensive_compute)"
         # Atomic write: write to a sibling tmpfile and rename into place.
-        local tmp="${cache}.tmp.$$"
+        # $BASHPID, not $$ ($$ is the parent shell in every job): a cancelled
+        # job still running must not share the new job's tmp file.
+        local tmp="${cache}.tmp.$BASHPID"
         {
             printf '_bga_async_key="%s"\n' "$key"
             printf '%s\n' "$expensive"

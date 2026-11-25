@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# bga -- bash-gitaware command-line tool, usable without an interactive shell.
+# The same commands exist as a shell function in interactive shells; see
+# `bga help` and docs/adr/ADR-0009-v3-cli-surface.md.
+set -u
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+_BGA_CLI=1
+# shellcheck disable=SC1091  # the built file next to bin/
+source "$root/new.bashrc"
+bga "$@"

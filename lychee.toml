@@ -1,0 +1,5 @@
+# lychee v0.24.2 (lychee-action v2.9.0). Fragment checks must be "anchor-only";
+# lychee 0.24.2 rejects `include_fragments = true`.
+include_fragments = "anchor-only"
+exclude_path = ["graphify-out"]
+max_retries = 2

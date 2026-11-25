@@ -133,3 +133,37 @@ scenario_gitconfig_hooks_and_partial_clone() {
     if [ -e "$d/PWNED" ]; then fail "odd commondir: filter ran"; else ok "odd commondir: fails closed"; fi
     rm -rf "$d"
 }
+
+scenario_gitconfig_linked_worktree() {
+    section "hostile .git/config: the common config of a linked worktree is checked"
+    local d; d="$(_gc_repo)"
+    git -C "$d" worktree add -q "$d.wt" -b wt >/dev/null 2>&1
+    git -C "$d" config filter.x.clean "touch '$d/PWNED'; cat"
+    touch -t 200101010000 "$d.wt/f.txt"
+    bga_render "$d.wt" >/dev/null
+    if [ -e "$d/PWNED" ]; then fail "worktree: common-config filter ran"; else ok "worktree: common-config filter not run"; fi
+    local out; out="$(bga_render "$d.wt")"
+    assert_contains "$out" "wt" "worktree: branch shown"
+    rm -rf "$d" "$d.wt"
+}
+
+scenario_gitconfig_long_commondir() {
+    section "hostile .git/config: a long commondir cannot point the check elsewhere"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-gc-XXXXXX")"
+    # decoy: a directory whose path is exactly 256 bytes, with a benign config.
+    local n=$(( 256 - ${#base} - 1 )) pad=''
+    while [ "${#pad}" -lt "$n" ]; do pad+=a; done
+    local decoy="$base/$pad" real="$base/$pad/c"
+    mkdir -p "$decoy"; printf '[core]\n\tbare = false\n' > "$decoy/config"
+    git init -q -b main --separate-git-dir "$real" "$base/main"
+    printf 'data\n' > "$base/main/f.txt"; printf '* filter=x\n' > "$base/main/.gitattributes"
+    git -C "$base/main" add -A
+    git -C "$base/main" -c user.name=t -c user.email=t@t commit -qm init
+    git -C "$base/main" worktree add -q "$base/wt" -b wt >/dev/null 2>&1
+    printf '%s\n' "$real" > "$real/worktrees/wt/commondir"     # absolute, > 256 bytes
+    git -C "$base/main" config filter.x.clean "touch '$base/PWNED'; cat"
+    touch -t 200101010000 "$base/wt/f.txt"
+    bga_render "$base/wt" >/dev/null
+    if [ -e "$base/PWNED" ]; then fail "long commondir: filter ran"; else ok "long commondir: filter not run"; fi
+    rm -rf "$base"
+}

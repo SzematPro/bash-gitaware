@@ -25,6 +25,7 @@
 #   BASHGITAWARE_PATH_MAXDEPTH=N             Show at most N trailing path components (0 = unlimited). Default: 3.
 #   BASHGITAWARE_SHOW_HOST=auto|always|never Show user@host. "auto" = only over SSH or as root. Default: auto.
 #   BASHGITAWARE_RUNTIMES=py,node,...         Runtimes to show (py node rust go ruby deno bun java). Default: all.
+#   BASHGITAWARE_PROGRESS=0|1                Taskbar progress (OSC 9;4) while a command runs. Default: 0.
 #   BASHGITAWARE_SHELL_DEFAULTS=0|1          History settings, ls/grep colors, aliases, completion.
 #                                           Unset = on (3.0 behavior); the installer writes it (ADR-0010).
 #   NO_COLOR                                 If set (any value), disable all color. https://no-color.org
@@ -77,7 +78,7 @@ __bga_config_valid() {
         theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
         style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
         nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline \
-        | shell_defaults)
+        | shell_defaults | progress)
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)
                       case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;
@@ -1268,6 +1269,7 @@ __bga_prompt() {
     # terminal sees the just-finished command's exit and the new cwd before
     # the next prompt is drawn. No-op if BASHGITAWARE_OSC=0.
     __bga_osc_prompt_cycle_start "$exit_code"
+    __bga_osc_progress_end "$exit_code" "${_bga_timer_start:+1}"
 
     # Elapsed wall-clock time of the command that just finished.
     _bga_last_duration=''
@@ -1629,6 +1631,28 @@ if [ "${BASHGITAWARE_OSC:-1}" != 0 ]; then
         *) PS0=$'\e]133;C\a'"${PS0:-}" ;;
     esac
 fi
+
+# ---------------------------------------------------------------------------
+# OSC 9;4 taskbar progress (3.1, opt-in: progress = 1; ADR-0012). PS0 sets the
+# indeterminate state when a command starts; the next prompt clears it, or
+# shows the error state for one prompt after a failed command. Off with
+# osc = 0, in plain mode, and inside tmux/screen, which do not pass it on.
+# ---------------------------------------------------------------------------
+_bga_progress=0
+if [ "${BASHGITAWARE_PROGRESS:-0}" = 1 ] && [ "${BASHGITAWARE_OSC:-1}" != 0 ] \
+   && [ "${_bga_plain:-0}" != 1 ] && [ -z "${TMUX:-}" ] && [ -z "${STY:-}" ]; then
+    _bga_progress=1
+fi
+# Re-sourcing (bga reload) adds the mark once, and removes it when off.
+if [ -n "${PS0:-}" ]; then PS0="${PS0//$'\e]9;4;3;0\a'/}"; fi
+if [ "$_bga_progress" = 1 ]; then PS0=$'\e]9;4;3;0\a'"${PS0:-}"; fi
+
+# __bga_osc_progress_end <exit code> <1 if a command ran>
+__bga_osc_progress_end() {
+    [ "$_bga_progress" = 1 ] || return 0
+    if [ "$2" = 1 ] && [ "$1" != 0 ]; then printf '\e]9;4;2;100\a'
+    else printf '\e]9;4;0;0\a'; fi
+}
 
 # ---------------------------------------------------------------------------
 # Transient prompt -- collapse the previous prompt to a one-line form on submit.

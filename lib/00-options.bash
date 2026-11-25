@@ -23,6 +23,7 @@
 #   BASHGITAWARE_PATH_MAXDEPTH=N             Show at most N trailing path components (0 = unlimited). Default: 3.
 #   BASHGITAWARE_SHOW_HOST=auto|always|never Show user@host. "auto" = only over SSH or as root. Default: auto.
 #   BASHGITAWARE_RUNTIMES=py,node,...         Runtimes to show (py node rust go ruby deno bun java). Default: all.
+#   BASHGITAWARE_PROGRESS=0|1                Taskbar progress (OSC 9;4) while a command runs. Default: 0.
 #   BASHGITAWARE_SHELL_DEFAULTS=0|1          History settings, ls/grep colors, aliases, completion.
 #                                           Unset = on (3.0 behavior); the installer writes it (ADR-0010).
 #   NO_COLOR                                 If set (any value), disable all color. https://no-color.org
@@ -75,7 +76,7 @@ __bga_config_valid() {
         theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
         style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
         nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline \
-        | shell_defaults)
+        | shell_defaults | progress)
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)
                       case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;

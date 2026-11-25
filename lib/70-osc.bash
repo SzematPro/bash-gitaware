@@ -51,3 +51,25 @@ if [ "${BASHGITAWARE_OSC:-1}" != 0 ]; then
         *) PS0=$'\e]133;C\a'"${PS0:-}" ;;
     esac
 fi
+
+# ---------------------------------------------------------------------------
+# OSC 9;4 taskbar progress (3.1, opt-in: progress = 1; ADR-0012). PS0 sets the
+# indeterminate state when a command starts; the next prompt clears it, or
+# shows the error state for one prompt after a failed command. Off with
+# osc = 0, in plain mode, and inside tmux/screen, which do not pass it on.
+# ---------------------------------------------------------------------------
+_bga_progress=0
+if [ "${BASHGITAWARE_PROGRESS:-0}" = 1 ] && [ "${BASHGITAWARE_OSC:-1}" != 0 ] \
+   && [ "${_bga_plain:-0}" != 1 ] && [ -z "${TMUX:-}" ] && [ -z "${STY:-}" ]; then
+    _bga_progress=1
+fi
+# Re-sourcing (bga reload) adds the mark once, and removes it when off.
+if [ -n "${PS0:-}" ]; then PS0="${PS0//$'\e]9;4;3;0\a'/}"; fi
+if [ "$_bga_progress" = 1 ]; then PS0=$'\e]9;4;3;0\a'"${PS0:-}"; fi
+
+# __bga_osc_progress_end <exit code> <1 if a command ran>
+__bga_osc_progress_end() {
+    [ "$_bga_progress" = 1 ] || return 0
+    if [ "$2" = 1 ] && [ "$1" != 0 ]; then printf '\e]9;4;2;100\a'
+    else printf '\e]9;4;0;0\a'; fi
+}

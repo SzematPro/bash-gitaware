@@ -12,6 +12,7 @@ __bga_prompt() {
     # terminal sees the just-finished command's exit and the new cwd before
     # the next prompt is drawn. No-op if BASHGITAWARE_OSC=0.
     __bga_osc_prompt_cycle_start "$exit_code"
+    __bga_osc_progress_end "$exit_code" "${_bga_timer_start:+1}"
 
     # Elapsed wall-clock time of the command that just finished.
     _bga_last_duration=''

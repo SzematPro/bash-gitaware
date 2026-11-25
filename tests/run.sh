@@ -40,6 +40,8 @@ source "$HERE/shell.sh"
 source "$HERE/policy.sh"
 # shellcheck source=runtime.sh
 source "$HERE/runtime.sh"
+# shellcheck source=progress.sh
+source "$HERE/progress.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -96,6 +98,7 @@ scenario_runtime_new_runtimes
 scenario_runtime_no_exec
 scenario_runtime_hostile_version_files
 scenario_runtime_key_validation
+scenario_progress_osc94
 
 # Security: untrusted text is never evaluated by the prompt.
 scenario_security_branch_name

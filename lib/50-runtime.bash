@@ -7,7 +7,9 @@
 # runtime, for the Lean right block). It prints nothing: calling it in $(...)
 # would lose the cache, which lives in these globals.
 # ---------------------------------------------------------------------------
-_bga_rt_items=()
+# Reset together: a re-source (bga reload) must not keep a key whose items
+# were just cleared, or the cache would "hit" with no runtimes.
+_bga_rt_items=() _bga_rt_key='' _bga_rt_str=''
 __bga_runtime() {
     if [ "${BASHGITAWARE_RUNTIME:-1}" = 0 ]; then _bga_rt_str=''; _bga_rt_items=(); return; fi
     # promptvars is part of the key: the cached string is escaped for it.

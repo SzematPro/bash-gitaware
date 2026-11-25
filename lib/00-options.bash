@@ -78,7 +78,11 @@ __bga_config_load() {
     fi
     # The directory matters too: if others can write it they can swap the
     # file between this check and the read.
-    if [ ! -O "$f" ] || [ -n "$(find -L "$f" "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]; then
+    # The file: ours, and nobody else may write it. Its directory: nobody
+    # else may write it either, unless it is sticky (like /tmp), where other
+    # users cannot replace a file they do not own.
+    if [ ! -O "$f" ] || [ -n "$(find -L "$f" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ] \
+       || [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) ! -perm -1000 2>/dev/null)" ]; then
         __bga_config_warn "$f: owned or writable by other users, ignored"; return 0
     fi
     local line k v n=0 var q=\'

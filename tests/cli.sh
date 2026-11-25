@@ -89,3 +89,17 @@ scenario_cli_shell_function() {
     assert_contains "$out" "bash-gitaware 3." "bga function in an interactive shell"
     assert_contains "$out" "reload-same"      "reload leaves hooks unchanged"
 }
+
+scenario_cli_reload_keeps_runtime() {
+    section "bga reload: runtimes still shown afterwards"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-cli-XXXXXX")"
+    mkdir -p "$base/bin"; printf '{}\n' > "$base/package.json"
+    printf '#!/bin/sh\necho v20.1.0\n' > "$base/bin/node"; chmod +x "$base/bin/node"
+    local out
+    out="$(env -u BASHGITAWARE_STYLE bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$base/bin:$PATH' TERM=xterm-256color LANG=C.UTF-8 BASHGITAWARE_MODE=full COLUMNS=80
+        cd '$base'; source '$REPO/new.bashrc'; __bga_prompt
+        bga reload; __bga_prompt; printf '%s' \"\${PS1@P}\"" 2>/dev/null)"
+    assert_contains "$out" "node 20.1.0" "runtime shown after reload"
+    rm -rf "$base"
+}

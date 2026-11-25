@@ -134,6 +134,7 @@ scenario_hooks_ps0_and_exports
 scenario_config_file
 scenario_config_file_validation
 scenario_config_file_permissions
+scenario_config_file_sticky_dir
 
 # Plain mode.
 scenario_plain_mode
@@ -162,6 +163,7 @@ scenario_cli_basics
 scenario_cli_config
 scenario_cli_theme_and_doctor
 scenario_cli_shell_function
+scenario_cli_reload_keeps_runtime
 
 # Shell-state independence.
 scenario_shell_state_independence

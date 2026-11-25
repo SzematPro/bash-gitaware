@@ -63,3 +63,17 @@ scenario_config_file_permissions() {
     assert_contains "$out" "p=minimal" "symlink to a private file is accepted"
     rm -rf "$dir"
 }
+
+scenario_config_file_sticky_dir() {
+    section "config file: accepted in a sticky world-writable directory, refused in a plain one"
+    local dir; dir="$(mktemp -d "${TMPDIR:-/tmp}/bga-cfg-XXXXXX")"
+    mkdir -m 1777 "$dir/sticky"; mkdir -m 0777 "$dir/open"
+    printf 'preset = minimal\n' > "$dir/sticky/config"; chmod 600 "$dir/sticky/config"
+    printf 'preset = minimal\n' > "$dir/open/config"; chmod 600 "$dir/open/config"
+    local out
+    out="$(_cf_run "$dir/sticky/config" 'echo "p=${BASHGITAWARE_PRESET-unset}"')"
+    assert_contains "$out" "p=minimal" "sticky directory (like /tmp): accepted"
+    out="$(_cf_run "$dir/open/config" 'echo "p=${BASHGITAWARE_PRESET-unset}"')"
+    assert_contains "$out" "p=unset" "world-writable, non-sticky directory: refused"
+    chmod 755 "$dir/open" "$dir/sticky"; rm -rf "$dir"
+}

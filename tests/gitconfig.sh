@@ -87,3 +87,21 @@ scenario_gitconfig_trust_knob() {
     if [ -e "$d/RAN" ]; then ok "trusted local filter runs"; else fail "trusted local filter did not run"; fi
     rm -rf "$d"
 }
+
+scenario_gitconfig_parser_edge_cases() {
+    section "hostile .git/config: git's own parsing decides, not a bash parser"
+    local d
+    # Deprecated [filter.X] form: git lowercases the name.
+    d="$(_gc_repo)"; printf '* filter=evil\n' > "$d/.gitattributes"
+    printf '[Filter.EVIL]\n\tclean = touch %s/PWNED; cat\n' "$d" >> "$d/.git/config"
+    _gc_render_both "$d"
+    if [ -e "$d/PWNED" ]; then fail "[Filter.EVIL] driver ran"; else ok "[Filter.EVIL] driver not run"; fi
+    rm -rf "$d"
+    # config.worktree (extensions.worktreeConfig).
+    d="$(_gc_repo)"
+    git -C "$d" config extensions.worktreeConfig true
+    printf '[filter "x"]\n\tclean = touch %s/PWNED; cat\n' "$d" > "$d/.git/config.worktree"
+    _gc_render_both "$d"
+    if [ -e "$d/PWNED" ]; then fail "config.worktree driver ran"; else ok "config.worktree driver not run"; fi
+    rm -rf "$d"
+}

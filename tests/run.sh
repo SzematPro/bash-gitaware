@@ -70,6 +70,7 @@ scenario_gitconfig_filter_driver
 scenario_gitconfig_include_skips_status
 scenario_gitconfig_forged_signature
 scenario_gitconfig_submodule_filter
+scenario_gitconfig_parser_edge_cases
 scenario_gitconfig_trust_knob
 
 # Performance.

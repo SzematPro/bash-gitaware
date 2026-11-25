@@ -338,11 +338,12 @@ __bga_git_info_cheap() {
 # log.showSignature=false, and __bga_git_status_safe also:
 #   * passes core.fsmonitor=false and --ignore-submodules=dirty (no git runs
 #     inside submodules, which have their own config);
-#   * reads the repository's own config (bash only, bounded) and neutralizes
-#     every filter driver it defines (empty clean/process/smudge);
+#   * asks git for the filter drivers the repository's own config (and
+#     config.worktree) defines, and neutralizes each one (empty
+#     clean/process/smudge);
 #   * skips `git status` entirely when that config uses include/includeIf
-#     (what they pull in cannot be checked cheaply) or a filter name with
-#     unexpected characters. The dirty/ahead/behind info is then unknown.
+#     (what they pull in is not checked), a filter name with unexpected
+#     characters, or a config git cannot parse. The dirty/ahead/behind info is then unknown.
 # Drivers from the user's own ~/.gitconfig are untouched. Users whose
 # repositories legitimately define local filters (git-crypt, `git lfs install
 # --local`) can opt out with BASHGITAWARE_TRUST_REPO_CONFIG=1.
@@ -350,28 +351,29 @@ __bga_git_info_cheap() {
 __bga_git_status_safe() {
     local -a args=(-c core.fsmonitor=false -c log.showSignature=false)
     if [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" != 1 ]; then
-        local gd="${_bga_git_dir:-.git}" cfg line low name n=0 REPLY
+        local gd="${_bga_git_dir:-.git}" cfg names name rc REPLY
         # Linked worktrees keep the config in the common directory.
         if __bga_read_line "$gd/commondir"; then
             case "$REPLY" in /*) gd="$REPLY" ;; *) gd="$gd/$REPLY" ;; esac
         fi
-        cfg="$gd/config"
-        if [ -f "$cfg" ]; then
-            while IFS= read -r line || [ -n "$line" ]; do
-                n=$(( n + 1 )); [ "$n" -gt 5000 ] && return 1
-                line="${line#"${line%%[![:blank:]]*}"}"
-                case "$line" in \[*) ;; *) continue ;; esac
-                low="${line,,}"
-                case "$low" in
-                    '[include'*) return 1 ;;
-                    '[filter "'*) name="${line#*\"}"; name="${name%%\"*}" ;;
-                    '[filter.'*)  name="${line#*.}";  name="${name%%]*}" ;;
-                    *) continue ;;
-                esac
+        # Let git itself list the names (its own syntax and case rules; a
+        # bash parser would disagree with git on edge cases). --no-includes:
+        # an include is reported, never followed. Any error fails closed.
+        for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
+            [ -f "$cfg" ] || continue
+            names="$(git config --file "$cfg" --no-includes --name-only \
+                     --get-regexp '^(filter|include|includeif)\.' 2>/dev/null)"; rc=$?
+            [ "$rc" = 1 ] && continue          # no match
+            [ "$rc" = 0 ] || return 1
+            while [ -n "$names" ]; do
+                name="${names%%$'\n'*}"
+                case "$names" in *$'\n'*) names="${names#*$'\n'}" ;; *) names='' ;; esac
+                case "$name" in filter.*.*) ;; *) return 1 ;; esac   # include/includeif
+                name="${name#filter.}"; name="${name%.*}"
                 case "$name" in '' | *[!A-Za-z0-9._-]*) return 1 ;; esac
                 args+=(-c "filter.$name.clean=" -c "filter.$name.process=" -c "filter.$name.smudge=")
-            done < "$cfg"
-        fi
+            done
+        done
     fi
     git "${args[@]}" status --porcelain=v2 --branch --ignore-submodules=dirty 2>/dev/null
 }

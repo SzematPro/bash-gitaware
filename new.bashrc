@@ -111,6 +111,31 @@ if [ "${NO_COLOR+set}" != set ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Plain mode: a one-line ASCII prompt with no escape sequences, for dumb
+# terminals, CI logs and automated agents. Generic signals only:
+# TERM=dumb, no terminal on stdin/stderr, CI, AGENT, AI_AGENT.
+# BASHGITAWARE_MODE=plain forces it, BASHGITAWARE_MODE=full disables it.
+# ---------------------------------------------------------------------------
+case "${BASHGITAWARE_MODE:-auto}" in
+    plain) _bga_plain=1 ;;
+    full)  _bga_plain=0 ;;
+    *)
+        if [ "${TERM:-dumb}" = dumb ] || [ ! -t 0 ] || [ ! -t 2 ] \
+           || [ -n "${CI:-}" ] || [ -n "${AGENT:-}" ] || [ -n "${AI_AGENT:-}" ]; then
+            _bga_plain=1
+        else
+            _bga_plain=0
+        fi ;;
+esac
+if [ "$_bga_plain" = 1 ]; then
+    # Every decoration that emits escapes or extra lines is off by default;
+    # an explicit BASHGITAWARE_* setting still wins.
+    _bga_color=0 _bga_title=0
+    : "${BASHGITAWARE_OSC:=0}" "${BASHGITAWARE_TRANSIENT:=0}" "${BASHGITAWARE_ASYNC:=0}"
+    : "${BASHGITAWARE_GLYPHS:=ascii}" "${BASHGITAWARE_COMMIT_LINE:=0}"
+fi
+
+# ---------------------------------------------------------------------------
 # Escaping untrusted text for PS1.
 #
 # Branch names, commit subjects, directory names, version files and env names
@@ -544,6 +569,12 @@ __bga_prompt() {
 
     __bga_git_info
 
+    if [ "${_bga_plain:-0}" = 1 ]; then
+        __bga_prompt_plain "$exit_code"
+        _bga_timer_start=''
+        return
+    fi
+
     local ps1="" nl=0   # nl: number of "\n" line breaks added (transient)
 
     # OSC 133;A: prompt begin (wrapped in \[ \] for readline width arithmetic).
@@ -640,6 +671,22 @@ __bga_prompt() {
     fi
 
     _bga_timer_start=''      # reset for the next command (must be the last thing here)
+}
+
+# Plain mode (lib/10-detect.bash): "<path> (<branch>[ *])[ [exit N]] $ ".
+# No colors, no escape sequences, one line; untrusted text still escaped.
+__bga_prompt_plain() {
+    local exit_code="$1" ps1="" REPLY
+    __bga_ps1_lit "$(__bga_path)"; ps1="$REPLY"
+    if [ "$_bga_in_git" = 1 ]; then
+        __bga_ps1_lit "$_bga_git_branch"; ps1+=" ($REPLY"
+        [ "$_bga_git_dirty" = 1 ] && ps1+=" *"
+        ps1+=")"
+    fi
+    [ "$exit_code" -ne 0 ] && ps1+=" [exit $exit_code]"
+    if [ "$_bga_root" = 1 ]; then ps1+=" # "; else ps1+=" \$ "; fi
+    PS1="$ps1"
+    _bga_transient_active=0
 }
 
 # ---------------------------------------------------------------------------

@@ -18,12 +18,17 @@ source "$HERE/perf.sh"
 source "$HERE/shellstate.sh"
 # shellcheck source=hooks.sh
 source "$HERE/hooks.sh"
+# shellcheck source=plain.sh
+source "$HERE/plain.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
 # Hermetic environment, then sanity gates.
 sandbox_scrub
 scenario_sandbox_clean
+# Tests run without a tty, which would auto-select plain mode; plain mode has
+# its own scenarios (tests/plain.sh) that unset this.
+export BASHGITAWARE_MODE=full
 lib_syntax_check
 build_freshness_check
 
@@ -76,6 +81,10 @@ scenario_hooks_traps_chained
 scenario_hooks_bash_preexec
 scenario_hooks_async_exit_chained
 scenario_hooks_ps0_and_exports
+
+# Plain mode.
+scenario_plain_mode
+scenario_plain_mode_escaping
 
 # Shell-state independence.
 scenario_shell_state_independence

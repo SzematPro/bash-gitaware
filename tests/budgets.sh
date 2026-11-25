@@ -13,4 +13,6 @@ BGA_BUDGET_RENDER_MS=60
 # Without timeout(1)/gtimeout (stock macOS) every git call runs under the
 # shell watchdog, which costs extra processes; hosted macOS runners measured
 # 45-61 ms there. Separate budget so runner noise does not fail CI (R-7).
+# tests/perf.sh picks the budget from the helper the library chose; CI runs
+# macOS both ways (with and without Homebrew coreutils).
 BGA_BUDGET_RENDER_WATCHDOG_MS=90

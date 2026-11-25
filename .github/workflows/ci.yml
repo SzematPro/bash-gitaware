@@ -70,14 +70,28 @@ jobs:
           su -s /bin/sh -c "cd $(pwd) && bash tests/run.sh" bgauser
 
   macos-tests:
-    name: tests on macos (Homebrew bash)
+    # Two time-limit paths (lib/30-git.bash): stock macOS has no timeout(1),
+    # so git calls run under the shell watchdog (90 ms render budget, R-7);
+    # Homebrew coreutils adds gtimeout (60 ms, the same budget as Linux).
+    # BGA_EXPECT_TMO makes tests/perf.sh fail if a job measures the wrong one.
+    name: tests on macos (Homebrew bash, ${{ matrix.tmo }})
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tmo: [watchdog, gtimeout]
+    env:
+      BGA_EXPECT_TMO: ${{ matrix.tmo }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Install Homebrew bash
         run: brew install bash
+
+      - name: Install coreutils (gtimeout)
+        if: matrix.tmo == 'gtimeout'
+        run: brew install coreutils
 
       - name: Run tests with Homebrew bash
         run: |

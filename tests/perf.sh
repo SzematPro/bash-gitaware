@@ -57,9 +57,23 @@ scenario_perf_budget() {
     local n=50 total per
     total="$(_perf_median_ms 3 "$env; source '$REPO/new.bashrc'; i=0; while [ \$i -lt $n ]; do __bga_prompt; i=\$(( i + 1 )); done")"
     per=$(( (total - src) / n )); [ "$per" -lt 0 ] && per=0
-    local budget="$BGA_BUDGET_RENDER_MS" how="timeout(1)"
-    if ! command -v timeout >/dev/null 2>&1 && ! command -v gtimeout >/dev/null 2>&1; then
-        budget="$BGA_BUDGET_RENDER_WATCHDOG_MS" how="watchdog"
+    # The budget follows the time-limit helper the library picked at load
+    # (lib/30-git.bash: timeout, gtimeout, or '' for the watchdog), not a
+    # separate guess here, so the two cannot disagree.
+    local how budget
+    how="$(bash --norc --noprofile -i -c "$env; source '$REPO/new.bashrc' >/dev/null 2>&1; printf '%s' \"\${_bga_tmo:-watchdog}\"" 2>/dev/null)"
+    case "$how" in
+        timeout | gtimeout) budget="$BGA_BUDGET_RENDER_MS" ;;
+        *)                  budget="$BGA_BUDGET_RENDER_WATCHDOG_MS" how="watchdog" ;;
+    esac
+    # CI pins the path each job must measure, so a runner image change cannot
+    # silently move a job to the other budget.
+    if [ -n "${BGA_EXPECT_TMO:-}" ]; then
+        if [ "$how" = "$BGA_EXPECT_TMO" ]; then
+            ok "perf: time-limit helper is $how (expected)"
+        else
+            fail "perf: time-limit helper is $how, expected $BGA_EXPECT_TMO"
+        fi
     fi
     if [ "$per" -le "$budget" ]; then
         ok "perf: ${per}ms/render across $n renders (budget ${budget}ms, $how)"

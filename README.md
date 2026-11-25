@@ -53,6 +53,7 @@ Settings live in `~/.config/bash-gitaware/config`. The file is plain
 bga config set theme light      # aware, light, contrast
 bga config set style classic    # the v2 three-line layout
 bga theme preview contrast
+bga config edit                 # opens $EDITOR, checks the file before saving
 bga doctor                      # checks your setup
 bga reload                      # applies changes to this shell
 ```
@@ -68,6 +69,9 @@ bga reload                      # applies changes to this shell
 | `timer_threshold` | seconds | `2` |
 | `show_host` | `auto`, `always`, `never` | `auto` (over SSH or as root) |
 | `mode` | `auto`, `plain`, `full` | `auto` |
+| `runtimes` | comma list of `py`, `node`, `rust`, `go`, `ruby`, `deno`, `bun`, `java` | all |
+| `vi_mode` | `auto`, `0` | `auto` (marker in vi command mode) |
+| `progress` | `0`, `1` (taskbar progress while a command runs, OSC 9;4) | `0` |
 | `shell_defaults` | `0`, `1` | written by the installer (see below) |
 
 Every key also works as an environment variable (`BASHGITAWARE_THEME`,

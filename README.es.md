@@ -54,6 +54,7 @@ con `bga`:
 bga config set theme light      # aware, light, contrast
 bga config set style classic    # the v2 three-line layout
 bga theme preview contrast
+bga config edit                 # opens $EDITOR, checks the file before saving
 bga doctor                      # checks your setup
 bga reload                      # applies changes to this shell
 ```
@@ -69,6 +70,9 @@ bga reload                      # applies changes to this shell
 | `timer_threshold` | segundos | `2` |
 | `show_host` | `auto`, `always`, `never` | `auto` (por SSH o como root) |
 | `mode` | `auto`, `plain`, `full` | `auto` |
+| `runtimes` | lista separada por comas de `py`, `node`, `rust`, `go`, `ruby`, `deno`, `bun`, `java` | todos |
+| `vi_mode` | `auto`, `0` | `auto` (marca en el modo comando de vi) |
+| `progress` | `0`, `1` (progreso en la barra de tareas mientras corre un comando, OSC 9;4) | `0` |
 | `shell_defaults` | `0`, `1` | lo escribe el instalador (ver abajo) |
 
 Cada clave también funciona como variable de entorno (`BASHGITAWARE_THEME`,

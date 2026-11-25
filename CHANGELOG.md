@@ -19,6 +19,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   lock settings for every user. The policy is used only when root owns it
   and no one else can write it, and `bga doctor` shows what it locks.
 
+- **Ruby, Deno, Bun and Java runtimes**, read from version files only (no
+  program runs). `runtimes = py,node,...` picks which runtimes show.
+- **vi-mode indicator**: with `set -o vi`, a marker appears in command mode,
+  drawn by readline. Your own readline mode settings are kept.
+- **Taskbar progress** (`progress = 1`, OSC 9;4) while a command runs, with
+  the error state after a failure. Off by default, and inside tmux/screen.
+- **`bga config edit`** opens `$VISUAL`/`$EDITOR` and checks the file
+  before saving it.
+
 ### Changed
 
 - Startup is about 12 ms faster with `shell_defaults = 0` where

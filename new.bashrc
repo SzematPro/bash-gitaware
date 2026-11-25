@@ -1775,7 +1775,7 @@ __bga_hooks_install
 #
 # Exit status: 0 ok, 1 a check or operation failed, 2 usage error.
 # ---------------------------------------------------------------------------
-_bga_version='3.0.0-dev'
+_bga_version='3.0.0'
 
 __bga_cli_err() { printf 'bga: %s\n' "$*" >&2; }
 

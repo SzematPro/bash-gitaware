@@ -70,6 +70,14 @@ scenario_cli_theme_and_doctor() {
     out="$(_bga_cmd doctor)"; rc=$?
     assert_contains "$out" "bash " "doctor reports bash"
     if [ "$rc" = 0 ]; then ok "doctor exits 0 on a healthy setup"; else fail "doctor exit $rc"; fi
+    # shell_defaults unset (ADR-0010): a notice with the fix, exit status 0.
+    assert_contains "$out" "note shell-defaults" "doctor: notice when shell_defaults is unset"
+    assert_contains "$out" "bga config set shell_defaults" "doctor: notice says how to choose"
+    _bga_cmd config set shell_defaults 0 >/dev/null
+    out="$(_bga_cmd doctor)"; rc=$?
+    assert_contains "$out" "info shell-defaults off" "doctor: shell_defaults = 0 reported as off"
+    assert_lacks    "$out" "note shell-defaults" "doctor: no notice once set"
+    if [ "$rc" = 0 ]; then ok "doctor exits 0 with shell_defaults set"; else fail "doctor exit $rc with shell_defaults set"; fi
     printf 'glyphs = bogus\n' > "$dir/config"
     out="$(_bga_cmd doctor 2>&1)"; rc=$?
     if [ "$rc" = 1 ]; then ok "doctor exits 1 on an invalid config"; else fail "doctor exit $rc on bad config"; fi

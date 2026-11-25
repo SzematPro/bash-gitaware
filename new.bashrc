@@ -1999,6 +1999,14 @@ __bga_cli_doctor() {
     else
         __bga_doc info config "$f (not present, defaults in use)"
     fi
+    # Unset means on until 4.0 (ADR-0010): say so, and how to choose. Not a
+    # problem, so the exit status is unchanged.
+    case "${BASHGITAWARE_SHELL_DEFAULTS:-}" in
+        0) __bga_doc info shell-defaults "off" ;;
+        1) __bga_doc info shell-defaults "on (history, ls colors, aliases, completion)" ;;
+        *) __bga_doc note shell-defaults "not set: on, as in 3.0; 4.0 turns it off when unset"
+           printf '         choose with: bga config set shell_defaults 1   (or 0)\n' ;;
+    esac
     return "$bad"
 }
 

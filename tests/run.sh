@@ -88,6 +88,7 @@ scenario_gitconfig_include_skips_status
 scenario_gitconfig_forged_signature
 scenario_gitconfig_submodule_filter
 scenario_gitconfig_parser_edge_cases
+scenario_gitconfig_hooks_and_partial_clone
 scenario_gitconfig_trust_knob
 
 # Coexistence with the user's hooks.

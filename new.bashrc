@@ -420,8 +420,10 @@ __bga_git_info_cheap() {
     # 1 subprocess: the git dir and the work-tree root, in one shot.
     local rp; rp="$(git rev-parse --git-dir --show-toplevel 2>/dev/null)" || return
     _bga_in_git=1
+    _bga_git_untrusted=0
     _bga_git_dir="${rp%%$'\n'*}"
     case "$rp" in *$'\n'*) _bga_git_top="${rp#*$'\n'}" ;; *) _bga_git_top= ;; esac
+    __bga_git_trust || _bga_git_untrusted=1
 
     # Read .git/HEAD to determine branch / detached state. Filesystem-only.
     local head_path="$_bga_git_dir/HEAD"
@@ -446,16 +448,16 @@ __bga_git_info_cheap() {
         if __bga_read_line "$ref_path"; then
             _bga_git_hash="${REPLY:0:7}"
         else
-            _bga_git_hash="$(git rev-parse --short HEAD 2>/dev/null)"
+            [ "$_bga_git_untrusted" = 1 ] || _bga_git_hash="$(__bga_git rev-parse --short HEAD 2>/dev/null)"
         fi
     fi
 
     # Commit subject: kept sync (fast even on large repos -- it only reads HEAD).
-    [ -n "$_bga_git_hash" ] && _bga_git_msg="$(git -c log.showSignature=false log -1 --pretty=%s 2>/dev/null)"
+    [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ] && _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null)"
 
     # Stash count: filesystem-gated, kept sync.
-    if [ -f "$_bga_git_dir/refs/stash" ]; then
-        _bga_git_stash="$(git -c log.showSignature=false stash list 2>/dev/null | wc -l)"
+    if [ -f "$_bga_git_dir/refs/stash" ] && [ "$_bga_git_untrusted" = 0 ]; then
+        _bga_git_stash="$(__bga_git stash list 2>/dev/null | wc -l)"
         _bga_git_stash=$(( _bga_git_stash ))
     fi
 
@@ -463,55 +465,73 @@ __bga_git_info_cheap() {
 }
 
 # ---------------------------------------------------------------------------
-# Running `git status` safely in a repository we did not create.
+# Running git safely in a repository we did not create.
 #
-# A .git directory that came from an archive (not from `git clone`, which never
-# copies .git/config) can name commands that git runs: core.fsmonitor,
-# clean/process filter drivers for files whose stat data looks stale (any
-# freshly extracted tree), gpg.program for a forged signed commit when
-# log.showSignature is set, and the same again inside submodules. The prompt
-# runs git on every `cd`, so it must not run them. Every git call here passes
-# log.showSignature=false, and __bga_git_status_safe also:
-#   * passes core.fsmonitor=false and --ignore-submodules=dirty (no git runs
-#     inside submodules, which have their own config);
-#   * asks git for the filter drivers the repository's own config (and
-#     config.worktree) defines, and neutralizes each one (empty
-#     clean/process/smudge);
-#   * skips `git status` entirely when that config uses include/includeIf
-#     (what they pull in is not checked), a filter name with unexpected
-#     characters, or a config git cannot parse. The dirty/ahead/behind info is then unknown.
-# Drivers from the user's own ~/.gitconfig are untouched. Users whose
-# repositories legitimately define local filters (git-crypt, `git lfs install
-# --local`) can opt out with BASHGITAWARE_TRUST_REPO_CONFIG=1.
+# `git clone` never copies .git/config or .git/hooks, but an extracted archive
+# can ship a whole .git. Git settings and hooks there name commands that the
+# prompt's own git calls would run on every `cd`: core.fsmonitor, clean/process
+# filter drivers (stale stat data after extraction), the post-index-change
+# hook (when status rewrites the index), gpg.program for a forged signed commit
+# under log.showSignature, a lazy fetch with core.sshCommand in a partial
+# clone, and the same again inside submodules.
+#
+# __bga_git_trust runs once per prompt, after `git rev-parse`, and fills
+# _bga_git_args for __bga_git, the wrapper every other git call goes through:
+#   * --no-optional-locks, core.hooksPath=/dev/null, core.fsmonitor=false,
+#     log.showSignature=false; GIT_NO_LAZY_FETCH=1 and GIT_OPTIONAL_LOCKS=0
+#     in the environment;
+#   * every filter driver the repository's config (and config.worktree)
+#     defines is neutralized (empty clean/process/smudge). Git itself lists
+#     them (--file --no-includes --name-only): a bash parser disagrees with
+#     git on edge cases;
+#   * it fails closed (returns 1, and the prompt shows only the branch) on
+#     include/includeIf, a partial clone (extensions.partialClone,
+#     remote.*.promisor), an odd driver name, a commondir it cannot resolve
+#     to a config file, or a config git cannot parse.
+# `git status` also passes --ignore-submodules=dirty (no git inside
+# submodules, which have their own config). The user's own ~/.gitconfig is
+# trusted. BASHGITAWARE_TRUST_REPO_CONFIG=1 keeps only the fixed overrides, for
+# repositories that rely on local filters (git-crypt, `git lfs install --local`).
 # ---------------------------------------------------------------------------
-__bga_git_status_safe() {
-    local -a args=(-c core.fsmonitor=false -c log.showSignature=false)
-    if [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" != 1 ]; then
-        local gd="${_bga_git_dir:-.git}" cfg names name rc REPLY
-        # Linked worktrees keep the config in the common directory.
-        if __bga_read_line "$gd/commondir"; then
-            case "$REPLY" in /*) gd="$REPLY" ;; *) gd="$gd/$REPLY" ;; esac
-        fi
-        # Let git itself list the names (its own syntax and case rules; a
-        # bash parser would disagree with git on edge cases). --no-includes:
-        # an include is reported, never followed. Any error fails closed.
-        for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
-            [ -f "$cfg" ] || continue
-            names="$(git config --file "$cfg" --no-includes --name-only \
-                     --get-regexp '^(filter|include|includeif)\.' 2>/dev/null)"; rc=$?
-            [ "$rc" = 1 ] && continue          # no match
-            [ "$rc" = 0 ] || return 1
-            while [ -n "$names" ]; do
-                name="${names%%$'\n'*}"
-                case "$names" in *$'\n'*) names="${names#*$'\n'}" ;; *) names='' ;; esac
-                case "$name" in filter.*.*) ;; *) return 1 ;; esac   # include/includeif
-                name="${name#filter.}"; name="${name%.*}"
-                case "$name" in '' | *[!A-Za-z0-9._-]*) return 1 ;; esac
-                args+=(-c "filter.$name.clean=" -c "filter.$name.process=" -c "filter.$name.smudge=")
-            done
-        done
+_bga_git_args=()
+
+__bga_git() {
+    GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git "${_bga_git_args[@]}" "$@"
+}
+
+__bga_git_trust() {
+    _bga_git_args=(--no-optional-locks -c core.hooksPath=/dev/null
+                   -c core.fsmonitor=false -c log.showSignature=false)
+    [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" = 1 ] && return 0
+    local gd="${_bga_git_dir:-.git}" cfg names name rc REPLY
+    # Linked worktrees keep the config in the common directory. Fail closed
+    # if that does not lead to a config file.
+    if [ -e "$gd/commondir" ]; then
+        __bga_read_line "$gd/commondir" || return 1
+        case "$REPLY" in /*) gd="$REPLY" ;; *) gd="$gd/$REPLY" ;; esac
+        [ -f "$gd/config" ] || return 1
     fi
-    git "${args[@]}" status --porcelain=v2 --branch --ignore-submodules=dirty 2>/dev/null
+    for cfg in "$gd/config" "${_bga_git_dir:-.git}/config.worktree"; do
+        [ -f "$cfg" ] || continue
+        names="$(git config --file "$cfg" --no-includes --name-only \
+                 --get-regexp '^(filter|include|includeif)\.|^extensions\.partialclone$|^remote\..*\.promisor$' 2>/dev/null)"
+        rc=$?
+        [ "$rc" = 1 ] && continue          # no match
+        [ "$rc" = 0 ] || return 1
+        while [ -n "$names" ]; do
+            name="${names%%$'\n'*}"
+            case "$names" in *$'\n'*) names="${names#*$'\n'}" ;; *) names='' ;; esac
+            case "$name" in filter.*.*) ;; *) return 1 ;; esac   # include, partial clone
+            name="${name#filter.}"; name="${name%.*}"
+            case "$name" in '' | *[!A-Za-z0-9._-]*) return 1 ;; esac
+            _bga_git_args+=(-c "filter.$name.clean=" -c "filter.$name.process=" -c "filter.$name.smudge=")
+        done
+    done
+}
+
+__bga_git_status_safe() {
+    [ "${_bga_git_untrusted:-0}" = 1 ] && return 0
+    __bga_git status --porcelain=v2 --branch --ignore-submodules=dirty 2>/dev/null
 }
 
 # Parse the head of `git status --porcelain=v2 --branch` into _bga_st_dirty,

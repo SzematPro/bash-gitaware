@@ -68,7 +68,7 @@ Exit gate: SR3 (worker, state files, race conditions).
 | T3.4 | R6 | `bga doctor` | Reports bash, git, locale, glyph tier, color depth, style and theme, plain mode, timeout helper, state dir, config file (with loader warnings); exits 1 on a problem (old bash/git, invalid config) | done |
 | T3.5 | R7 | Interactive installer | On a terminal with no mode flag, `install.sh` asks for the mode (append or replace), theme and glyphs (stored with `bin/bga config set`); `--yes` asks nothing; backup before replace; idempotent append (`tests/install.sh`, interactive path driven through `script`) | done |
 | T3.6 | R7 | Uninstaller and tamper check | `--uninstall` removes the appended block or restores the newest backup, and is a no-op the second time; the installer refuses a `new.bashrc` or directory that others can write or that someone else owns, and accepts one writable by the user's primary group (L-37) | done |
-| T3.7 | R6 | ADR-0009: CLI surface | ADR written and accepted | todo |
+| T3.7 | R6 | ADR-0009: CLI surface | `docs/adr/ADR-0009-v3-cli-surface.md` | done |
 
 Exit gate: SR4 (installer, file permissions, CLI input).
 

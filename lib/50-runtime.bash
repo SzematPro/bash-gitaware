@@ -6,7 +6,9 @@
 # ---------------------------------------------------------------------------
 __bga_runtime() {
     [ "${BASHGITAWARE_RUNTIME:-1}" = 0 ] && return
-    local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}"
+    # promptvars is part of the key: the cached string is escaped for it.
+    local pv=0; shopt -q promptvars && pv=1
+    local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}|$pv"
     if [ "$key" = "${_bga_rt_key:-}" ]; then printf '%s' "${_bga_rt_str:-}"; return; fi
     _bga_rt_key="$key"; _bga_rt_str=""
     local out="" v f s REPLY
@@ -26,7 +28,7 @@ __bga_runtime() {
        || [ -e "$PWD/setup.cfg" ] || [ -e "$PWD/requirements.txt" ] || [ -e "$PWD/Pipfile" ] \
        || [ -e "$PWD/.python-version" ]; then
         v=""
-        [ -r "$PWD/.python-version" ] && IFS= read -r v < "$PWD/.python-version" 2>/dev/null
+        __bga_read_line "$PWD/.python-version" && v="$REPLY"
         if [ -z "$v" ]; then
             if   command -v python3 >/dev/null 2>&1; then v="$(python3 --version 2>&1)"
             elif command -v python  >/dev/null 2>&1; then v="$(python --version 2>&1)"; fi
@@ -40,7 +42,7 @@ __bga_runtime() {
     if [ -e "$PWD/package.json" ]; then
         v=""
         for f in .nvmrc .node-version; do
-            [ -r "$PWD/$f" ] && { IFS= read -r v < "$PWD/$f" 2>/dev/null; v="${v#v}"; break; }
+            __bga_read_line "$PWD/$f" && { v="${REPLY#v}"; break; }
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"

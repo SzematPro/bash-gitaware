@@ -56,12 +56,16 @@ __bga_transient_collapse() {
         color=$'\e[1;31m'
     fi
 
-    local sym="${_g_sym:-❯}"
+    local sym="${_g_sym:-❯}" REPLY
+    # The typed line is echoed raw by printf: a pasted command can hide escape
+    # sequences that readline displays safely as ^[. Neutralize them (tabs
+    # become spaces first so ordinary commands look the same).
+    __bga_term_safe "${READLINE_LINE//$'\t'/ }"
 
     if [ "$up" -gt 0 ]; then
-        printf '\r\e[%dA\e[J%s%s%s %s' "$up" "$color" "$sym" "$reset" "${READLINE_LINE:-}"
+        printf '\r\e[%dA\e[J%s%s%s %s' "$up" "$color" "$sym" "$reset" "$REPLY"
     else
-        printf '\r\e[J%s%s%s %s' "$color" "$sym" "$reset" "${READLINE_LINE:-}"
+        printf '\r\e[J%s%s%s %s' "$color" "$sym" "$reset" "$REPLY"
     fi
 }
 

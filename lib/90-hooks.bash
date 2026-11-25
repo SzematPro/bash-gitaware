@@ -56,15 +56,17 @@ _bga_pc_save='_bga_exit=$?'
 # shellcheck disable=SC2016,SC2089  # shell code for PROMPT_COMMAND, not argv
 _bga_pc_pre='__bga_pre "${_bga_dbg_done-$(trap -p DEBUG)}"'
 
-# Strip our own entries and stray separators from a PROMPT_COMMAND string.
+# Strip our own entries and surrounding blank lines from a PROMPT_COMMAND
+# string. Entries are joined with newlines, not "; ": a user string that ends
+# in "# comment" or "&" would otherwise swallow or break __bga_prompt.
 __bga_pc_strip() {
-    local s="$1" ws=$' \t\n'
-    s="${s#"$_bga_pc_save; $_bga_pc_pre;"}"; s="${s%; __bga_prompt}"
+    local s="$1" nl=$'\n' ws=$' \t\n'
+    s="${s#"$_bga_pc_save$nl$_bga_pc_pre$nl"}"; s="${s%"$nl"__bga_prompt}"
     [ "$s" = __bga_prompt ] && s=''
     while :; do
         case "$s" in
-            ["$ws"]* | \;*) s="${s#?}" ;;
-            *["$ws"] | *\;) s="${s%?}" ;;
+            ["$ws"]*) s="${s#?}" ;;
+            *["$ws"]) s="${s%?}" ;;
             *) break ;;
         esac
     done
@@ -82,7 +84,7 @@ __bga_hooks_install() {
     else
         __bga_pc_strip "${PROMPT_COMMAND:-}"
         # shellcheck disable=SC2178  # string branch: PROMPT_COMMAND is not an array here
-        PROMPT_COMMAND="$_bga_pc_save; $_bga_pc_pre; ${REPLY:+$REPLY; }__bga_prompt"
+        PROMPT_COMMAND="$_bga_pc_save"$'\n'"$_bga_pc_pre"$'\n'"${REPLY:+$REPLY$'\n'}__bga_prompt"
     fi
     # shellcheck disable=SC2090  # only the export flag changes
     export -n PROMPT_COMMAND PS0 PS1 2>/dev/null

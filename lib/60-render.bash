@@ -41,7 +41,14 @@ __bga_prompt() {
 
     # Optional OSC window title.
     if [ "$_bga_title" = 1 ]; then
-        ps1+="\[\033]0;${debian_chroot:+($debian_chroot) }\u@\h: \w\007\]"
+        # Not \w: bash 5.1+ passes control characters in it through, so a
+        # directory name could end the title early and inject other OSC
+        # sequences (e.g. a clipboard write). Use the escaped path instead.
+        local REPLY t_path="$PWD" t_chroot=''
+        case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
+        [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
+        __bga_ps1_lit "$t_path"
+        ps1+="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
     fi
 
     # --- Line 1: context ----------------------------------------------------

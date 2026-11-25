@@ -23,12 +23,12 @@
 __bga_git_state() {
     # Reads $_bga_git_dir; sets $_bga_git_state. Filesystem checks only -- no subprocesses.
     _bga_git_state=''
-    local d="$_bga_git_dir" s e
+    local d="$_bga_git_dir" s e REPLY
     if [ -d "$d/rebase-merge" ]; then
-        s="$(cat "$d/rebase-merge/msgnum" 2>/dev/null)"; e="$(cat "$d/rebase-merge/end" 2>/dev/null)"
+        __bga_read_line "$d/rebase-merge/msgnum"; s="$REPLY"; __bga_read_line "$d/rebase-merge/end"; e="$REPLY"
         _bga_git_state="REBASE ${s:-?}/${e:-?}"
     elif [ -d "$d/rebase-apply" ]; then
-        s="$(cat "$d/rebase-apply/next" 2>/dev/null)"; e="$(cat "$d/rebase-apply/last" 2>/dev/null)"
+        __bga_read_line "$d/rebase-apply/next"; s="$REPLY"; __bga_read_line "$d/rebase-apply/last"; e="$REPLY"
         if [ -f "$d/rebase-apply/rebasing" ]; then _bga_git_state="REBASE ${s:-?}/${e:-?}"
         else _bga_git_state="AM ${s:-?}/${e:-?}"; fi
     elif [ -f "$d/MERGE_HEAD" ];        then _bga_git_state="MERGING"
@@ -54,9 +54,9 @@ __bga_git_info_cheap() {
 
     # Read .git/HEAD to determine branch / detached state. Filesystem-only.
     local head_path="$_bga_git_dir/HEAD"
-    if [ -r "$head_path" ]; then
-        local head_content=''
-        IFS= read -r head_content < "$head_path" 2>/dev/null
+    local REPLY
+    if __bga_read_line "$head_path"; then
+        local head_content="$REPLY"
         case "$head_content" in
             'ref: refs/heads/'*) _bga_git_branch="${head_content#ref: refs/heads/}" ;;
             'ref: '*)            _bga_git_branch="${head_content#ref: }" ;;
@@ -72,10 +72,8 @@ __bga_git_info_cheap() {
     # fall back to a fast `git rev-parse` for packed refs.
     if [ -n "$_bga_git_branch" ] && [ -z "$_bga_git_hash" ]; then
         local ref_path="$_bga_git_dir/refs/heads/$_bga_git_branch"
-        if [ -r "$ref_path" ]; then
-            local ref_content=''
-            IFS= read -r ref_content < "$ref_path" 2>/dev/null
-            _bga_git_hash="${ref_content:0:7}"
+        if __bga_read_line "$ref_path"; then
+            _bga_git_hash="${REPLY:0:7}"
         else
             _bga_git_hash="$(git rev-parse --short HEAD 2>/dev/null)"
         fi
@@ -102,7 +100,9 @@ __bga_git_info_cheap() {
 __bga_git_status_parse() {
     local st line
     _bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0
-    st="$(git status --porcelain=v2 --branch 2>/dev/null | head -n 8)"
+    # core.fsmonitor names a command that `git status` runs; a .git/config
+    # from an extracted archive could point it anywhere. Never run it.
+    st="$(git -c core.fsmonitor=false status --porcelain=v2 --branch 2>/dev/null | head -n 8)"
     while [ -n "$st" ]; do
         line="${st%%$'\n'*}"
         case "$st" in *$'\n'*) st="${st#*$'\n'}" ;; *) st='' ;; esac

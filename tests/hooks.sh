@@ -21,11 +21,21 @@ scenario_hooks_prompt_command_string() {
     out="$(_hk_run "_uh() { _seen=\$?; }; PROMPT_COMMAND='_uh; history -a;'" '
         (exit 3); eval "$PROMPT_COMMAND"
         printf "seen=%s\n" "$_seen"
-        printf "pc=%s\n" "$PROMPT_COMMAND"
+        printf "pc=%s\n" "${PROMPT_COMMAND//$'"'"'\n'"'"'/ | }"
         case "$PS1" in *133\;A*) echo "ps1=built" ;; esac')"
     assert_contains "$out" "seen=3"        "user hook still sees the command's exit status"
     assert_contains "$out" "ps1=built"     "bash-gitaware prompt still built"
-    assert_contains "$out" '__bga_pre "${_bga_dbg_done-$(trap -p DEBUG)}"; _uh; history -a; __bga_prompt' "order: ours, user hooks, prompt"
+    assert_contains "$out" 'pc=_bga_exit=$? | __bga_pre "${_bga_dbg_done-$(trap -p DEBUG)}" | _uh; history -a; | __bga_prompt' "order: ours, user hooks, prompt"
+}
+
+scenario_hooks_prompt_command_comment() {
+    section "hooks: a trailing comment or & in PROMPT_COMMAND does not break the prompt"
+    local out pc
+    for pc in 'history -a # keep history' 'true &'; do
+        out="$(_hk_run "PROMPT_COMMAND='$pc'" 'PS1=unset; eval "$PROMPT_COMMAND" 2>&1; case "$PS1" in unset) echo "prompt=missing" ;; *) echo "prompt=built" ;; esac')"
+        assert_contains "$out" "prompt=built" "PROMPT_COMMAND='$pc'"
+        assert_lacks    "$out" "syntax error" "PROMPT_COMMAND='$pc': no syntax error"
+    done
 }
 
 scenario_hooks_prompt_command_array() {

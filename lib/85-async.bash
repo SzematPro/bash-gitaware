@@ -22,7 +22,7 @@
 #     Reads cache for the current (PWD, gitdir) key; if hit, populates the
 #     dirty/ahead/behind vars. If miss, dispatches a background job.
 #   - __bga_async_dispatch             (here)
-#     Cancels any in-flight previous job (SIGTERM + wait) and spawns a new
+#     Cancels any in-flight previous job (SIGTERM) and spawns a new
 #     subshell that computes expensive info and atomically writes it to the
 #     cache (via rename of a sibling tmpfile).
 #   - __bga_async_cleanup              (EXIT trap)
@@ -63,6 +63,7 @@ __bga_async_cleanup() {
 # dispatch a job, _bga_async_pending=1.
 __bga_async_apply_or_dispatch() {
     local key="${PWD}|${_bga_git_dir}"
+    key="${key//$'\n'/?}"     # the cache is line-based: one line per key
     local cache_key='' dirty='' ahead='' behind=''
 
     if [ -n "$_bga_async_cache" ] && [ -e "$_bga_async_cache" ]; then
@@ -104,7 +105,6 @@ __bga_async_dispatch() {
     # Cancel a previous in-flight job, if any.
     if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
         kill -TERM "$_bga_async_pid" 2>/dev/null
-        wait "$_bga_async_pid" 2>/dev/null
     fi
     _bga_async_pid=''
 
@@ -114,7 +114,9 @@ __bga_async_dispatch() {
         local expensive
         expensive="$(__bga_git_info_expensive_compute)"
         # Atomic write: write to a sibling tmpfile and rename into place.
-        local tmp="${cache}.tmp.$$"
+        # $BASHPID, not $$ ($$ is the parent shell in every job): a cancelled
+        # job still running must not share the new job's tmp file.
+        local tmp="${cache}.tmp.$BASHPID"
         {
             printf '_bga_async_key="%s"\n' "$key"
             printf '%s\n' "$expensive"

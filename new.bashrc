@@ -68,7 +68,9 @@ __bga_config_load() {
     if [ ! -f "$f" ] || [ ! -r "$f" ]; then
         __bga_config_warn "$f: not a readable file, ignored"; return 0
     fi
-    if [ ! -O "$f" ] || [ -n "$(find -L "$f" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]; then
+    # The directory matters too: if others can write it they can swap the
+    # file between this check and the read.
+    if [ ! -O "$f" ] || [ -n "$(find -L "$f" "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]; then
         __bga_config_warn "$f: owned or writable by other users, ignored"; return 0
     fi
     local line k v n=0 var q=\'
@@ -220,6 +222,7 @@ fi
 __bga_ps1_lit() {
     local s="$1" bs=\\ dl='$' bt='`'
     s="${s//[[:cntrl:]]/?}"
+    case "$s" in *$'\xc2'*) __bga_strip_c1 "$s"; s="$REPLY" ;; esac
     if shopt -q promptvars; then
         s="${s//"$bs"/"$bs$bs"}"
         s="${s//"$dl"/"$bs$dl"}"
@@ -234,6 +237,28 @@ __bga_ps1_lit() {
 # outside PS1, e.g. the OSC 7 cwd report). Sets REPLY.
 __bga_term_safe() {
     REPLY="${1//[[:cntrl:]]/?}"
+    case "$REPLY" in *$'\xc2'*) __bga_strip_c1 "$REPLY" ;; esac
+}
+
+# C1 controls (U+0080-U+009F, UTF-8 bytes C2 80-9F; C2 9B is CSI) are only
+# [[:cntrl:]] in a UTF-8 locale. A shell in the C locale talking to a UTF-8
+# terminal would pass them through, so match the bytes under LC_ALL=C.
+# Called only when the text contains a C2 byte, which is rare.
+__bga_strip_c1() {
+    local LC_ALL=C
+    REPLY="${1//$'\xc2'[$'\x80'-$'\x9f']/?}"
+}
+
+# Read the first line of a small file into REPLY (at most 256 bytes). Only
+# regular files: a cloned repo can ship .python-version -> /dev/zero, /dev/tty
+# or a FIFO, and an unbounded `read` there hangs every prompt. Returns 1 (and
+# empties REPLY) for anything else.
+__bga_read_line() {
+    REPLY=''
+    [ -f "$1" ] && [ -r "$1" ] || return 1
+    IFS= read -r -n 256 REPLY < "$1" 2>/dev/null
+    REPLY="${REPLY%$'\r'}"
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -369,12 +394,12 @@ esac
 __bga_git_state() {
     # Reads $_bga_git_dir; sets $_bga_git_state. Filesystem checks only -- no subprocesses.
     _bga_git_state=''
-    local d="$_bga_git_dir" s e
+    local d="$_bga_git_dir" s e REPLY
     if [ -d "$d/rebase-merge" ]; then
-        s="$(cat "$d/rebase-merge/msgnum" 2>/dev/null)"; e="$(cat "$d/rebase-merge/end" 2>/dev/null)"
+        __bga_read_line "$d/rebase-merge/msgnum"; s="$REPLY"; __bga_read_line "$d/rebase-merge/end"; e="$REPLY"
         _bga_git_state="REBASE ${s:-?}/${e:-?}"
     elif [ -d "$d/rebase-apply" ]; then
-        s="$(cat "$d/rebase-apply/next" 2>/dev/null)"; e="$(cat "$d/rebase-apply/last" 2>/dev/null)"
+        __bga_read_line "$d/rebase-apply/next"; s="$REPLY"; __bga_read_line "$d/rebase-apply/last"; e="$REPLY"
         if [ -f "$d/rebase-apply/rebasing" ]; then _bga_git_state="REBASE ${s:-?}/${e:-?}"
         else _bga_git_state="AM ${s:-?}/${e:-?}"; fi
     elif [ -f "$d/MERGE_HEAD" ];        then _bga_git_state="MERGING"
@@ -400,9 +425,9 @@ __bga_git_info_cheap() {
 
     # Read .git/HEAD to determine branch / detached state. Filesystem-only.
     local head_path="$_bga_git_dir/HEAD"
-    if [ -r "$head_path" ]; then
-        local head_content=''
-        IFS= read -r head_content < "$head_path" 2>/dev/null
+    local REPLY
+    if __bga_read_line "$head_path"; then
+        local head_content="$REPLY"
         case "$head_content" in
             'ref: refs/heads/'*) _bga_git_branch="${head_content#ref: refs/heads/}" ;;
             'ref: '*)            _bga_git_branch="${head_content#ref: }" ;;
@@ -418,10 +443,8 @@ __bga_git_info_cheap() {
     # fall back to a fast `git rev-parse` for packed refs.
     if [ -n "$_bga_git_branch" ] && [ -z "$_bga_git_hash" ]; then
         local ref_path="$_bga_git_dir/refs/heads/$_bga_git_branch"
-        if [ -r "$ref_path" ]; then
-            local ref_content=''
-            IFS= read -r ref_content < "$ref_path" 2>/dev/null
-            _bga_git_hash="${ref_content:0:7}"
+        if __bga_read_line "$ref_path"; then
+            _bga_git_hash="${REPLY:0:7}"
         else
             _bga_git_hash="$(git rev-parse --short HEAD 2>/dev/null)"
         fi
@@ -448,7 +471,9 @@ __bga_git_info_cheap() {
 __bga_git_status_parse() {
     local st line
     _bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0
-    st="$(git status --porcelain=v2 --branch 2>/dev/null | head -n 8)"
+    # core.fsmonitor names a command that `git status` runs; a .git/config
+    # from an extracted archive could point it anywhere. Never run it.
+    st="$(git -c core.fsmonitor=false status --porcelain=v2 --branch 2>/dev/null | head -n 8)"
     while [ -n "$st" ]; do
         line="${st%%$'\n'*}"
         case "$st" in *$'\n'*) st="${st#*$'\n'}" ;; *) st='' ;; esac
@@ -545,7 +570,9 @@ __bga_path() {
 # ---------------------------------------------------------------------------
 __bga_runtime() {
     [ "${BASHGITAWARE_RUNTIME:-1}" = 0 ] && return
-    local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}"
+    # promptvars is part of the key: the cached string is escaped for it.
+    local pv=0; shopt -q promptvars && pv=1
+    local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}|$pv"
     if [ "$key" = "${_bga_rt_key:-}" ]; then printf '%s' "${_bga_rt_str:-}"; return; fi
     _bga_rt_key="$key"; _bga_rt_str=""
     local out="" v f s REPLY
@@ -565,7 +592,7 @@ __bga_runtime() {
        || [ -e "$PWD/setup.cfg" ] || [ -e "$PWD/requirements.txt" ] || [ -e "$PWD/Pipfile" ] \
        || [ -e "$PWD/.python-version" ]; then
         v=""
-        [ -r "$PWD/.python-version" ] && IFS= read -r v < "$PWD/.python-version" 2>/dev/null
+        __bga_read_line "$PWD/.python-version" && v="$REPLY"
         if [ -z "$v" ]; then
             if   command -v python3 >/dev/null 2>&1; then v="$(python3 --version 2>&1)"
             elif command -v python  >/dev/null 2>&1; then v="$(python --version 2>&1)"; fi
@@ -579,7 +606,7 @@ __bga_runtime() {
     if [ -e "$PWD/package.json" ]; then
         v=""
         for f in .nvmrc .node-version; do
-            [ -r "$PWD/$f" ] && { IFS= read -r v < "$PWD/$f" 2>/dev/null; v="${v#v}"; break; }
+            __bga_read_line "$PWD/$f" && { v="${REPLY#v}"; break; }
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"
@@ -646,7 +673,14 @@ __bga_prompt() {
 
     # Optional OSC window title.
     if [ "$_bga_title" = 1 ]; then
-        ps1+="\[\033]0;${debian_chroot:+($debian_chroot) }\u@\h: \w\007\]"
+        # Not \w: bash 5.1+ passes control characters in it through, so a
+        # directory name could end the title early and inject other OSC
+        # sequences (e.g. a clipboard write). Use the escaped path instead.
+        local REPLY t_path="$PWD" t_chroot=''
+        case "$t_path" in "$HOME" | "$HOME"/*) t_path="~${t_path#"$HOME"}" ;; esac
+        [ -n "${debian_chroot:-}" ] && { __bga_ps1_lit "$debian_chroot"; t_chroot="($REPLY) "; }
+        __bga_ps1_lit "$t_path"
+        ps1+="\[\033]0;${t_chroot}\u@\h: ${REPLY}\007\]"
     fi
 
     # --- Line 1: context ----------------------------------------------------
@@ -861,12 +895,16 @@ __bga_transient_collapse() {
         color=$'\e[1;31m'
     fi
 
-    local sym="${_g_sym:-❯}"
+    local sym="${_g_sym:-❯}" REPLY
+    # The typed line is echoed raw by printf: a pasted command can hide escape
+    # sequences that readline displays safely as ^[. Neutralize them (tabs
+    # become spaces first so ordinary commands look the same).
+    __bga_term_safe "${READLINE_LINE//$'\t'/ }"
 
     if [ "$up" -gt 0 ]; then
-        printf '\r\e[%dA\e[J%s%s%s %s' "$up" "$color" "$sym" "$reset" "${READLINE_LINE:-}"
+        printf '\r\e[%dA\e[J%s%s%s %s' "$up" "$color" "$sym" "$reset" "$REPLY"
     else
-        printf '\r\e[J%s%s%s %s' "$color" "$sym" "$reset" "${READLINE_LINE:-}"
+        printf '\r\e[J%s%s%s %s' "$color" "$sym" "$reset" "$REPLY"
     fi
 }
 
@@ -901,7 +939,7 @@ fi
 #     Reads cache for the current (PWD, gitdir) key; if hit, populates the
 #     dirty/ahead/behind vars. If miss, dispatches a background job.
 #   - __bga_async_dispatch             (here)
-#     Cancels any in-flight previous job (SIGTERM + wait) and spawns a new
+#     Cancels any in-flight previous job (SIGTERM) and spawns a new
 #     subshell that computes expensive info and atomically writes it to the
 #     cache (via rename of a sibling tmpfile).
 #   - __bga_async_cleanup              (EXIT trap)
@@ -942,6 +980,7 @@ __bga_async_cleanup() {
 # dispatch a job, _bga_async_pending=1.
 __bga_async_apply_or_dispatch() {
     local key="${PWD}|${_bga_git_dir}"
+    key="${key//$'\n'/?}"     # the cache is line-based: one line per key
     local cache_key='' dirty='' ahead='' behind=''
 
     if [ -n "$_bga_async_cache" ] && [ -e "$_bga_async_cache" ]; then
@@ -983,7 +1022,6 @@ __bga_async_dispatch() {
     # Cancel a previous in-flight job, if any.
     if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
         kill -TERM "$_bga_async_pid" 2>/dev/null
-        wait "$_bga_async_pid" 2>/dev/null
     fi
     _bga_async_pid=''
 
@@ -993,7 +1031,9 @@ __bga_async_dispatch() {
         local expensive
         expensive="$(__bga_git_info_expensive_compute)"
         # Atomic write: write to a sibling tmpfile and rename into place.
-        local tmp="${cache}.tmp.$$"
+        # $BASHPID, not $$ ($$ is the parent shell in every job): a cancelled
+        # job still running must not share the new job's tmp file.
+        local tmp="${cache}.tmp.$BASHPID"
         {
             printf '_bga_async_key="%s"\n' "$key"
             printf '%s\n' "$expensive"
@@ -1062,15 +1102,17 @@ _bga_pc_save='_bga_exit=$?'
 # shellcheck disable=SC2016,SC2089  # shell code for PROMPT_COMMAND, not argv
 _bga_pc_pre='__bga_pre "${_bga_dbg_done-$(trap -p DEBUG)}"'
 
-# Strip our own entries and stray separators from a PROMPT_COMMAND string.
+# Strip our own entries and surrounding blank lines from a PROMPT_COMMAND
+# string. Entries are joined with newlines, not "; ": a user string that ends
+# in "# comment" or "&" would otherwise swallow or break __bga_prompt.
 __bga_pc_strip() {
-    local s="$1" ws=$' \t\n'
-    s="${s#"$_bga_pc_save; $_bga_pc_pre;"}"; s="${s%; __bga_prompt}"
+    local s="$1" nl=$'\n' ws=$' \t\n'
+    s="${s#"$_bga_pc_save$nl$_bga_pc_pre$nl"}"; s="${s%"$nl"__bga_prompt}"
     [ "$s" = __bga_prompt ] && s=''
     while :; do
         case "$s" in
-            ["$ws"]* | \;*) s="${s#?}" ;;
-            *["$ws"] | *\;) s="${s%?}" ;;
+            ["$ws"]*) s="${s#?}" ;;
+            *["$ws"]) s="${s%?}" ;;
             *) break ;;
         esac
     done
@@ -1088,7 +1130,7 @@ __bga_hooks_install() {
     else
         __bga_pc_strip "${PROMPT_COMMAND:-}"
         # shellcheck disable=SC2178  # string branch: PROMPT_COMMAND is not an array here
-        PROMPT_COMMAND="$_bga_pc_save; $_bga_pc_pre; ${REPLY:+$REPLY; }__bga_prompt"
+        PROMPT_COMMAND="$_bga_pc_save"$'\n'"$_bga_pc_pre"$'\n'"${REPLY:+$REPLY$'\n'}__bga_prompt"
     fi
     # shellcheck disable=SC2090  # only the export flag changes
     export -n PROMPT_COMMAND PS0 PS1 2>/dev/null

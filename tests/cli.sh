@@ -183,3 +183,28 @@ scenario_cli_config_edit() {
     assert_contains "$out" "is a symlink" "symlinked config refused"
     rm -rf "$dir"
 }
+
+scenario_cli_config_unsafe_dir() {
+    section "bga config: no writes where other users could swap files (SR6)"
+    local dir out rc; dir="$(mktemp -d "${TMPDIR:-/tmp}/bga-cli-XXXXXX")"
+    mkdir "$dir/open" "$dir/sticky"; chmod 777 "$dir/open"; chmod 1777 "$dir/sticky"
+    out="$(BASHGITAWARE_CONFIG="$dir/open/config" _bga_cmd config set clock 1 2>&1)"; rc=$?
+    if [ "$rc" = 1 ] && [ ! -e "$dir/open/config" ]; then ok "set refused in a directory others can write"; else fail "set in an open directory: rc=$rc"; fi
+    assert_contains "$out" "writable by other users" "set: says why"
+    BASHGITAWARE_CONFIG="$dir/sticky/config" _bga_cmd config set clock 1 >/dev/null 2>&1; rc=$?
+    if [ "$rc" = 0 ]; then ok "set allowed in a sticky directory (like /tmp)"; else fail "sticky directory refused ($rc)"; fi
+    if command -v script >/dev/null 2>&1 && script -qc true /dev/null >/dev/null 2>&1; then
+        out="$(printf '' | BASHGITAWARE_CONFIG="$dir/open/config" EDITOR=true script -qc "'$REPO/bin/bga' config edit" /dev/null 2>&1)"
+        assert_contains "$out" "writable by other users" "edit refused in a directory others can write"
+        # SR6 F5: an interrupt while the editor runs leaves no temp copy.
+        mkdir -m 700 "$dir/cfg"
+        printf '#!/bin/sh\nkill -INT 0\nsleep 2\n' > "$dir/ed-int"; chmod 755 "$dir/ed-int"
+        printf '' | BASHGITAWARE_CONFIG="$dir/cfg/config" EDITOR="$dir/ed-int" script -qc "'$REPO/bin/bga' config edit" /dev/null >/dev/null 2>&1
+        local left; left="$(cd "$dir/cfg" && for x in .config.edit.*; do [ -e "$x" ] && printf '%s ' "$x"; done)"
+        if [ -z "$left" ]; then ok "interrupted edit: no temp copy left"; else fail "interrupted edit left: $left"; fi
+    else
+        skip "config edit refusal and interrupt (needs util-linux script)"
+    fi
+    rm -rf "$dir"
+}
+

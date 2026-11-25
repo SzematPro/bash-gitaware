@@ -136,6 +136,21 @@ __bga_cli_cfg_find() {
     return "$found"
 }
 
+# True if bga may write config file $1: the same rule as the loader. Its
+# directory must not be writable by group or others unless it is sticky
+# (like /tmp), and an existing file must be ours. Otherwise another user
+# could swap the temp file for a symlink before the mv (SR6 F1).
+__bga_cli_cfg_safe() {
+    local d="${1%/*}"; [ "$d" = "$1" ] && d=.
+    if [ -d "$d" ] && [ -n "$(find -L "$d" -maxdepth 0 \( -perm -020 -o -perm -002 \) ! -perm -1000 2>/dev/null)" ]; then
+        __bga_cli_err "$d is writable by other users; refusing to write the config there"; return 1
+    fi
+    if [ -e "$1" ] && [ ! -O "$1" ]; then __bga_cli_err "$1 is owned by another user"; return 1; fi
+}
+
+# True if temp file $1 is still a regular file of ours, not a symlink.
+__bga_cli_tmp_ok() { [ -f "$1" ] && [ ! -L "$1" ] && [ -O "$1" ]; }
+
 # Rewrite file $1 with KEY $2 set to $3 (or removed when $3 is absent).
 # Comments, other keys and their order are kept. The write is atomic (temp
 # file in the same directory, then mv) and the file stays 0600. A symlinked
@@ -145,6 +160,7 @@ __bga_cli_cfg_write() {
     [ "$#" = 3 ] && set_=1
     if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
     if [ -e "$f" ] && [ ! -f "$f" ]; then __bga_cli_err "$f is not a regular file"; return 1; fi
+    __bga_cli_cfg_safe "$f" || return 1
     dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
     ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
     # Build the new content first, then write it with one printf whose
@@ -169,6 +185,7 @@ __bga_cli_cfg_write() {
     if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
     tmp="$(umask 077; mktemp "$dir/.config.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
     if ! printf '%s' "$out" > "$tmp"; then rm -f "$tmp"; __bga_cli_err "write failed; $f unchanged"; return 1; fi
+    __bga_cli_tmp_ok "$tmp" || { rm -f "$tmp"; __bga_cli_err "temp file changed; $f unchanged"; return 1; }
     mv -f "$tmp" "$f" || { rm -f "$tmp"; __bga_cli_err "cannot replace $f"; return 1; }
 }
 
@@ -176,11 +193,17 @@ __bga_cli_cfg_write() {
 # next to the file; the copy is validated with the loader's own parser and
 # replaces the file (mv, atomic) only when the user keeps it. The editor
 # command goes through sh -c, as git does, so "code --wait" works.
-__bga_cli_cfg_edit() {
-    local f="$1" dir tmp ed="${VISUAL:-${EDITOR:-vi}}" msgs a k notes rest REPLY
+# Runs in a subshell: it changes no shell state, and its traps remove the
+# temp copy on Ctrl-C, hangup or kill (SR6 F5) without touching the user's.
+__bga_cli_cfg_edit() { ( __bga_cli_cfg_edit_body "$@" ); }
+__bga_cli_cfg_edit_body() {
+    local f="$1" dir tmp='' ed="${VISUAL:-${EDITOR:-vi}}" msgs a k notes rest REPLY
+    trap 'rm -f "${tmp:-/nonexistent}"' EXIT
+    trap 'exit 130' INT; trap 'exit 129' HUP; trap 'exit 143' TERM
     if [ ! -t 0 ] || [ ! -t 1 ]; then __bga_cli_err "config edit needs a terminal; use bga config set"; return 2; fi
     if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
     if [ -e "$f" ] && [ ! -f "$f" ]; then __bga_cli_err "$f is not a regular file"; return 1; fi
+    __bga_cli_cfg_safe "$f" || return 1
     dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
     ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
     tmp="$(umask 077; mktemp "$dir/.config.edit.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
@@ -209,8 +232,12 @@ __bga_cli_cfg_edit() {
             case "$a" in e | E | '') continue 2 ;; d | D) rm -f "$tmp"; printf 'bga: discarded; %s unchanged\n' "$f" >&2; return 1 ;; esac
         done
     done
+    # The editor may have replaced the copy (some save by rename): it must
+    # still be a regular file of ours before chmod and mv follow it.
+    __bga_cli_tmp_ok "$tmp" || { __bga_cli_err "the edited copy is no longer a regular file of yours; $f unchanged"; return 1; }
     chmod 600 "$tmp" 2>/dev/null
-    mv -f "$tmp" "$f" || { rm -f "$tmp"; __bga_cli_err "cannot replace $f"; return 1; }
+    mv -f "$tmp" "$f" || { __bga_cli_err "cannot replace $f"; return 1; }
+    tmp=''
     printf 'saved %s; open a new shell or run: bga reload\n' "$f"
 }
 

@@ -22,6 +22,7 @@
 #   BASHGITAWARE_TIMER_THRESHOLD=N           Show command duration only if it took >= N seconds. Default: 2.
 #   BASHGITAWARE_PATH_MAXDEPTH=N             Show at most N trailing path components (0 = unlimited). Default: 3.
 #   BASHGITAWARE_SHOW_HOST=auto|always|never Show user@host. "auto" = only over SSH or as root. Default: auto.
+#   BASHGITAWARE_RUNTIMES=py,node,...         Runtimes to show (py node rust go ruby deno bun java). Default: all.
 #   BASHGITAWARE_SHELL_DEFAULTS=0|1          History settings, ls/grep colors, aliases, completion.
 #                                           Unset = on (3.0 behavior); the installer writes it (ADR-0010).
 #   NO_COLOR                                 If set (any value), disable all color. https://no-color.org
@@ -78,6 +79,13 @@ __bga_config_valid() {
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)
                       case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;
+        runtimes)     # Comma list of runtime names (lib/50-runtime.bash).
+                      local rest="$2," x
+                      [ "$2" != '' ] || return 1
+                      while [ -n "$rest" ]; do
+                          x="${rest%%,*}"; rest="${rest#*,}"
+                          case "$x" in py | node | rust | go | ruby | deno | bun | java) ;; *) return 1 ;; esac
+                      done ;;
         *) return 2 ;;
     esac
 }

@@ -95,3 +95,17 @@ scenario_lean_untrusted() {
     assert_contains "$out" 'b$(touch${IFS}PWNED_LEAN)' "lean: branch shown literally"
     rm -rf "$d"
 }
+
+scenario_lean_powerline() {
+    section "lean: powerline separators only with Nerd Font glyphs"
+    local d; d="$(mktemp_repo)"
+    git -C "$d" commit --allow-empty -qm init
+    local out
+    out="$(_ln_render "$d" BASHGITAWARE_GLYPHS=nerd)"
+    assert_contains "$out" $'' "nerd: thin separator between path and git"
+    out="$(_ln_render "$d" BASHGITAWARE_GLYPHS=nerd BASHGITAWARE_POWERLINE=0)"
+    assert_lacks    "$out" $'' "BASHGITAWARE_POWERLINE=0 turns it off"
+    out="$(_ln_render "$d" BASHGITAWARE_GLYPHS=unicode)"
+    assert_lacks    "$out" $'' "no Nerd Font: no powerline glyphs"
+    rm -rf "$d"
+}

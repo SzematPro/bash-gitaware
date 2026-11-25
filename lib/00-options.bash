@@ -58,7 +58,7 @@ __bga_config_valid() {
         mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
         theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
         style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
-        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock)
+        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline)
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)
                       case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;

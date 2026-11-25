@@ -153,6 +153,7 @@ scenario_lean_right_block
 scenario_lean_wide_path
 scenario_lean_result_line
 scenario_lean_untrusted
+scenario_lean_powerline
 
 # bga CLI.
 scenario_cli_basics

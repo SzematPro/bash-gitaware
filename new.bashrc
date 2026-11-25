@@ -60,7 +60,7 @@ __bga_config_valid() {
         mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
         theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
         style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
-        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock)
+        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline)
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)
                       case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;
@@ -1282,7 +1282,13 @@ __bga_lean_left() {
     fi
     __bga_lean_add path "$1"
     if [ "$_bga_in_git" = 1 ]; then
-        __bga_lean_add dim '  '
+        # Powerline variant (S2): with Nerd Font glyphs, a thin separator
+        # (U+E0B1) between path and git; plain spacing otherwise.
+        if [ "$_bga_glyphs" = nerd ] && [ "${BASHGITAWARE_POWERLINE:-1}" != 0 ]; then
+            __bga_lean_add dim $' \ue0b1 '
+        else
+            __bga_lean_add dim '  '
+        fi
         __bga_lean_add branch "${_g_branch}${_bga_git_branch}"
         [ -n "$_bga_git_state" ]                 && __bga_lean_add state " $_bga_git_state"
         [ "$_bga_git_dirty" = 1 ]                && __bga_lean_add dirty " $_g_dirty"
@@ -1297,7 +1303,9 @@ __bga_lean_left() {
 __bga_prompt_lean() {
     local exit_code="$1" REPLY cols="${COLUMNS:-80}" ps1='' path
     case "$cols" in '' | *[!0-9]*) cols=80 ;; esac
-    local sep=' · '; [ "$_bga_glyphs" = ascii ] && sep=' | '
+    local sep=' · '
+    [ "$_bga_glyphs" = ascii ] && sep=' | '
+    [ "$_bga_glyphs" = nerd ] && [ "${BASHGITAWARE_POWERLINE:-1}" != 0 ] && sep=$' \ue0b3 '
 
     __bga_osc_ps1 '133;A'; ps1+="$REPLY"
     __bga_title_ps1; ps1+="$REPLY"

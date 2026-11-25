@@ -167,3 +167,21 @@ scenario_gitconfig_long_commondir() {
     if [ -e "$base/PWNED" ]; then fail "long commondir: filter ran"; else ok "long commondir: filter not run"; fi
     rm -rf "$base"
 }
+
+scenario_gitconfig_newline_paths() {
+    section "hostile .git: a newline in the repository path fails closed"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-gc-XXXXXX")"
+    local d="$base/x"$'\n'"y"
+    # From a subdirectory, --git-dir is absolute and carries the newline.
+    mkdir -p "$d/sub"; git init -q -b main "$d"
+    printf 'data\n' > "$d/sub/f.txt"; printf '* filter=x\n' > "$d/.gitattributes"
+    git -C "$d" add -A
+    git -C "$d" -c user.name=t -c user.email=t@t commit -qm init
+    git -C "$d" config filter.x.clean "touch '$base/PWNED'; cat"
+    # Decoy where a newline-shifted field would point: sub/y/.git/config.
+    mkdir -p "$d/sub/y/.git"; printf '[core]\n' > "$d/sub/y/.git/config"
+    touch -t 200101010000 "$d/sub/f.txt"
+    bga_render "$d/sub" >/dev/null 2>&1
+    if [ -e "$base/PWNED" ]; then fail "newline path: filter ran"; else ok "newline path: filter not run"; fi
+    rm -rf "$base"
+}

@@ -50,6 +50,11 @@ __bga_git_info_cheap() {
     # linked worktree; git resolves it, we never parse .git/commondir) and the
     # work-tree root, in one shot.
     local rp; rp="$(git rev-parse --git-dir --git-common-dir --show-toplevel 2>/dev/null)" || return
+    # Exactly three lines. A path with a newline in it (a directory name from
+    # an archive) would shift the fields, and the trust check could then scan
+    # a decoy config: show no git info at all rather than guess.
+    local nls="${rp//[!$'\n']/}"
+    [ "${#nls}" = 2 ] || return
     _bga_in_git=1
     _bga_git_untrusted=0
     _bga_git_dir="${rp%%$'\n'*}"; rp="${rp#*$'\n'}"

@@ -198,22 +198,23 @@ __bga_git_trust() {
     [ "${BASHGITAWARE_TRUST_REPO_CONFIG:-0}" = 1 ] && return 0
     # The common dir comes from `git rev-parse --git-common-dir`, so this is
     # the config file git itself loads. Fail closed if it is missing.
-    local gd="${_bga_git_common:-}" wt="${_bga_git_dir:-.git}/config.worktree" key m
+    local gd="${_bga_git_common:-}" wt="${_bga_git_dir:-.git}/config.worktree" key
     [ -n "$gd" ] && [ -f "$gd/config" ] || return 1
-    # Cache per repository: reuse the last verdict while neither config file
-    # is newer than our marker (test -nt is a builtin: no fork). The key also
-    # records whether config.worktree exists, so creating it invalidates.
-    key="$gd|"; [ -f "$wt" ] && key+=wt
-    m="${_bga_state_dir:+$_bga_state_dir/trust}"
-    if [ -n "$m" ] && [ "$key" = "${_bga_trust_key:-}" ] && [ -f "$m" ] \
-       && ! [ "$gd/config" -nt "$m" ] && ! { [ -f "$wt" ] && [ "$wt" -nt "$m" ]; }; then
+    # Cache per repository and worktree, validated by content: the files
+    # are read with the read builtin (no fork; only regular files, at most
+    # 64 KB) and must match what was checked. Modification times are not
+    # trusted: `tar xf` can restore an old one over new content.
+    local c1='' c2=''
+    IFS= read -r -d '' -N 65536 c1 < "$gd/config" 2>/dev/null
+    if [ -f "$wt" ]; then IFS= read -r -d '' -N 65536 c2 < "$wt" 2>/dev/null; c2="wt:$c2"; fi
+    key="$gd|${_bga_git_dir:-}|$c1|$c2"
+    if [ "${#c1}" -lt 65536 ] && [ "${#c2}" -lt 65536 ] && [ "$key" = "${_bga_trust_key:-}" ]; then
         _bga_git_args=("${_bga_trust_args[@]}")
         return "$_bga_trust_rc"
     fi
     __bga_git_trust_scan "$gd" "$wt"; local rc=$?
     _bga_trust_key="$key" _bga_trust_rc="$rc"
     _bga_trust_args=("${_bga_git_args[@]}")
-    [ -n "$m" ] && : > "$m" 2>/dev/null
     return "$rc"
 }
 

@@ -247,20 +247,28 @@ scenario_gitconfig_fifo_no_hang() {
 }
 
 scenario_gitconfig_trust_cache() {
-    section "trust check: cached per repository, invalidated by a config change"
+    section "trust check: cache validated by content, per worktree"
     local d; d="$(_gc_repo)"
+    git -C "$d" worktree add -q "$d.wt" -b wt >/dev/null 2>&1
+    git -C "$d" config extensions.worktreeConfig true
     local out
     out="$(bash --norc --noprofile -i -c "
         export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=1 BASHGITAWARE_MODE=full
         cd '$d'; source '$REPO/new.bashrc'
         __bga_prompt; a=\"\${_bga_git_args[*]}\"
+        # New content with an OLD mtime, as tar xf would restore it.
         git config filter.x.clean 'touch $d/PWNED; cat'
-        touch -t 203001010000 .git/config
+        touch -t 200001010000 .git/config
         __bga_prompt; b=\"\${_bga_git_args[*]}\"
-        printf 'a=%s\nb=%s\n' \"\$a\" \"\$b\"" 2>/dev/null)"
-    assert_lacks    "${out%%$'\n'b=*}" "filter.x.clean=" "first prompt: no filter to neutralize"
-    assert_contains "$out" "b=--no-optional-locks"$'' "second prompt computed args"
-    case "$out" in *$'\n'b=*filter.x.clean=*) ok "config change invalidates the cache" ;;
-        *) fail "stale trust cache: $(printf '%q' "$out")" ;; esac
-    rm -rf "$d"
+        # A second worktree with its own config.worktree filter.
+        printf '[filter \"y\"]\n\tclean = cat\n' > '$d/.git/worktrees/$(basename "$d.wt")/config.worktree'
+        touch -t 200001010000 '$d/.git/worktrees/$(basename "$d.wt")/config.worktree'
+        cd '$d.wt'; __bga_prompt; c=\"\${_bga_git_args[*]}\"
+        printf 'a=%s\nb=%s\nc=%s\n' \"\$a\" \"\$b\" \"\$c\"" 2>/dev/null)"
+    local a b c
+    a="$(printf '%s\n' "$out" | grep '^a=')"; b="$(printf '%s\n' "$out" | grep '^b=')"; c="$(printf '%s\n' "$out" | grep '^c=')"
+    assert_lacks    "$a" "filter.x.clean=" "first prompt: nothing to neutralize"
+    assert_contains "$b" "filter.x.clean=" "content change with an old mtime invalidates the cache"
+    assert_contains "$c" "filter.y.clean=" "another worktree does not reuse the verdict"
+    rm -rf "$d" "$d.wt"
 }

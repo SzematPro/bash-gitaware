@@ -28,7 +28,7 @@
 | T0.4 | R10 | Shell-state independence | The prompt renders identically with `extglob`, `nullglob`, `failglob`, `nocaseglob`, `nocasematch`, `globstar`, `dotglob`, `expand_aliases`, `patsub_replacement`, `xpg_echo`, `set -f`, `set -u`, `set -o posix`, `IFS=:` (`tests/shellstate.sh`); `promptvars` off is covered in `tests/security.sh` | done |
 | T0.5 | R8 | Plain/agent mode detection | `TERM=dumb`, no tty, `CI`, `AGENT`, `AI_AGENT` or `BASHGITAWARE_MODE=plain` produce `<path> (<branch>[ *])[ [exit N]] $ `: one ASCII line, no escape sequences, untrusted text escaped; `BASHGITAWARE_MODE=full` overrides (`tests/plain.sh`, plus a pty run); user docs pending in T4.3 | done |
 | T0.6 | R9 | Hook coexistence | Existing `PROMPT_COMMAND` (string or array), `PS0`, DEBUG and EXIT traps keep working and the exit status reaches the user's hooks; bash-preexec gets the timer through `preexec_functions`; sourcing twice is idempotent; `PROMPT_COMMAND`, `PS0` and `PS1` are unexported (`tests/hooks.sh`, plus a pty run: `took 3s`, user DEBUG trap chained) | done |
-| T0.7 | R10 | Config loader | `~/.config/bash-gitaware/config` is parsed as `key=value` lines and never sourced; unknown keys produce a warning; values are validated per key | todo |
+| T0.7 | R10 | Config loader | `${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-~/.config}/bash-gitaware/config}` is parsed as `key = value` lines and never sourced; per-key validation; unknown keys, bad values and malformed lines are reported with line numbers; environment > file > preset; a file that others own or can write is refused (`tests/config.sh`) | done |
 
 Exit gate: SR1 (state directory, config parsing, escaping).
 

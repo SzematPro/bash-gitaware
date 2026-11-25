@@ -20,6 +20,8 @@ source "$HERE/shellstate.sh"
 source "$HERE/hooks.sh"
 # shellcheck source=plain.sh
 source "$HERE/plain.sh"
+# shellcheck source=config.sh
+source "$HERE/config.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -29,6 +31,8 @@ scenario_sandbox_clean
 # Tests run without a tty, which would auto-select plain mode; plain mode has
 # its own scenarios (tests/plain.sh) that unset this.
 export BASHGITAWARE_MODE=full
+# Never read the developer's own config file; tests/config.sh sets its own.
+export BASHGITAWARE_CONFIG=/nonexistent/bash-gitaware-test-config
 lib_syntax_check
 build_freshness_check
 
@@ -81,6 +85,11 @@ scenario_hooks_traps_chained
 scenario_hooks_bash_preexec
 scenario_hooks_async_exit_chained
 scenario_hooks_ps0_and_exports
+
+# Config file.
+scenario_config_file
+scenario_config_file_validation
+scenario_config_file_permissions
 
 # Plain mode.
 scenario_plain_mode

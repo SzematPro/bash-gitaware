@@ -87,3 +87,24 @@ scenario_security_promptvars_off() {
     assert_contains "$out" 'a\b $HOME !x' "subject literal with promptvars off"
     rm -rf "$d"
 }
+
+scenario_security_async_cache_private() {
+    section "security: async cache lives in a private directory"
+    local tmp; tmp="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
+    local out
+    # Shared-/tmp fallback (no XDG_RUNTIME_DIR): the cache dir must be fresh,
+    # owned by us, mode 0700, and removed when the shell exits.
+    out="$(env -u XDG_RUNTIME_DIR TMPDIR="$tmp" bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM='xterm-256color' LANG='C.UTF-8' BASHGITAWARE_ASYNC=1
+        source '$REPO/new.bashrc'
+        printf '%s|' \"\$_bga_async_cache\"
+        stat -c '%a' \"\$_bga_async_dir\" 2>/dev/null || stat -f '%Lp' \"\$_bga_async_dir\"
+    " 2>/dev/null)"
+    case "$out" in
+        "$tmp"/bga.*/cache\|700) ok "cache in private 0700 dir under TMPDIR" ;;
+        *) fail "async cache not private (got: $out)" ;;
+    esac
+    local left; left="$(find "$tmp" -mindepth 1 2>/dev/null)"
+    if [ -z "$left" ]; then ok "cache dir removed at exit"; else fail "cache leftovers: $left"; fi
+    rm -rf "$tmp"
+}

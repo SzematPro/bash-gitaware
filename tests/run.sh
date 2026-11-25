@@ -58,6 +58,7 @@ scenario_security_version_file
 scenario_security_control_chars
 scenario_security_special_chars
 scenario_security_promptvars_off
+scenario_security_async_cache_private
 
 # Performance.
 scenario_perf_budget

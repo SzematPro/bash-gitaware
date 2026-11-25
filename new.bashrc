@@ -738,13 +738,20 @@ fi
 
 _bga_async_pid=''
 _bga_async_cache=''
+_bga_async_dir=''
 _bga_async_pending=0
 
 # Called once at source time from lib/90-hooks.bash.
 __bga_async_init() {
     [ "${BASHGITAWARE_ASYNC:-1}" = 0 ] && return
     [[ $- == *i* ]] || return
-    _bga_async_cache="${XDG_RUNTIME_DIR:-/tmp}/bga-${$}.cache"
+    # Private per-shell directory: a predictable name in a shared /tmp would
+    # let another local user plant a symlink that the cache write follows.
+    # XDG_RUNTIME_DIR is per-user (0700) when set; mktemp -d makes 0700 too.
+    local base="${XDG_RUNTIME_DIR:-}"
+    if [ -z "$base" ] || [ ! -d "$base" ] || [ ! -O "$base" ]; then base="${TMPDIR:-/tmp}"; fi
+    _bga_async_dir="$(mktemp -d "$base/bga.XXXXXXXX" 2>/dev/null)" || { _bga_async_dir=''; return; }
+    _bga_async_cache="$_bga_async_dir/cache"
     trap '__bga_async_cleanup' EXIT
 }
 
@@ -752,7 +759,10 @@ __bga_async_cleanup() {
     if [ -n "$_bga_async_pid" ] && kill -0 "$_bga_async_pid" 2>/dev/null; then
         kill -TERM "$_bga_async_pid" 2>/dev/null
     fi
-    [ -n "$_bga_async_cache" ] && [ -e "$_bga_async_cache" ] && rm -f "$_bga_async_cache"
+    if [ -n "${_bga_async_dir:-}" ] && [ -d "$_bga_async_dir" ]; then
+        rm -f "$_bga_async_dir"/cache "$_bga_async_dir"/cache.tmp.* 2>/dev/null
+        rmdir "$_bga_async_dir" 2>/dev/null
+    fi
 }
 
 # Try the cache for the current (PWD, gitdir) key. Hit -> populate the

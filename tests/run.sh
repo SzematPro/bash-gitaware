@@ -24,6 +24,8 @@ source "$HERE/plain.sh"
 source "$HERE/config.sh"
 # shellcheck source=gitconfig.sh
 source "$HERE/gitconfig.sh"
+# shellcheck source=width.sh
+source "$HERE/width.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -114,6 +116,10 @@ scenario_config_file_permissions
 # Plain mode.
 scenario_plain_mode
 scenario_plain_mode_escaping
+
+# Width engine.
+scenario_width_engine
+scenario_width_engine_linear
 
 # Shell-state independence.
 scenario_shell_state_independence

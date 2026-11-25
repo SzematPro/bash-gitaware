@@ -6,7 +6,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-(no changes yet)
+## [2.0.1] - 2026-11-25
+
+### Security
+
+- **Prompt command execution (critical).** In 2.0.0 and earlier, branch
+  names, commit subjects, directory names, `.python-version` / `.nvmrc` /
+  `.node-version` contents and virtualenv/conda names were pasted into `PS1`
+  unescaped. With bash's default `promptvars`, a repository containing a
+  branch or commit subject such as `$(cmd)` or `` `cmd` `` ran `cmd` on every
+  prompt as soon as the user entered the directory. All untrusted segments
+  are now escaped by `__bga_ps1_lit` (new `lib/15-escape.bash`) and shown
+  verbatim; backslash sequences such as `\u` in a subject are no longer
+  decoded either.
+- **Terminal-escape injection.** Control characters in those segments, and
+  in the OSC 7 cwd report, are replaced with `?`.
+- **Async cache in a shared directory.** Without `XDG_RUNTIME_DIR`, the
+  cache lived at the predictable `/tmp/bga-<pid>.cache`, letting another
+  local user plant a symlink that the cache write followed. It now lives in
+  a private `mktemp -d` directory, removed at exit.
+
+### Fixed
+
+- Transient prompt line count is tracked while building `PS1` instead of
+  counting `\n` in the final string, which over-counted when escaped text
+  contained a literal backslash-n.
+
+### Added
+
+- `tests/security.sh`: regression scenarios for every injection source,
+  control characters, special characters, `promptvars` off, and the async
+  cache location.
 
 ## [2.0.0] - 2026-05-13
 

@@ -26,19 +26,26 @@ runtime-manager variables).
 
 The relevant risks and how we treat them:
 
-- **Shell injection through prompt data.** Branch names, commit subjects and
-  filenames are treated as data: they are inserted into `PS1` as strings,
-  never re-evaluated. The prompt uses `${var}` expansion and `printf`, never
-  `eval` of user-controlled content. A branch named `$(touch /tmp/x)` does
-  not execute.
-- **Terminal-escape injection.** Commit subjects and branch names are
-  inserted into a prompt that emits ANSI/OSC escapes around them. A subject
-  that itself contains escape sequences could affect terminal state. This is
-  a known trade-off of any prompt that displays git data; mitigation is the
-  responsibility of the terminal emulator (modern terminals filter or
-  sanitize escapes in scrollback). bash-gitaware does not actively sanitize
-  the commit subject; users who clone untrusted repositories should be aware
-  of this trade-off.
+- **Shell injection through prompt data.** Branch names, commit subjects,
+  directory names, version files (`.python-version`, `.nvmrc`,
+  `.node-version`) and virtualenv/conda names are attacker-controlled: any
+  cloned repository can set them. `PS1` is decoded for backslash escapes and
+  then, with `shopt -s promptvars` (the bash default), expanded again, so
+  such text must never reach `PS1` raw. Every untrusted segment goes through
+  `__bga_ps1_lit` (`lib/15-escape.bash`), which escapes `\`, `$` and
+  backticks for both layers; `tests/security.sh` plants `$(...)` and
+  backtick payloads in each source and asserts they are shown, not run.
+  Versions up to and including 2.0.0 did not do this; upgrade to 2.0.1.
+- **Terminal-escape injection.** Control characters (C0, DEL, and C1 in
+  UTF-8 locales) in any untrusted segment are replaced with `?` before they
+  reach `PS1` or the OSC 7 cwd report, so a commit subject or directory name
+  cannot change the window title, move the cursor or break readline's line
+  width accounting.
+- **Async cache file.** The background git job writes its result inside a
+  private per-shell directory (`$XDG_RUNTIME_DIR` when it is set and owned
+  by the user, otherwise a `mktemp -d` directory under `$TMPDIR` or `/tmp`,
+  mode 0700), removed at shell exit. The cache is parsed, never sourced, and
+  only numeric values are accepted.
 - **Reading from `/proc/1/cgroup`** for container detection. Read-only,
   done once at shell startup, no command execution.
 - **`tput` / `dircolors` / `lesspipe`** sub-invocations. Standard system

@@ -251,6 +251,7 @@ verifies the artifact is current.
 |---|---|
 | `lib/00-options.bash` | Read `BASHGITAWARE_*` knobs; apply presets via `${var:=value}` so user overrides win. |
 | `lib/10-detect.bash` | Detect SSH session, container, UTF-8 locale, terminal title support, root, color capability — once at startup, not per prompt. |
+| `lib/15-escape.bash` | Escape untrusted text (branch, commit subject, paths, version files) before it enters `PS1`, and strip control characters. See [SECURITY.md](SECURITY.md). |
 | `lib/20-palette.bash` | 256-color palette + tiered glyph selection (`nerd` > `unicode` > `ascii`). |
 | `lib/30-git.bash` | Cheap (sync) git info: rev-parse + filesystem state + branch label from `.git/HEAD`. Expensive (async) info compute function for the background job. |
 | `lib/40-path.bash` | Repo-relative path inside a git work tree; `~`-relative outside; trim to `BASHGITAWARE_PATH_MAXDEPTH`. |
@@ -380,9 +381,10 @@ bash-gitaware/
 ├── install.sh              install to ~/.bashrc (--replace or --append)
 ├── bin/build.sh            concatenate lib/*.bash into new.bashrc
 ├── Makefile                build / test / lint / check / demo
-├── lib/                    canonical source, twelve modules
+├── lib/                    canonical source, thirteen modules
 │   ├── 00-options.bash
 │   ├── 10-detect.bash
+│   ├── 15-escape.bash
 │   ├── 20-palette.bash
 │   ├── 30-git.bash
 │   ├── 40-path.bash
@@ -402,6 +404,7 @@ bash-gitaware/
 │   ├── run.sh              orchestrator
 │   ├── lib.sh              assertion helpers
 │   ├── scenarios.sh        rendering scenarios (69 asserts)
+│   ├── security.sh         injection / escape regression scenarios
 │   ├── perf.sh             80 ms render budget
 │   └── MANUAL.md           interactive checklist
 ├── demo/                   vhs tape + generated GIF (`make demo` to regenerate)

@@ -93,12 +93,19 @@ __bga_config_valid() {
     esac
 }
 
+# Key case folding in the C locale: keys are ASCII, and in some locales
+# (tr_TR) ${k^^} turns i into a dotted capital I, which is no valid variable
+# name. Only the conversion runs in C: the warnings must keep classifying
+# UTF-8 control characters (C1, such as U+009B) in the user's locale.
+__bga_key_lc() { local LC_ALL=C; REPLY="${1,,}"; }
+__bga_key_uc() { local LC_ALL=C; REPLY="${1^^}"; }
+
 # __bga_config_parse <file> <label> <policy 0|1>: apply the key = value lines
 # of a file already checked by the caller. Warnings say "<label>:N:".
 # Policy lines are assigned even over the environment and recorded in
 # _bga_policy_locked (" key key "); user lines fill only unset, unlocked keys.
 __bga_config_parse() {
-    local f="$1" label="$2" pol="$3" line k v n=0 var q=\'
+    local f="$1" label="$2" pol="$3" line k v n=0 var q=\' REPLY
     while IFS= read -r line || [ -n "$line" ]; do
         n=$(( n + 1 ))
         line="${line%$'\r'}"
@@ -109,14 +116,14 @@ __bga_config_parse() {
         k="${line%%=*}"; v="${line#*=}"
         k="${k%"${k##*[![:blank:]]}"}"; v="${v#"${v%%[![:blank:]]*}"}"
         case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; "$q"*"$q") v="${v#"$q"}"; v="${v%"$q"}" ;; esac
-        k="${k,,}"
+        __bga_key_lc "$k"; k="$REPLY"
         __bga_config_valid "$k" "$v"
         case $? in
             0) ;;
             2) __bga_config_warn "$label:$n: unknown key '$k'"; continue ;;
             *) __bga_config_warn "$label:$n: invalid value for '$k'"; continue ;;
         esac
-        var="BASHGITAWARE_${k^^}"
+        __bga_key_uc "$k"; var="BASHGITAWARE_$REPLY"
         if [ "$pol" = 1 ]; then
             printf -v "$var" '%s' "$v"
             _bga_policy_vars+="$var "
@@ -129,26 +136,32 @@ __bga_config_parse() {
     done < "$f"
 }
 
-# __bga_policy_trusted <file>: true if the policy may be used. On failure,
-# REPLY says why. Regular file, not a symlink; it and every directory on its
-# physical path owned by uid 0 and not writable by group or others (one find
-# over all of them: each path that passes is printed, so a find that fails
-# or skips one fails closed); on macOS, no ACL entry granting write.
+# __bga_policy_trusted <file>: true if the policy may be used, and then
+# _bga_policy_real is the physical path that was checked: the caller reads
+# that one, never $1 again, so a symlink on the way cannot be swapped between
+# the check and the read (SR5 F1). On failure, REPLY says why. Rules: regular
+# file, not a symlink, readable, no newline in the path; it and every
+# directory on its physical path owned by uid 0 and not writable by group or
+# others (one find over all of them that prints the paths that fail; any
+# output or error refuses, SR5 F2); on macOS, no ACL entry granting write.
 __bga_policy_trusted() {
-    local f="$1" d x out n=0
-    REPLY=''
+    local f="$1" d x out
+    REPLY='' _bga_policy_real=''
+    case "$f" in *$'\n'*) REPLY='has a newline in its path'; return 1 ;; esac
     if [ -L "$f" ]; then REPLY='is a symlink'; return 1; fi
     if [ ! -f "$f" ]; then REPLY='is not a regular file'; return 1; fi
     if [ ! -r "$f" ]; then REPLY='is not readable (it should be mode 0644)'; return 1; fi
     d="${f%/*}"; [ -n "$d" ] || d=/
-    d="$(CDPATH='' builtin cd -P -- "$d" 2>/dev/null && pwd -P)" || { REPLY='directory not accessible'; return 1; }
+    # The trailing x keeps a trailing newline that $(...) would strip.
+    d="$(CDPATH='' builtin cd -P -- "$d" 2>/dev/null && pwd -P && printf x)" || { REPLY='directory not accessible'; return 1; }
+    d="${d%$'\n'x}"
+    case "$d" in *$'\n'*) REPLY='has a newline in its path'; return 1 ;; esac
     local -a p=("${d%/}/${f##*/}")
     x="$d"
     while [ -n "$x" ] && [ "$x" != / ]; do p+=("$x"); x="${x%/*}"; done
     p+=(/)
-    out="$(find "${p[@]}" -maxdepth 0 -user 0 ! -perm -020 ! -perm -002 -print 2>/dev/null)"
-    [ -n "$out" ] && { x="${out//[!$'\n']/}"; n=$(( ${#x} + 1 )); }
-    if [ "$n" != "${#p[@]}" ]; then
+    out="$(find "${p[@]}" -maxdepth 0 \( ! -user 0 -o -perm -020 -o -perm -002 \) -print 2>/dev/null; printf 'rc=%s' "$?")"
+    if [ "$out" != rc=0 ]; then
         REPLY='it or a parent directory is not owned by root, or is writable by group or others'
         return 1
     fi
@@ -168,6 +181,7 @@ __bga_policy_trusted() {
             esac
         done
     fi
+    _bga_policy_real="${p[0]}"
 }
 
 # The policy path. Only the test suite changes it, through an unexported
@@ -181,7 +195,7 @@ __bga_policy_load() {
     local REPLY
     if __bga_policy_trusted "$_bga_policy_path"; then
         _bga_policy_state=applied
-        __bga_config_parse "$_bga_policy_path" policy 1
+        __bga_config_parse "$_bga_policy_real" policy 1
     else
         _bga_policy_state=refused _bga_policy_reason="$REPLY"
         __bga_config_warn "$_bga_policy_path: $REPLY; policy ignored"
@@ -2056,7 +2070,7 @@ __bga_cli_config() {
             while IFS= read -r line || [ -n "$line" ]; do
                 line="${line%$'\r'}"
                 case "$line" in '' | [[:blank:]]*'#'* | '#'*) continue ;; *=*) ;; *) continue ;; esac
-                k="${line%%=*}"; k="${k#"${k%%[![:blank:]]*}"}"; k="${k%"${k##*[![:blank:]]}"}"; k="${k,,}"
+                k="${line%%=*}"; k="${k#"${k%%[![:blank:]]*}"}"; k="${k%"${k##*[![:blank:]]}"}"; __bga_key_lc "$k"; k="$REPLY"
                 __bga_term_safe "$line"
                 case "${_bga_policy_locked:- }" in
                     *" $k "*) printf '%s   (ignored: locked by policy)\n' "$REPLY" ;;
@@ -2069,7 +2083,7 @@ __bga_cli_config() {
             __bga_term_safe "$REPLY"; printf '%s\n' "$REPLY" ;;
         set)
             [ "$#" = 2 ] || { __bga_cli_err "usage: bga config set KEY VALUE"; return 2; }
-            key="${1,,}"
+            __bga_key_lc "$1"; key="$REPLY"
             __bga_config_valid "$key" "$2"
             case $? in
                 0) ;;
@@ -2080,7 +2094,7 @@ __bga_cli_config() {
             __bga_cli_cfg_write "$f" "$key" "$2" ;;
         unset)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config unset KEY"; return 2; }
-            key="${1,,}"
+            __bga_key_lc "$1"; key="$REPLY"
             __bga_cli_locked "$key" && return 1
             __bga_cli_cfg_write "$f" "$key" ;;
         *) __bga_cli_err "unknown config command '$sub'"; return 2 ;;
@@ -2089,7 +2103,8 @@ __bga_cli_config() {
 
 # Value of KEY in file $1 into REPLY (last occurrence wins, like the loader).
 __bga_cli_cfg_find() {
-    local f="$1" want="${2,,}" line k v found=1
+    local f="$1" want line k v val='' found=1
+    __bga_key_lc "$2"; want="$REPLY"
     REPLY=''
     [ -f "$f" ] || return 1
     while IFS= read -r line || [ -n "$line" ]; do
@@ -2097,11 +2112,12 @@ __bga_cli_cfg_find() {
         line="${line#"${line%%[![:blank:]]*}"}"
         case "$line" in '' | '#'*) continue ;; *=*) ;; *) continue ;; esac
         k="${line%%=*}"; k="${k%"${k##*[![:blank:]]}"}"
-        [ "${k,,}" = "$want" ] || continue
+        __bga_key_lc "$k"; [ "$REPLY" = "$want" ] || continue
         v="${line#*=}"; v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
         case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
-        REPLY="$v" found=0
+        val="$v" found=0
     done < "$f"
+    REPLY="$val"
     return "$found"
 }
 
@@ -2126,7 +2142,8 @@ __bga_cli_cfg_write() {
                 *=*) k="${k%%=*}"; k="${k%"${k##*[![:blank:]]}"}" ;;
                 *) out+="$line"$'\n'; continue ;;
             esac
-            if [ "${k,,}" = "$key" ]; then
+            __bga_key_lc "$k"
+            if [ "$REPLY" = "$key" ]; then
                 if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
                 done_=1
                 continue

@@ -81,7 +81,7 @@ __bga_cli_config() {
             while IFS= read -r line || [ -n "$line" ]; do
                 line="${line%$'\r'}"
                 case "$line" in '' | [[:blank:]]*'#'* | '#'*) continue ;; *=*) ;; *) continue ;; esac
-                k="${line%%=*}"; k="${k#"${k%%[![:blank:]]*}"}"; k="${k%"${k##*[![:blank:]]}"}"; k="${k,,}"
+                k="${line%%=*}"; k="${k#"${k%%[![:blank:]]*}"}"; k="${k%"${k##*[![:blank:]]}"}"; __bga_key_lc "$k"; k="$REPLY"
                 __bga_term_safe "$line"
                 case "${_bga_policy_locked:- }" in
                     *" $k "*) printf '%s   (ignored: locked by policy)\n' "$REPLY" ;;
@@ -94,7 +94,7 @@ __bga_cli_config() {
             __bga_term_safe "$REPLY"; printf '%s\n' "$REPLY" ;;
         set)
             [ "$#" = 2 ] || { __bga_cli_err "usage: bga config set KEY VALUE"; return 2; }
-            key="${1,,}"
+            __bga_key_lc "$1"; key="$REPLY"
             __bga_config_valid "$key" "$2"
             case $? in
                 0) ;;
@@ -105,7 +105,7 @@ __bga_cli_config() {
             __bga_cli_cfg_write "$f" "$key" "$2" ;;
         unset)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config unset KEY"; return 2; }
-            key="${1,,}"
+            __bga_key_lc "$1"; key="$REPLY"
             __bga_cli_locked "$key" && return 1
             __bga_cli_cfg_write "$f" "$key" ;;
         *) __bga_cli_err "unknown config command '$sub'"; return 2 ;;
@@ -114,7 +114,8 @@ __bga_cli_config() {
 
 # Value of KEY in file $1 into REPLY (last occurrence wins, like the loader).
 __bga_cli_cfg_find() {
-    local f="$1" want="${2,,}" line k v found=1
+    local f="$1" want line k v val='' found=1
+    __bga_key_lc "$2"; want="$REPLY"
     REPLY=''
     [ -f "$f" ] || return 1
     while IFS= read -r line || [ -n "$line" ]; do
@@ -122,11 +123,12 @@ __bga_cli_cfg_find() {
         line="${line#"${line%%[![:blank:]]*}"}"
         case "$line" in '' | '#'*) continue ;; *=*) ;; *) continue ;; esac
         k="${line%%=*}"; k="${k%"${k##*[![:blank:]]}"}"
-        [ "${k,,}" = "$want" ] || continue
+        __bga_key_lc "$k"; [ "$REPLY" = "$want" ] || continue
         v="${line#*=}"; v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
         case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
-        REPLY="$v" found=0
+        val="$v" found=0
     done < "$f"
+    REPLY="$val"
     return "$found"
 }
 
@@ -151,7 +153,8 @@ __bga_cli_cfg_write() {
                 *=*) k="${k%%=*}"; k="${k%"${k##*[![:blank:]]}"}" ;;
                 *) out+="$line"$'\n'; continue ;;
             esac
-            if [ "${k,,}" = "$key" ]; then
+            __bga_key_lc "$k"
+            if [ "$REPLY" = "$key" ]; then
                 if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
                 done_=1
                 continue

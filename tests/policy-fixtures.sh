@@ -43,6 +43,13 @@ mkdir -p "$b/link"; chmod 755 "$b/link"
 ln -s "$b/ok/policy" "$b/link/policy"
 # A root-owned symlinked directory on the path (like macOS /etc): accepted.
 ln -s "$b/ok" "$b/alias"
+# A newline in a directory name, writable by anyone: refused (SR5 F2).
+mkdir -p "$b/nl
+x"; chmod 777 "$b/nl
+x"
+printf 'theme = contrast\n' > "$b/nl
+x/policy"; chmod 644 "$b/nl
+x/policy"
 # A FIFO: must be refused without blocking.
 mkdir -p "$b/fifo"; chmod 755 "$b/fifo"
 mkfifo "$b/fifo/policy"; chmod 644 "$b/fifo/policy"

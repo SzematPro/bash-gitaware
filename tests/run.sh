@@ -149,6 +149,7 @@ scenario_config_file
 scenario_config_file_validation
 scenario_config_file_permissions
 scenario_config_file_sticky_dir
+scenario_config_turkish_locale
 scenario_shell_defaults
 scenario_shell_path_untouched
 scenario_policy_untrusted_user_file

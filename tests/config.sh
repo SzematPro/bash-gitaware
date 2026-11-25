@@ -81,3 +81,16 @@ scenario_config_file_sticky_dir() {
     assert_contains "$out" "p=unset" "symlink planted in a sticky directory: refused"
     chmod 755 "$dir/open" "$dir/sticky"; rm -rf "$dir"
 }
+
+scenario_config_turkish_locale() {
+    section "config file: keys work in a Turkish locale (SR5 F3)"
+    if ! locale -a 2>/dev/null | grep -qi '^tr_TR\.utf-\?8$'; then skip "tr_TR.UTF-8 locale not installed"; return; fi
+    local dir; dir="$(mktemp -d "${TMPDIR:-/tmp}/bga-cfg-XXXXXX")"
+    local f="$dir/config" out
+    printf 'commit_line = 1\ntimer_threshold = 9\nTheme = light\n' > "$f"; chmod 600 "$f"
+    out="$(_cf_run "$f" 'echo "c=$BASHGITAWARE_COMMIT_LINE t=$BASHGITAWARE_TIMER_THRESHOLD th=$BASHGITAWARE_THEME"' 'export LC_ALL=tr_TR.UTF-8')"
+    assert_contains "$out" "c=1 t=9 th=light" "keys with i, and an uppercase key, apply under tr_TR"
+    assert_lacks    "$out" "not a valid identifier" "no invalid variable name"
+    rm -rf "$dir"
+}
+

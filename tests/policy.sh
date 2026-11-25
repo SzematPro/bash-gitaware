@@ -72,8 +72,11 @@ scenario_policy_applied() {
     assert_contains "$out" "doctor=0" "doctor exits 0 with an applied policy"
 
     # A root-owned symlinked directory on the path is fine (macOS /etc).
-    out="$(_pol_run "$_PF/alias/policy" '' 'echo "theme=$BASHGITAWARE_THEME state=$_bga_policy_state"')"
+    out="$(_pol_run "$_PF/alias/policy" '' 'echo "theme=$BASHGITAWARE_THEME state=$_bga_policy_state real=$_bga_policy_real"')"
     assert_contains "$out" "theme=contrast state=applied" "root-owned directory symlink accepted"
+    # SR5 F1: the file read is the physical path that was checked, so a
+    # symlink on the way cannot be swapped between check and read.
+    assert_contains "$out" "real=$_PF/ok/policy" "the checked physical path is the one read"
 
     out="$(_pol_run "$_PF/badlines/policy" '' 'echo "theme=$BASHGITAWARE_THEME glyphs=${BASHGITAWARE_GLYPHS:-unset}"')"
     assert_contains "$out" "policy:3: unknown key 'bogus'" "bad policy line warned with its number"
@@ -95,6 +98,9 @@ scenario_policy_refused() {
     section "policy: refused when anyone but root could change it"
     if ! _pol_have_fixtures; then skip "policy fixtures missing (run tests/policy-fixtures.sh as root)"; return; fi
     local c out rc
+    # SR5 F2: a newline in a path name must not fool the check.
+    out="$(_pol_run "$_PF/nl"$'\n'"x/policy" '' 'echo "theme=${BASHGITAWARE_THEME:-unset} state=$_bga_policy_state"')"
+    assert_contains "$out" "theme=unset state=refused" "newline in a directory name: refused"
     for c in gw dirw link fifo unreadable acl; do
         if [ "$c" = acl ] && [ ! -e "$_PF/acl/policy" ]; then skip "policy acl: no ACL support here"; continue; fi
         out="$(run_bounded 10 _pol_run "$_PF/$c/policy" '' 'echo "theme=${BASHGITAWARE_THEME:-unset} state=$_bga_policy_state"; bga doctor >/dev/null 2>&1; echo "doctor=$?"')"; rc=$?

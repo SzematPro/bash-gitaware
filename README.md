@@ -36,7 +36,7 @@ The expensive part of `git status` runs in the background. In a
 ```bash
 git clone https://github.com/SzematPro/bash-gitaware ~/.bash-gitaware
 cd ~/.bash-gitaware
-./install.sh            # asks: append to ~/.bashrc or replace it, theme, glyphs
+./install.sh            # asks: append or replace, theme, glyphs, shell defaults
 exec bash
 ```
 
@@ -67,10 +67,30 @@ bga reload                      # applies changes to this shell
 | `timer_threshold` | seconds | `2` |
 | `show_host` | `auto`, `always`, `never` | `auto` (over SSH or as root) |
 | `mode` | `auto`, `plain`, `full` | `auto` |
+| `shell_defaults` | `0`, `1` | written by the installer (see below) |
 
 Every key also works as an environment variable (`BASHGITAWARE_THEME`,
 and so on), which takes precedence over the file. `NO_COLOR` is honored.
 The full list is in [docs/MIGRATION.md](docs/MIGRATION.md).
+
+## Shell defaults
+
+bash-gitaware can also set what a stock Debian/Ubuntu `~/.bashrc` sets:
+history options (`HISTCONTROL=ignoreboth`, `HISTSIZE=10000`,
+`HISTFILESIZE=20000`, `histappend`), `ls` and `grep` colors, the aliases
+`ll`, `la`, `l` and `alert`, the git aliases `gs`, `ga`, `gc`, `gp`, `gl`,
+`gd`, `gb`, `gco`, `gst` and `gsp`, `~/.bash_aliases` and bash-completion.
+
+```bash
+bga config set shell_defaults 0    # prompt only
+bga config set shell_defaults 1    # prompt plus the settings above
+```
+
+The installer writes this key: `0` when it appends to your `~/.bashrc`, `1`
+when it replaces it. If the key is not set (an install from 3.0), the
+settings stay on and `bga doctor` asks you to choose. bash-gitaware never
+changes your `PATH`. See
+[ADR-0010](docs/adr/ADR-0010-shell-defaults-module.md).
 
 ## Plain mode
 

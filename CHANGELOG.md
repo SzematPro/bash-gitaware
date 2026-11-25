@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`shell_defaults` setting.** The history options, `ls`/`grep` colors,
+  aliases, `~/.bash_aliases` and bash-completion that 3.0 always loaded can
+  now be turned off (`bga config set shell_defaults 0`). The installer
+  writes the key: `0` for append, `1` for replace. When it is not set, they
+  stay on as in 3.0, and `bga doctor` asks you to choose.
+
+### Changed
+
+- Startup is about 12 ms faster with `shell_defaults = 0` where
+  bash-completion is installed.
+- CI tests macOS both with and without Homebrew coreutils. The render budget
+  is now set per platform: 60 ms, or 90 ms on macOS.
+
+### Removed
+
+- bash-gitaware no longer adds `~/.npm-global/bin` to `PATH`. If you need
+  it, add it to your own `~/.bashrc` (see `docs/MIGRATION.md`).
+
 ## [3.0.0] - 2026-11-25
 
 ### Added

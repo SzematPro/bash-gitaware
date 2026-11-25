@@ -45,6 +45,7 @@ New in v3:
 | `BASHGITAWARE_POWERLINE` | `powerline` | `0`, `1` | `1` (only with Nerd glyphs) |
 | `BASHGITAWARE_MODE` | `mode` | `auto`, `plain`, `full` | `auto` |
 | `BASHGITAWARE_TRUST_REPO_CONFIG` | `trust_repo_config` | `0`, `1` | `0` |
+| `BASHGITAWARE_SHELL_DEFAULTS` | `shell_defaults` | `0`, `1` | unset: on (3.1); see below |
 | `BASHGITAWARE_CONFIG` | | path to the config file | `~/.config/bash-gitaware/config` |
 
 ## The config file and `bga`
@@ -78,3 +79,19 @@ reported with its line number and skipped.
 
 `./install.sh` now asks a few questions on a terminal (`--yes` skips them).
 `./install.sh --uninstall` reverses an install.
+
+## Upgrading from 3.0 to 3.1
+
+- **Shell defaults are a setting now.** The history options, `ls`/`grep`
+  colors, aliases (`ll`, `gs`, `gc`, `gp`, ...), `~/.bash_aliases` and
+  bash-completion that 3.0 always loaded are controlled by
+  `shell_defaults`. If you update with `git pull`, the key is not set and
+  nothing changes: they stay on, and `bga doctor` asks you to choose. Choose
+  with `bga config set shell_defaults 0` (prompt only) or `1`. 4.0 will
+  treat an unset key as `0`.
+- **`PATH` is no longer changed.** 3.0 added `~/.npm-global/bin` to the
+  front of `PATH`. If you need it, add it to your own `~/.bashrc`:
+
+  ```bash
+  PATH="$HOME/.npm-global/bin:$PATH"
+  ```

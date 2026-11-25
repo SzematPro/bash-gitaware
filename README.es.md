@@ -36,7 +36,7 @@ de 100.000 archivos el prompt tarda unos 11 ms.
 ```bash
 git clone https://github.com/SzematPro/bash-gitaware ~/.bash-gitaware
 cd ~/.bash-gitaware
-./install.sh            # asks: append to ~/.bashrc or replace it, theme, glyphs
+./install.sh            # asks: append or replace, theme, glyphs, shell defaults
 exec bash
 ```
 
@@ -68,10 +68,31 @@ bga reload                      # applies changes to this shell
 | `timer_threshold` | segundos | `2` |
 | `show_host` | `auto`, `always`, `never` | `auto` (por SSH o como root) |
 | `mode` | `auto`, `plain`, `full` | `auto` |
+| `shell_defaults` | `0`, `1` | lo escribe el instalador (ver abajo) |
 
 Cada clave también funciona como variable de entorno (`BASHGITAWARE_THEME`,
 etc.), que tiene prioridad sobre el archivo. Se respeta `NO_COLOR`. La
 lista completa está en [docs/MIGRATION.md](docs/MIGRATION.md).
+
+## Ajustes de shell
+
+bash-gitaware también puede aplicar lo que trae un `~/.bashrc` estándar de
+Debian/Ubuntu: opciones de historial (`HISTCONTROL=ignoreboth`,
+`HISTSIZE=10000`, `HISTFILESIZE=20000`, `histappend`), colores para `ls` y
+`grep`, los alias `ll`, `la`, `l` y `alert`, los alias de git `gs`, `ga`,
+`gc`, `gp`, `gl`, `gd`, `gb`, `gco`, `gst` y `gsp`, `~/.bash_aliases` y
+bash-completion.
+
+```bash
+bga config set shell_defaults 0    # prompt only
+bga config set shell_defaults 1    # prompt plus the settings above
+```
+
+El instalador escribe esta clave: `0` cuando añade la carga a tu
+`~/.bashrc` y `1` cuando lo sustituye. Si la clave no está definida (una
+instalación de 3.0), los ajustes siguen activos y `bga doctor` te pide que
+elijas. bash-gitaware nunca cambia tu `PATH`. Más detalles en
+[ADR-0010](docs/adr/ADR-0010-shell-defaults-module.md).
 
 ## Modo plain
 

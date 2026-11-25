@@ -13,7 +13,7 @@
 
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
-| T5.1 | M3 | macOS CI with a real timeout helper | The `macos-tests` job runs as a matrix (`watchdog`, `coreutils` with `brew install coreutils`); `tests/perf.sh` reports the platform and the helper the library picked, and `BGA_EXPECT_TMO` fails a job on the wrong helper; budget per platform (60 ms, macOS 90 ms) and a 5-run median (ruling R-8, after macOS measured 36-72 ms with either helper); the job is green 3 runs in a row before the task closes | doing |
+| T5.1 | M3 | macOS CI with a real timeout helper | The `macos-tests` job runs as a matrix (`watchdog`, `coreutils` with `brew install coreutils`); `tests/perf.sh` reports the platform and the helper the library picked, and `BGA_EXPECT_TMO` fails a job on the wrong helper; budget per platform (60 ms, macOS 90 ms) and a 5-run median (ruling R-8, after macOS measured 36-72 ms with either helper); green 3 runs in a row on 8fee844 (macOS render 27-54 ms with timeout, 32-53 ms with the watchdog) | done |
 | T5.2 | M3 | `tests/MANUAL.md` for 3.x | No v2 milestone sections or `/tmp/bga-$$.cache` paths; checks for Lean, ledger, transient, right block on a narrow terminal, themes, plain mode, `bga doctor`, state directory; each check names the command to run | done |
 | T5.3 | M1 | `shell_defaults` key | Loader accepts `shell_defaults = 0 \| 1` and `BASHGITAWARE_SHELL_DEFAULTS`; 0: no aliases, `HISTCONTROL`/`HISTSIZE` untouched, no `dircolors`/`lesspipe` eval, no completion or `~/.bash_aliases` sourced; 1 or unset: current behavior (`tests/config.sh`, new `tests/shell.sh`) | todo |
 | T5.4 | M1 | Drop the `PATH` entry | `new.bashrc` never changes `PATH` with any setting (test compares `PATH` before and after sourcing) | todo |

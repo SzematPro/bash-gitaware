@@ -95,8 +95,17 @@ __bga_git_info_cheap() {
     fi
 
     # Commit subject: kept sync (fast even on large repos -- it only reads HEAD).
-    if [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ]; then
-        _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null)" || __bga_git_check_timeout $?
+    # The subject is only fetched when it is shown (Lean: off by default;
+    # classic: on), and only its first 2 KB: a commit can carry a subject of
+    # many megabytes.
+    local want_msg=1
+    [ "${BASHGITAWARE_STYLE:-lean}" != classic ] && want_msg=0
+    [ -n "${BASHGITAWARE_COMMIT_LINE:-}" ] && want_msg="$BASHGITAWARE_COMMIT_LINE"
+    if [ "$want_msg" != 0 ] && [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ]; then
+        # git's own status (for the timeout check) via PIPESTATUS: `local -`
+        # with pipefail made bash 4.4 and 5.0 crash.
+        _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null | head -c 2048; exit "${PIPESTATUS[0]}")" \
+            || __bga_git_check_timeout $?
     fi
 
     # Stash count: filesystem-gated, kept sync.

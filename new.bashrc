@@ -373,6 +373,11 @@ __bga_width() {
     a="${s//[!\ -~]/}"; n=${#a}
     r="${s//[\ -~]/}"
     len=${#r} i=0
+    # Decoding costs tens of microseconds per byte. Past 512 non-ASCII bytes
+    # (far more than a prompt line can show) return the byte count instead:
+    # an upper bound on the width, so callers shorten or drop text. A hostile
+    # path or branch cannot slow the prompt down this way.
+    if [ "$len" -gt 512 ]; then REPLY=$(( n + len )); return; fi
     while [ "$i" -lt "$len" ]; do
         printf -v v '%d' "'${r:i:1}"; b=$(( v & 255 ))
         if [ "$b" -lt 128 ]; then i=$(( i + 1 )); continue; fi       # control
@@ -468,6 +473,9 @@ __bga_theme_apply() {
     local name="${1:-aware}" table var line tok sgr
     local IFS=$' \t\n' -
     set -f                       # word splitting below must not glob
+    # The name selects a variable through ${!var}: an array subscript in it
+    # would be evaluated (command substitution included). Names are plain.
+    case "$name" in '' | *[!a-z0-9_]*) name=aware ;; esac
     var="_bga_theme_$name"
     [ -n "${!var+set}" ] || var=_bga_theme_aware
     table="${!var}"
@@ -484,6 +492,13 @@ __bga_theme_apply() {
         # shellcheck disable=SC2086  # intentional split of a fixed-format row
         set -- $line
         [ "$#" = 5 ] || continue
+        # Every field is checked: a theme table can come from the environment,
+        # and its values end up in PS1 (promptvars) and in printf -v names.
+        case " $_bga_theme_tokens " in *" $1 "*) ;; *) continue ;; esac
+        case "$2" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) continue ;; esac
+        case "$3" in '' | *[!0-9]*) continue ;; esac
+        case "$4" in '' | *[!0-9]*) continue ;; esac
+        case "$5" in 0 | 1) ;; *) continue ;; esac
         case "$_bga_depth" in
             24)  sgr="38;2;$(( 16#${2:0:2} ));$(( 16#${2:2:2} ));$(( 16#${2:4:2} ))" ;;
             256) sgr="38;5;$3" ;;
@@ -629,8 +644,17 @@ __bga_git_info_cheap() {
     fi
 
     # Commit subject: kept sync (fast even on large repos -- it only reads HEAD).
-    if [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ]; then
-        _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null)" || __bga_git_check_timeout $?
+    # The subject is only fetched when it is shown (Lean: off by default;
+    # classic: on), and only its first 2 KB: a commit can carry a subject of
+    # many megabytes.
+    local want_msg=1
+    [ "${BASHGITAWARE_STYLE:-lean}" != classic ] && want_msg=0
+    [ -n "${BASHGITAWARE_COMMIT_LINE:-}" ] && want_msg="$BASHGITAWARE_COMMIT_LINE"
+    if [ "$want_msg" != 0 ] && [ -n "$_bga_git_hash" ] && [ "$_bga_git_untrusted" = 0 ]; then
+        # git's own status (for the timeout check) via PIPESTATUS: `local -`
+        # with pipefail made bash 4.4 and 5.0 crash.
+        _bga_git_msg="$(__bga_git log -1 --pretty=%s 2>/dev/null | head -c 2048; exit "${PIPESTATUS[0]}")" \
+            || __bga_git_check_timeout $?
     fi
 
     # Stash count: filesystem-gated, kept sync.
@@ -1133,7 +1157,9 @@ __bga_lean_add() {
     local tok="_c_$1" REPLY
     __bga_ps1_lit "$2"
     _bga_l+="${!tok}${REPLY}${_R}"
-    _bga_lr+="$2"
+    # Measure what is displayed: control characters show as '?'.
+    __bga_term_safe "$2"
+    _bga_lr+="$REPLY"
 }
 
 # Build the left side for path $1 into _bga_l / _bga_lr.
@@ -1188,7 +1214,7 @@ __bga_prompt_lean() {
         tok="${item%%|*}" label="${item#*|}"
         rtok="_cr_$tok"; __bga_ps1_lit "$label"
         rt+=("${!rtok}${REPLY}${_Rr}")
-        __bga_width "$label"; rw+=("$REPLY")
+        __bga_term_safe "$label"; __bga_width "$REPLY"; rw+=("$REPLY")
     done
     if [ "${BASHGITAWARE_CLOCK:-0}" = 1 ]; then
         printf -v label '%(%H:%M)T' -1
@@ -1212,14 +1238,16 @@ __bga_prompt_lean() {
     fi
 
     # --- Optional commit subject, then the symbol line --------------------------
-    local lines=2
+    # Line 1 can still wrap (one very long path component): count its rows
+    # so the transient collapse clears all of them.
+    local lines=$(( (wl > 0 ? (wl - 1) / cols : 0) + 2 ))
     if [ "${BASHGITAWARE_COMMIT_LINE:-0}" = 1 ] && [ "$_bga_in_git" = 1 ] && [ -n "$_bga_git_msg" ]; then
         local msg="$_bga_git_msg" w=$(( cols - 3 ))
         [ "$w" -lt 12 ] && w=12
         if [ "${#msg}" -gt "$w" ]; then msg="${msg:0:$(( w - ${#_g_ell} ))}${_g_ell}"; fi
         __bga_ps1_lit "$msg"
         ps1+="\\n${_c_commit}${_g_commit:+$_g_commit }${REPLY}${_R}"
-        lines=3
+        lines=$(( lines + 1 ))
     fi
     if [ "$exit_code" -eq 0 ]; then ps1+="\\n${_c_ok}${_g_sym}${_R} "
     else                            ps1+="\\n${_c_sym_err}${_g_sym}${_R} "; fi

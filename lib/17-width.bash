@@ -52,6 +52,11 @@ __bga_width() {
     a="${s//[!\ -~]/}"; n=${#a}
     r="${s//[\ -~]/}"
     len=${#r} i=0
+    # Decoding costs tens of microseconds per byte. Past 512 non-ASCII bytes
+    # (far more than a prompt line can show) return the byte count instead:
+    # an upper bound on the width, so callers shorten or drop text. A hostile
+    # path or branch cannot slow the prompt down this way.
+    if [ "$len" -gt 512 ]; then REPLY=$(( n + len )); return; fi
     while [ "$i" -lt "$len" ]; do
         printf -v v '%d' "'${r:i:1}"; b=$(( v & 255 ))
         if [ "$b" -lt 128 ]; then i=$(( i + 1 )); continue; fi       # control

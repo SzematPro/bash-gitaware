@@ -35,18 +35,18 @@ scenario_width_engine() {
 }
 
 scenario_width_engine_linear() {
-    section "width engine: linear time"
-    local TIMEFORMAT=%3R t1 t2 a b
-    # 10 KB and 20 KB of mostly-CJK text; time should roughly double.
-    t1="$( { time LANG=C.UTF-8 bash --norc --noprofile -c "source '$REPO/lib/17-width.bash'
-        s=''; for ((i=0;i<1000;i++)); do s+=\$'ab日c'; done; __bga_width \"\$s\"
-        [ \"\$REPLY\" = 5000 ] || echo BAD >&2"; } 2>&1 )"
-    t2="$( { time LANG=C.UTF-8 bash --norc --noprofile -c "source '$REPO/lib/17-width.bash'
-        s=''; for ((i=0;i<2000;i++)); do s+=\$'ab日c'; done; __bga_width \"\$s\"
-        [ \"\$REPLY\" = 10000 ] || echo BAD >&2"; } 2>&1 )"
-    case "$t1$t2" in *BAD*) fail "width of repeated text is wrong"; return ;; esac
-    a="${t1//[!0-9]/}"; b="${t2//[!0-9]/}"; a=$(( 10#$a )); b=$(( 10#$b ))
-    [ "$a" -lt 1 ] && a=1
-    if [ "$b" -le $(( a * 3 + 50 )) ]; then ok "10 KB ${a}ms, 20 KB ${b}ms (linear)"
-    else fail "not linear: 10 KB ${a}ms, 20 KB ${b}ms"; fi
+    section "width engine: bounded cost on hostile input"
+    local TIMEFORMAT=%3R t ms out
+    # 10 KB of CJK: past the 512-byte decode cap the engine returns the byte
+    # count, an upper bound on the width (each cell takes at least one byte).
+    t="$( { time out="$(LANG=C.UTF-8 bash --norc --noprofile -c "source '$REPO/lib/17-width.bash'
+        s=''; for ((i=0;i<1000;i++)); do s+=\$'ab\u65e5c'; done; __bga_width \"\$s\"; printf '%s' \"\$REPLY\"")"; echo "R=$out"; } 2>&1 )"
+    case "$t" in *R=6000*) ok "10 KB: byte count returned (6000 >= true width 5000)" ;;
+        *) fail "10 KB: unexpected width ($t)" ;; esac
+    ms="${t%%R=*}"; ms="${ms//[!0-9]/}"; [ -n "$ms" ] || ms="${t#*R=6000}"
+    ms="${ms//[!0-9]/}"; ms=$(( 10#${ms:-0} ))
+    if [ "$ms" -lt 500 ]; then ok "10 KB measured in ${ms}ms (whole process, including building the string)"
+    else fail "10 KB took ${ms}ms"; fi
+    # Just under the cap, results are still exact.
+    _w_is "$(printf '\u65e5%.0s' $(seq 170))" 340 "170 CJK characters (510 bytes): exact"
 }

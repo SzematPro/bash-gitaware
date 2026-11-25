@@ -213,3 +213,43 @@ scenario_security_c1_in_c_locale() {
         __bga_ps1_lit \$'a\xc2\x9b31mb'; printf '%s' \"\$REPLY\"" 2>/dev/null)"
     assert_lacks "$out" $'\xc2\x9b' "C1 CSI (C2 9B) removed under LC_ALL=C"
 }
+
+# --- SR2 findings (2026-11-25) -----------------------------------------------
+
+scenario_security_theme_from_env() {
+    section "security: theme name and table from the environment are data"
+    local w; w="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
+    local tbl; tbl="$(printf '\npath 6fa8ff $(touch${IFS}%s/T2) 94 1\n' "$w")"
+    bga_render "$w" "BASHGITAWARE_THEME='aware[\$(touch $w/T1)]'" >/dev/null
+    _bga_theme_evil="$tbl" bga_render "$w" BASHGITAWARE_THEME=evil >/dev/null
+    if [ -e "$w/T1" ]; then fail "theme name subscript executed"; else ok "theme name subscript not executed"; fi
+    if [ -e "$w/T2" ]; then fail "theme table field executed"; else ok "theme table field not executed"; fi
+    rm -rf "$w"
+}
+
+scenario_security_commit_subject_bounded() {
+    section "security: the commit subject is fetched only when shown, and bounded"
+    local d; d="$(mktemp_repo)"
+    head -c 60000 /dev/zero | tr '\0' 'x' > "$d/.msg"
+    git -C "$d" commit --allow-empty -q -F "$d/.msg"
+    local out
+    out="$(bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH' TERM=dumb LANG=C.UTF-8 BASHGITAWARE_ASYNC=0 BASHGITAWARE_MODE=full
+        cd '$d'; source '$REPO/new.bashrc'
+        BASHGITAWARE_STYLE=lean; unset BASHGITAWARE_COMMIT_LINE; __bga_git_info; echo \"lean=\${#_bga_git_msg}\"
+        BASHGITAWARE_STYLE=classic; __bga_git_info; echo \"classic=\${#_bga_git_msg}\"" 2>/dev/null)"
+    assert_contains "$out" "lean=0"       "Lean (commit line off): subject not fetched"
+    assert_contains "$out" "classic=2048" "classic: subject capped at 2 KB"
+    rm -rf "$d"
+}
+
+scenario_security_control_chars_width() {
+    section "security: control characters are measured as displayed"
+    local base; base="$(mktemp -d "${TMPDIR:-/tmp}/bga-sec-XXXXXX")"
+    { printf '3.12'; head -c 200 /dev/zero | tr '\0' '\001'; } > "$base/.python-version"
+    local out; out="$(env -u BASHGITAWARE_STYLE bash -c "$(declare -f bga_render); REPO='$REPO'; bga_render '$base'")"
+    # 'python 3.12' + 200 '?' cannot fit in 120 columns: the block is dropped,
+    # not placed as if it were 11 cells wide.
+    assert_lacks "$out" $'\e7\e[110G' "right block not placed as 11 cells wide"
+    rm -rf "$base"
+}

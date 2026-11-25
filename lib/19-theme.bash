@@ -57,6 +57,9 @@ __bga_theme_apply() {
     local name="${1:-aware}" table var line tok sgr
     local IFS=$' \t\n' -
     set -f                       # word splitting below must not glob
+    # The name selects a variable through ${!var}: an array subscript in it
+    # would be evaluated (command substitution included). Names are plain.
+    case "$name" in '' | *[!a-z0-9_]*) name=aware ;; esac
     var="_bga_theme_$name"
     [ -n "${!var+set}" ] || var=_bga_theme_aware
     table="${!var}"
@@ -73,6 +76,13 @@ __bga_theme_apply() {
         # shellcheck disable=SC2086  # intentional split of a fixed-format row
         set -- $line
         [ "$#" = 5 ] || continue
+        # Every field is checked: a theme table can come from the environment,
+        # and its values end up in PS1 (promptvars) and in printf -v names.
+        case " $_bga_theme_tokens " in *" $1 "*) ;; *) continue ;; esac
+        case "$2" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) continue ;; esac
+        case "$3" in '' | *[!0-9]*) continue ;; esac
+        case "$4" in '' | *[!0-9]*) continue ;; esac
+        case "$5" in 0 | 1) ;; *) continue ;; esac
         case "$_bga_depth" in
             24)  sgr="38;2;$(( 16#${2:0:2} ));$(( 16#${2:2:2} ));$(( 16#${2:4:2} ))" ;;
             256) sgr="38;5;$3" ;;

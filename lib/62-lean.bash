@@ -40,7 +40,9 @@ __bga_lean_add() {
     local tok="_c_$1" REPLY
     __bga_ps1_lit "$2"
     _bga_l+="${!tok}${REPLY}${_R}"
-    _bga_lr+="$2"
+    # Measure what is displayed: control characters show as '?'.
+    __bga_term_safe "$2"
+    _bga_lr+="$REPLY"
 }
 
 # Build the left side for path $1 into _bga_l / _bga_lr.
@@ -95,7 +97,7 @@ __bga_prompt_lean() {
         tok="${item%%|*}" label="${item#*|}"
         rtok="_cr_$tok"; __bga_ps1_lit "$label"
         rt+=("${!rtok}${REPLY}${_Rr}")
-        __bga_width "$label"; rw+=("$REPLY")
+        __bga_term_safe "$label"; __bga_width "$REPLY"; rw+=("$REPLY")
     done
     if [ "${BASHGITAWARE_CLOCK:-0}" = 1 ]; then
         printf -v label '%(%H:%M)T' -1
@@ -119,14 +121,16 @@ __bga_prompt_lean() {
     fi
 
     # --- Optional commit subject, then the symbol line --------------------------
-    local lines=2
+    # Line 1 can still wrap (one very long path component): count its rows
+    # so the transient collapse clears all of them.
+    local lines=$(( (wl > 0 ? (wl - 1) / cols : 0) + 2 ))
     if [ "${BASHGITAWARE_COMMIT_LINE:-0}" = 1 ] && [ "$_bga_in_git" = 1 ] && [ -n "$_bga_git_msg" ]; then
         local msg="$_bga_git_msg" w=$(( cols - 3 ))
         [ "$w" -lt 12 ] && w=12
         if [ "${#msg}" -gt "$w" ]; then msg="${msg:0:$(( w - ${#_g_ell} ))}${_g_ell}"; fi
         __bga_ps1_lit "$msg"
         ps1+="\\n${_c_commit}${_g_commit:+$_g_commit }${REPLY}${_R}"
-        lines=3
+        lines=$(( lines + 1 ))
     fi
     if [ "$exit_code" -eq 0 ]; then ps1+="\\n${_c_ok}${_g_sym}${_R} "
     else                            ps1+="\\n${_c_sym_err}${_g_sym}${_R} "; fi

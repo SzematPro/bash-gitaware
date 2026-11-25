@@ -14,6 +14,8 @@ source "$HERE/lib.sh"
 source "$HERE/scenarios.sh"
 # shellcheck source=perf.sh
 source "$HERE/perf.sh"
+# shellcheck source=shellstate.sh
+source "$HERE/shellstate.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -63,6 +65,9 @@ scenario_security_promptvars_off
 scenario_security_async_cache_private
 scenario_security_state_dir
 scenario_async_without_state_dir_falls_back
+
+# Shell-state independence.
+scenario_shell_state_independence
 
 # Performance.
 scenario_perf_budget

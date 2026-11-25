@@ -93,42 +93,48 @@ __bga_git_info_cheap() {
     __bga_git_state
 }
 
+# Parse the head of `git status --porcelain=v2 --branch` into _bga_st_dirty,
+# _bga_st_ahead and _bga_st_behind. Branch headers come first, so the first
+# entry line already answers "dirty"; `head` bounds the output and stops git
+# early on large dirty trees. No process substitution (a syntax and runtime
+# error in posix mode before bash 5.1) and no here-string (a temp file
+# before bash 5.1).
+__bga_git_status_parse() {
+    local st line
+    _bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0
+    st="$(git status --porcelain=v2 --branch 2>/dev/null | head -n 8)"
+    while [ -n "$st" ]; do
+        line="${st%%$'\n'*}"
+        case "$st" in *$'\n'*) st="${st#*$'\n'}" ;; *) st='' ;; esac
+        case "$line" in
+            '# branch.ab '*)
+                _bga_st_ahead="${line#\# branch.ab +}"
+                _bga_st_behind="${_bga_st_ahead##*-}"
+                _bga_st_ahead="${_bga_st_ahead%% -*}" ;;
+            '#'*) ;;
+            ?*) _bga_st_dirty=1; break ;;
+        esac
+    done
+}
+
 # Full sync info: cheap + the expensive porcelain v2 status. Used when
 # BASHGITAWARE_ASYNC=0.
 __bga_git_info_full() {
     __bga_git_info_cheap
     [ "$_bga_in_git" = 1 ] || return
-
-    local line
-    while IFS= read -r line; do
-        case "$line" in
-            '# branch.ab '*)
-                _bga_git_ahead="${line#\# branch.ab +}"
-                _bga_git_behind="${_bga_git_ahead##*-}"
-                _bga_git_ahead="${_bga_git_ahead%% -*}" ;;
-            '#'*) ;;
-            ?*) _bga_git_dirty=1; break ;;
-        esac
-    done < <(git status --porcelain=v2 --branch 2>/dev/null)
+    __bga_git_status_parse
+    _bga_git_dirty="$_bga_st_dirty"
+    _bga_git_ahead="$_bga_st_ahead"
+    _bga_git_behind="$_bga_st_behind"
 }
 
 # Expensive: compute dirty / ahead / behind and emit them as "key=value" lines
 # on stdout. Called inside the background subshell of lib/85-async.bash; never
 # touches caller state directly.
 __bga_git_info_expensive_compute() {
-    local dirty=0 ahead=0 behind=0 line
-    while IFS= read -r line; do
-        case "$line" in
-            '# branch.ab '*)
-                ahead="${line#\# branch.ab +}"
-                behind="${ahead##*-}"
-                ahead="${ahead%% -*}" ;;
-            '#'*) ;;
-            ?*) dirty=1; break ;;
-        esac
-    done < <(git status --porcelain=v2 --branch 2>/dev/null)
+    __bga_git_status_parse
     printf '_bga_async_dirty=%d\n_bga_async_ahead=%d\n_bga_async_behind=%d\n' \
-        "$dirty" "$ahead" "$behind"
+        "$_bga_st_dirty" "$_bga_st_ahead" "$_bga_st_behind"
 }
 
 # Entry point used by the renderer. Picks the sync or async path.

@@ -1,4 +1,8 @@
 
+# bin/bga (_BGA_CLI=1) stops here: shell defaults, aliases and completion are
+# for interactive shells only.
+if [ -n "${_BGA_CLI:-}" ]; then return 0; fi
+
 # ---------------------------------------------------------------------------
 # History
 # ---------------------------------------------------------------------------

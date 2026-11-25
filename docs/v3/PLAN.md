@@ -62,10 +62,10 @@ Exit gate: SR3 (worker, state files, race conditions).
 
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
-| T3.1 | R6 | `bga` dispatcher | `bga help`, `bga version`; unknown subcommands exit 2 with usage; works as a shell function and as a script | todo |
-| T3.2 | R6 | `bga config` | get, set, unset and list on the config file from T0.7; writes are atomic | todo |
-| T3.3 | R6 | `bga theme` | list, preview and set; the preview renders a sample prompt without touching `PS1` | todo |
-| T3.4 | R6 | `bga doctor` | Reports the bash version, locale, glyph tier, color depth, terminal OSC support, timings and the state directory; exits non-zero when it finds a problem | todo |
+| T3.1 | R6 | `bga` dispatcher | `lib/94-cli.bash` defines `bga` in interactive shells; `bin/bga` runs it as a script (`_BGA_CLI=1` loads settings without hooks); `help`, `version`; unknown commands exit 2 with usage (`tests/cli.sh`) | done |
+| T3.2 | R6 | `bga config` | `path`, `list`, `get`, `set`, `unset`; values validated with the loader's rules; atomic write (temp file plus `mv`, 0600), comments and order kept; a symlinked config is not replaced | done |
+| T3.3 | R6 | `bga theme` | `list`, `preview` (sample Lean prompt printed with the theme's raw tokens, PS1 untouched), `set` (stored through `bga config`) | done |
+| T3.4 | R6 | `bga doctor` | Reports bash, git, locale, glyph tier, color depth, style and theme, plain mode, timeout helper, state dir, config file (with loader warnings); exits 1 on a problem (old bash/git, invalid config) | done |
 | T3.5 | R7 | Interactive installer | Asks for the mode (replace or append), theme and glyph tier; `--yes` runs without questions; backs up `~/.bashrc`; idempotent | todo |
 | T3.6 | R7 | Uninstaller and tamper check | Restores the backup or removes the source line; refuses library files writable by others (files writable by the user's primary group are accepted, ruling L-37) | todo |
 | T3.7 | R6 | ADR-0009: CLI surface | ADR written and accepted | todo |

@@ -30,6 +30,8 @@ source "$HERE/width.sh"
 source "$HERE/theme.sh"
 # shellcheck source=lean.sh
 source "$HERE/lean.sh"
+# shellcheck source=cli.sh
+source "$HERE/cli.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -143,6 +145,12 @@ scenario_lean_right_block
 scenario_lean_wide_path
 scenario_lean_result_line
 scenario_lean_untrusted
+
+# bga CLI.
+scenario_cli_basics
+scenario_cli_config
+scenario_cli_theme_and_doctor
+scenario_cli_shell_function
 
 # Shell-state independence.
 scenario_shell_state_independence

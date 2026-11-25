@@ -48,7 +48,9 @@ _R='' _Rr=''
 _c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
 _c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit='' _c_node=''
 _c_py='' _c_rust='' _c_go='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
-_cr_dim='' _cr_err='' _cr_timer='' _cr_ok='' _cr_sym_err='' _cr_py='' _cr_node='' _cr_rust='' _cr_go=''
+_cr_dim='' _cr_path='' _cr_user='' _cr_host='' _cr_host_ssh='' _cr_branch='' _cr_hash=''
+_cr_state='' _cr_ahead='' _cr_behind='' _cr_dirty='' _cr_stash='' _cr_commit='' _cr_node=''
+_cr_py='' _cr_rust='' _cr_go='' _cr_tag='' _cr_timer='' _cr_err='' _cr_ok='' _cr_sym_err=''
 
 # Every token a theme must define (the test suite checks each theme).
 _bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash commit node py rust go tag timer err ok sym_err'

@@ -24,10 +24,14 @@
 #   BASHGITAWARE_SHOW_HOST=auto|always|never Show user@host. "auto" = only over SSH or as root. Default: auto.
 #   NO_COLOR                                 If set (any value), disable all color. https://no-color.org
 
-# If not running interactively, do nothing.
+# Where this file lives (bga reload re-sources it).
+_bga_src="${BASH_SOURCE[0]}"
+
+# If not running interactively, do nothing -- except for bin/bga, which sets
+# _BGA_CLI=1 to load the CLI and the settings it reports on.
 case $- in
     *i*) ;;
-      *) return ;;
+      *) [ -n "${_BGA_CLI:-}" ] || return ;;
 esac
 
 # ---------------------------------------------------------------------------

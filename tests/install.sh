@@ -4,6 +4,9 @@
 # A private copy of the files install.sh needs, so permissions can be changed.
 _in_copy() {
     local c; c="$(mktemp -d "${TMPDIR:-/tmp}/bga-inst-XXXXXX")"
+    # Normalize like install.sh does (pwd): macOS TMPDIR ends in '/', which
+    # would leave '//' in the path and break comparisons with its output.
+    c="$(CDPATH='' builtin cd -- "$c" && pwd)"
     mkdir -p "$c/repo/bin"
     cp "$REPO/install.sh" "$REPO/new.bashrc" "$c/repo/"
     cp "$REPO/bin/bga" "$c/repo/bin/"

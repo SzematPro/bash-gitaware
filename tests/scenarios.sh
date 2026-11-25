@@ -327,8 +327,10 @@ scenario_async_two_render_cache_hit() {
         cd '$d' 2>/dev/null
         source '$REPO/new.bashrc'
         __bga_prompt
-        [ -n \"\$_bga_async_pid\" ] && wait \"\$_bga_async_pid\" 2>/dev/null
-        __bga_prompt
+        # The job is disowned, so wait cannot join it: poll, bounded.
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            __bga_prompt; [ \"\$_bga_async_pending\" = 0 ] && break; sleep 0.1
+        done
         printf '%s' \"\${PS1@P}\"
     " 2>/dev/null)"
     assert_contains "$out" "●"           "second render picks up dirty marker from cache"

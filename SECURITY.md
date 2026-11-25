@@ -46,6 +46,19 @@ The relevant risks and how we treat them:
   by the user, otherwise a `mktemp -d` directory under `$TMPDIR` or `/tmp`,
   mode 0700), removed at shell exit. The cache is parsed, never sourced, and
   only numeric values are accepted.
+- **Hostile `.git` directories.** `git clone` never copies `.git/config`,
+  but an archive can ship a whole `.git`. Git settings that name commands
+  could then run on every prompt. bash-gitaware forces `core.fsmonitor` and
+  `log.showSignature` off, neutralizes filter drivers defined in the
+  repository's own config, does not look inside submodules, and skips
+  `git status` when the repository config uses `include`. The user's own
+  `~/.gitconfig` is trusted. `BASHGITAWARE_TRUST_REPO_CONFIG=1` turns these
+  checks off for users who rely on repository-local filters. Running git
+  commands by hand in such a directory is still as risky as git itself
+  makes it.
+- **Special files.** Version files and `.git` metadata are read only when
+  they are regular files, with a size bound, so a symlink to `/dev/zero` or
+  a FIFO cannot hang the prompt.
 - **Reading from `/proc/1/cgroup`** for container detection. Read-only,
   done once at shell startup, no command execution.
 - **`tput` / `dircolors` / `lesspipe`** sub-invocations. Standard system

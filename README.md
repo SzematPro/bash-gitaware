@@ -217,6 +217,7 @@ itself).
 | `BASHGITAWARE_TIMER_THRESHOLD` | `2` | Show `took Ns` only when the command took at least N seconds. |
 | `BASHGITAWARE_PATH_MAXDEPTH` | `3` | Trim the path to the last N components, with a leading `…`. `0` for unlimited. |
 | `BASHGITAWARE_SHOW_HOST` | `auto` | `always` / `auto` / `never`. Auto = SSH session or root. |
+| `BASHGITAWARE_TRUST_REPO_CONFIG` | `0` | `1` lets filter drivers and `include` in a repository's own `.git/config` run during the prompt's `git status` (needed for git-crypt or `git lfs install --local`). See [SECURITY.md](SECURITY.md). |
 | `NO_COLOR` | unset | Standard `NO_COLOR` (https://no-color.org). When set, the prompt renders in plain text. |
 
 ---
@@ -405,6 +406,7 @@ bash-gitaware/
 │   ├── lib.sh              assertion helpers
 │   ├── scenarios.sh        rendering scenarios (69 asserts)
 │   ├── security.sh         injection / escape regression scenarios
+│   ├── gitconfig.sh        hostile .git/config scenarios
 │   ├── perf.sh             80 ms render budget
 │   └── MANUAL.md           interactive checklist
 ├── demo/                   vhs tape + generated GIF (`make demo` to regenerate)

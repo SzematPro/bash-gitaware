@@ -6,6 +6,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-11-25
+
+### Security
+
+- **Commands from a hostile `.git` directory (high).** `git clone` never
+  copies `.git/config`, but an extracted archive can ship one. The prompt's
+  own git calls could then run commands named there on every `cd`:
+  `core.fsmonitor`, clean/process filter drivers (any freshly extracted tree
+  has stale stat data), `gpg.program` for a forged signed commit with
+  `log.showSignature`, and the same settings inside submodules. Now
+  `core.fsmonitor` and `log.showSignature` are forced off, filter drivers
+  defined in the repository's own config are neutralized, `git status` skips
+  submodule contents (`--ignore-submodules=dirty`), and a repository config
+  that uses `include`/`includeIf` makes the prompt skip `git status`. Users
+  whose repositories legitimately define local filters (git-crypt,
+  `git lfs install --local`) can set `BASHGITAWARE_TRUST_REPO_CONFIG=1`.
+- **Prompt hang.** A version file or `.git` file that is a symlink to
+  `/dev/zero`, `/dev/tty` or a FIFO hung every prompt. Such files are now
+  read only when they are regular files, and at most 256 bytes.
+- **Escape injection through the window title** (bash 4.4 to 5.1, where `\w`
+  passes control characters through), through the transient prompt's echo
+  of the typed line, and through C1 control characters in the C locale.
+
+### Added
+
+- `tests/gitconfig.sh` and new `tests/security.sh` scenarios for each case.
+  Every one of them fails on 2.0.1.
+
 ## [2.0.1] - 2026-11-25
 
 ### Security

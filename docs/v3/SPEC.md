@@ -1,6 +1,6 @@
 # bash-gitaware v3: reconstructed spec (draft)
 
-- Status: Draft, pending owner confirmation of section 3
+- Status: Accepted (scope confirmed by the owner on 2026-11-25)
 - Date: 2026-11-25
 - Supersedes: the v3 design and contract 1.2.x from 2026-11-12/13. Those lived
   outside the repository and were lost in a host reboot on 2026-11-15. This
@@ -32,11 +32,12 @@ guarantees. It keeps the project identity and the v2 tags.
 | 3.0 scope rule | Every Must item, plus three Should items with high visual impact. All other Should items, including the shell-defaults module and a policy file, go to 3.1 and are not mentioned in 3.0 docs. |
 | Reviews | At most three review lenses per wave, a second reviewer for high-risk tasks, and four security reviews (SR1 to SR4). |
 
-## 3. 3.0 scope (reconstructed: OWNER MUST CONFIRM)
+## 3. 3.0 scope
 
-The original MoSCoW list was lost. The items below are inferred from the locked
-decisions and the wave-0/1 review findings. The owner should mark each one
-Must, Should or 3.1, and name the three Should items.
+The original MoSCoW list was lost. The items below were inferred from the
+locked decisions and the wave-0/1 review findings, and the owner confirmed them
+on 2026-11-25: R1 to R12 are Must. The owner chose four Should items instead
+of three, an explicit exception to the scope rule in section 2.
 
 | ID | Item | Proposed | Evidence |
 |---|---|---|---|
@@ -52,7 +53,10 @@ Must, Should or 3.1, and name the three Should items.
 | R10 | Security invariants of section 4, with tests | Must | v2.0.1 advisory GHSA-596h-h6gh-q2w6 |
 | R11 | Bilingual docs with a parity check, markdownlint and lychee in CI | Must | Locked; task T1.16 |
 | R12 | Startup-time budget (AC11), with CI enforcement | Must | Ruling L-46 |
-| S1-S3 | Three high-visual-impact Should items: OWNER TO NAME (candidates: extra themes, a Nerd Font powerline variant, an animated pending-git indicator, a richer demo) | Should | Scope rule |
+| S1 | Extra themes besides `Aware`: one light and one high-contrast | Should | Owner choice |
+| S2 | Powerline variant with separators when a Nerd Font is present | Should | Owner choice |
+| S3 | Subtle animated indicator while the git worker is computing | Should | Owner choice |
+| S4 | New demo tape and GIF: ledger, transient prompt, themes | Should | Owner choice |
 
 ## 4. Non-functional requirements
 
@@ -105,9 +109,7 @@ Must, Should or 3.1, and name the three Should items.
 
 ## 7. Next steps
 
-1. Owner confirms section 3: Must, Should or 3.1 for each item, and names
-   S1 to S3.
-2. Write `docs/v3/PLAN.md`: waves, tasks and acceptance criteria per task.
-3. ADRs for the render engine, the worker and state directory, and the CLI.
-4. Wave 0 (spine): module layout, build, test sandbox, CI matrix, escaping
+1. Write `docs/v3/PLAN.md`: waves, tasks and acceptance criteria per task.
+2. ADRs for the render engine, the worker and state directory, and the CLI.
+3. Wave 0 (spine): module layout, build, test sandbox, CI matrix, escaping
    and state-directory primitives.

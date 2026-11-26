@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-26
+
 ### Added
 
 - **`shell_defaults` setting.** The history options, `ls`/`grep` colors,
@@ -40,6 +42,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `bga reload` now applies config changes. Before, `bga theme set X;
   bga reload` kept the old theme, because values loaded from the config
   file counted as environment on the second load.
+- Settings whose names contain an `i` (`commit_line`, `timer_threshold`,
+  `runtime`, ...) did not apply in a Turkish locale.
+- With `shopt -s failglob`, closing the shell printed `no match`.
+
+### Security
+
+- **A repository could freeze the prompt** with a version file full of NUL
+  bytes (`.python-version`, `.nvmrc`, and the new runtime files). bash
+  read it to the end on every prompt (11 s per prompt for 1 GB, which
+  compresses to about 1 MB in git), and Ctrl-C did not stop it. Affects
+  3.0.x.
+- **A version file symlinked outside the repository** (for example to
+  `~/.git-credentials`) showed that file's first line in the prompt.
+  Symlinks are now followed only within the repository, and only
+  version-like values are shown. Affects 3.0.x.
+- Outside a UTF-8 locale, lone bytes 0x80-0x9F (0x9B is CSI on 8-bit
+  terminals) are now replaced like other control characters.
+- `bga config set`/`edit` refuse to write into a directory other users can
+  write, where one of them could swap the file for a symlink.
+- Reviews SR5 (policy file) and SR6 (wave 7) reproduced every finding; the
+  records are in `docs/v3.1/reviews/`.
 
 ### Removed
 

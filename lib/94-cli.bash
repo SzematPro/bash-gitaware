@@ -14,7 +14,7 @@
 #
 # Exit status: 0 ok, 1 a check or operation failed, 2 usage error.
 # ---------------------------------------------------------------------------
-_bga_version='3.0.0'
+_bga_version='3.1.0'
 
 __bga_cli_err() { printf 'bga: %s\n' "$*" >&2; }
 

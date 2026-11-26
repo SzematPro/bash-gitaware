@@ -20,8 +20,8 @@ dependencies beyond git.
 
 - Line 1: the path (relative to the repository root inside a repository)
   and git. Git shows the branch, rebase or merge state, a dirty mark,
-  ahead/behind counts and stashes. Runtimes (Python, Node, Rust, Go) are
-  aligned to the right.
+  ahead/behind counts and stashes. Runtimes (Python, Node, Rust, Go,
+  Ruby, Deno, Bun, Java) are aligned to the right.
 - Line 2: the prompt symbol, red after a failure.
 - After a command that failed or took longer than the threshold, a result
   line (`  ✘1 · 3s`) stays in your scrollback.
@@ -53,7 +53,7 @@ Settings live in `~/.config/bash-gitaware/config`. The file is plain
 bga config set theme light      # aware, light, contrast
 bga config set style classic    # the v2 three-line layout
 bga theme preview contrast
-bga config edit                 # opens $EDITOR, checks the file before saving
+bga config edit                 # opens $VISUAL or $EDITOR, checks before saving
 bga doctor                      # checks your setup
 bga reload                      # applies changes to this shell
 ```

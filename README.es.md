@@ -21,7 +21,7 @@ dependencias que git.
 - Línea 1: la ruta (relativa a la raíz dentro de un repositorio) y git. Git
   muestra la rama, el estado de rebase o merge, una marca de cambios sin
   commitear, los commits adelante/atrás y los stashes. Los runtimes
-  (Python, Node, Rust, Go) se alinean a la derecha.
+  (Python, Node, Rust, Go, Ruby, Deno, Bun, Java) se alinean a la derecha.
 - Línea 2: el símbolo del prompt, en rojo después de un fallo.
 - Tras un comando que falló o superó el umbral de tiempo, queda una línea
   de resultado (`  ✘1 · 3s`) en el historial de la terminal.
@@ -54,7 +54,7 @@ con `bga`:
 bga config set theme light      # aware, light, contrast
 bga config set style classic    # the v2 three-line layout
 bga theme preview contrast
-bga config edit                 # opens $EDITOR, checks the file before saving
+bga config edit                 # opens $VISUAL or $EDITOR, checks before saving
 bga doctor                      # checks your setup
 bga reload                      # applies changes to this shell
 ```

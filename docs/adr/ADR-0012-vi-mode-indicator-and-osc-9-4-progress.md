@@ -55,8 +55,9 @@ R-5). Anything printed from the side corrupts the input.
 - **Redrawing from a `bind -x` hook on ESC.** This writes to the terminal
   while readline owns the line, the failure that ruled out the animated
   indicator (R-5).
-- **Progress on by default.** Terminals without OSC 9;4 should ignore it,
-  but this is a terminal-wide side effect that users did not ask for. It is
+- **Progress on by default.** Most terminals without OSC 9;4 ignore it,
+  but some treat OSC 9 as a desktop notification (below), and in any case
+  this is a terminal-wide side effect that users did not ask for. It is
   also unverified on several terminals (below).
 - **Reporting a percentage.** The shell cannot know how far a command has
   got. Only the indeterminate and error states are honest.

@@ -58,6 +58,9 @@ fi
 # shows the error state for one prompt after a failed command. Off with
 # osc = 0, in plain mode, and inside tmux/screen, which do not pass it on.
 # ---------------------------------------------------------------------------
+# Turned off by a reload: PS0 has already set the busy state for the
+# `bga reload` command itself, and no later prompt would clear it.
+if [ "${_bga_progress:-0}" = 1 ]; then printf '\e]9;4;0;0\a'; fi
 _bga_progress=0
 if [ "${BASHGITAWARE_PROGRESS:-0}" = 1 ] && [ "${BASHGITAWARE_OSC:-1}" != 0 ] \
    && [ "${_bga_plain:-0}" != 1 ] && [ -z "${TMUX:-}" ] && [ -z "${STY:-}" ]; then

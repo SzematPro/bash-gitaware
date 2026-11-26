@@ -196,6 +196,7 @@ scenario_cli_reload_keeps_runtime
 
 # Shell-state independence.
 scenario_shell_state_independence
+scenario_shellstate_failglob_exit
 
 # Performance.
 scenario_perf_budget

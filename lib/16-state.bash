@@ -37,7 +37,8 @@ __bga_state_dir_init() {
 # directory this shell created.
 __bga_state_dir_cleanup() {
     [ -n "$_bga_state_dir" ] && [ -d "$_bga_state_dir" ] && [ ! -L "$_bga_state_dir" ] || return 0
-    rm -f "$_bga_state_dir"/* 2>/dev/null
-    rmdir "$_bga_state_dir" 2>/dev/null
+    # rm -r on the directory, not a glob: with failglob set, "$dir"/* on an
+    # empty directory is an error printed when the shell exits.
+    rm -rf -- "$_bga_state_dir" 2>/dev/null
     _bga_state_dir=''
 }

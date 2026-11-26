@@ -36,6 +36,9 @@ scenario_vimode_setup() {
     out="$(_vm_bind '' "export BASHGITAWARE_VI_MODE=0; source '$REPO/new.bashrc'")"
     assert_contains "$out" "show-mode-in-prompt off" "re-sourced with vi_mode = 0: defaults back"
     assert_contains "$out" "vi-cmd-mode-string (cmd)" "re-sourced with vi_mode = 0: default string back"
+    # Strings the user changes after the first load survive a reload.
+    out="$(_vm_bind '' "bind 'set vi-ins-mode-string \"[I]\"'; source '$REPO/new.bashrc'")"
+    assert_contains "$out" "vi-ins-mode-string [I]" "user's later change kept across a reload"
 }
 
 scenario_vimode_pty() {
@@ -51,5 +54,12 @@ scenario_vimode_pty() {
     case "$out" in *$'\e['*'mN'$'\e[0m '*) ok "command mode: colored N drawn by readline" ;;
                    *) fail "command mode: no marker in the pty output" ;; esac
     assert_contains "$out" "one two" "editing still works (ESC, A, typed text)"
+    # The transient prompt still collapses the line after a vi-mode edit.
+    # Without escapes, the edited line shows twice: as typed, and again when
+    # the transient prompt collapses it (once if the collapse did not run).
+    local plain n
+    plain="$(printf '%s' "$out" | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g; s/\x1b\\][^\a]*\a//g; s/\x1b[78]//g')"
+    n="$(printf '%s' "$plain" | grep -oE '(❯|>) echo one two' | wc -l | tr -d ' ')"
+    if [ "${n:-0}" -ge 2 ]; then ok "transient collapse after a vi-mode edit"; else fail "no transient collapse after a vi-mode edit ($n)"; fi
     rm -rf "$d"
 }

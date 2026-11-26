@@ -40,6 +40,13 @@ scenario_cli_config() {
     out="$(_bga_cmd config list)"
     assert_lacks    "$out" "glyphs"           "unset removes the key"
     assert_contains "$out" "style = classic"  "list shows the rest"
+    # VISUAL wins over EDITOR, and an editor command with arguments gets the
+    # file as its last argument.
+    printf '#!/bin/sh\nprintf "%%s\\n" "$*" > "%s/args"\nprintf "osc = 0\\n" >> "$3"\n' "$dir" > "$dir/ed-args"; chmod 755 "$dir/ed-args"
+    printf '' | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/ed-fail" VISUAL="$dir/ed-args --wait -n" script -qc "'$REPO/bin/bga' config edit" /dev/null >/dev/null 2>&1
+    assert_contains "$(cat "$dir/args" 2>/dev/null)" "--wait -n " "VISUAL with arguments used"
+    case "$(cat "$dir/args" 2>/dev/null)" in *' -n '*'/.config.edit.'*) ok "the file is the editor's last argument" ;; *) fail "file not passed last" ;; esac
+    assert_contains "$(cat "$f")" "osc = 0" "edit through VISUAL saved"
     ln -s "$f" "$dir/link"
     BASHGITAWARE_CONFIG="$dir/link" _bga_cmd config set glyphs ascii 2>/dev/null; rc=$?
     if [ "$rc" = 1 ] && [ -L "$dir/link" ]; then ok "symlinked config not replaced"; else fail "symlink handling ($rc)"; fi

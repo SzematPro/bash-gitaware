@@ -46,3 +46,11 @@ scenario_shell_state_independence() {
     done
     rm -rf "$d"
 }
+
+scenario_shellstate_failglob_exit() {
+    section "shell state: no error at exit with failglob"
+    local out
+    out="$(bash --norc --noprofile -i -c "export HOME='$HOME' PATH='$PATH' BASHGITAWARE_MODE=full; shopt -s failglob; source '$REPO/new.bashrc'; __bga_prompt >/dev/null; exit" 2>&1)"
+    assert_lacks "$out" "no match" "state directory cleanup does not glob"
+}
+

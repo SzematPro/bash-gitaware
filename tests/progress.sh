@@ -32,6 +32,10 @@ scenario_progress_osc94() {
     out="$(_pg_run "$on" "unset BASHGITAWARE_PROGRESS; source '$REPO/new.bashrc'; printf 'ps0=[%s]\\n' \"\${PS0:-}\"" | sed 's/<E>]133;C<B>//')"
     assert_contains "$out" "ps0=[]" "re-sourced with progress off: mark removed"
 
+    # Turning progress off with a reload clears the busy state that PS0 set
+    # for the reload command itself.
+    out="$(_pg_run "$on" "unset BASHGITAWARE_PROGRESS; source '$REPO/new.bashrc'")"
+    assert_contains "$out" "<E>]9;4;0;0<B>" "reload that turns progress off clears the taskbar"
     local c
     for c in '' 'export BASHGITAWARE_OSC=0' 'export BASHGITAWARE_MODE=plain' 'export TMUX=/tmp/tmux-1/default,1,0' 'export STY=1.pts-0'; do
         out="$(_pg_run "${c:+$c; }${c:+$on}${c:-}" '_bga_timer_start=$SECONDS; false; __bga_prompt; printf "ps0=%s\n" "${PS0:-}"')"

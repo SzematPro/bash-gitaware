@@ -62,8 +62,20 @@ temp-file handling).
 
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
-| T8.1 | all | Release check | Each criterion in SPEC section 5 checked and recorded here; budgets re-measured and the comment in `tests/budgets.sh` updated | todo |
+| T8.1 | all | Release check | Each criterion in SPEC section 5 checked and recorded here; budgets re-measured and the comment in `tests/budgets.sh` updated | done |
 | T8.2 | all | Release 3.1.0 | `_bga_version='3.1.0'`, CHANGELOG `[3.1.0]`, one release commit and tag `v3.1.0`; pushed only after the owner confirms | todo |
+
+## Release check (T8.1, 2026-11-26)
+
+Each criterion from SPEC section 5:
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | A fresh `install.sh --append --yes` gives no aliases and an unchanged `PATH`; a 3.0 config without the key behaves like 3.0 minus `PATH`, with the `doctor` notice | Pass | Container run (bash 5.2, new user): the config gets `shell_defaults = 0`, `alias gs` is undefined, and `PATH` is the same with and without the rc. With the key removed, the aliases return and `doctor` prints the `note shell-defaults` line. `tests/shell.sh` and `tests/install.sh` |
+| 2 | A root policy `theme = contrast` wins over `BASHGITAWARE_THEME=aware` and `bga config set theme` (exit 1); a policy others can write is ignored with a warning | Pass | `tests/policy.sh` with root fixtures on every container and on the macOS and Ubuntu runners |
+| 3 | CI green on bash 4.4 to 5.3, both macOS jobs and docs | Pass once the run for the last commit is green | PR #2 |
+| 4 | Each S item has tests and they pass | Pass | `tests/vimode.sh`, `tests/runtime.sh`, `tests/progress.sh`, `tests/cli.sh` (config edit). Not covered: the vi-mode and `config edit` pty tests on macOS (BSD `script`), and OSC 9;4 on real terminals |
+| 5 | Shellcheck clean; no budget raised; no ruling raises a budget | Partly | Shellcheck is clean, and the Linux budgets (startup 100 ms, render 60 ms) are unchanged. R-8 (owner decision) set 90 ms for macOS with a real timeout helper, where R-7 had 60 ms. Measured macOS render is now 34-38 ms |
 
 ## Risks
 

@@ -5,17 +5,19 @@
 #
 # Modes:
 #   --replace   (default) copy new.bashrc on top of ~/.bashrc (after a backup).
-#               The shipped new.bashrc is a complete sensible .bashrc
-#               (history, ls colors, aliases, completion, PATH) so this just
-#               works for most setups.
+#               The shipped new.bashrc is a complete sensible .bashrc: with
+#               shell_defaults = 1 (the default for this mode) it also sets
+#               history options, ls colors, aliases and completion.
 #   --append    append a `source <repo>/new.bashrc` line to your existing
-#               ~/.bashrc, leaving the rest of your config untouched.
+#               ~/.bashrc, leaving the rest of your config untouched
+#               (shell_defaults = 0 by default: your ~/.bashrc has its own).
 #   --uninstall remove the appended source block, or restore the newest
 #               backup over a replaced ~/.bashrc.
 #
-# Without a mode flag, on a terminal, the script asks for the mode, theme and
-# glyph set (the last two go to the config file through bin/bga). --yes skips
-# the questions and uses the defaults.
+# Without a mode flag, on a terminal, the script asks for the mode, theme,
+# glyph set and shell defaults (stored in the config file through bin/bga).
+# --yes skips the questions and uses the defaults. shell_defaults is always
+# written: an existing value is kept, otherwise the mode's default (ADR-0010).
 #
 # Tamper check: new.bashrc and its directory must not be writable by other
 # users (writable by your own primary group is accepted, ruling L-37), since
@@ -169,7 +171,18 @@ fi
 # ---------------------------------------------------------------------------
 # Interactive choices (a terminal, no mode flag, no --yes).
 # ---------------------------------------------------------------------------
-want_theme='' want_glyphs=''
+want_theme='' want_glyphs='' want_sd=''
+# shell_defaults already in the config file (kept on a re-run), or empty.
+# Not for --uninstall: bin/bga sources new.bashrc, and uninstall skips the
+# tamper check, so it must not run repository code.
+cur_sd=''
+if [ "$mode" != uninstall ]; then
+    cur_sd="$("$script_dir/bin/bga" config get shell_defaults 2>/dev/null)" || cur_sd=''
+fi
+case "$cur_sd" in 0 | 1) ;; *) cur_sd='' ;; esac
+# The mode's default: replace takes over the file that had these settings,
+# append leaves the user's own ~/.bashrc in charge of them.
+sd_default() { case "$1" in replace) echo 1 ;; *) echo 0 ;; esac; }
 if [ -z "$mode" ] && [ "$assume_yes" = 0 ] && [ -t 0 ] && [ -t 1 ]; then
     ask() {  # ask <prompt> <default> -> REPLY
         local a; printf '%s [%s]: ' "$1" "$2"; IFS= read -r a || a=''
@@ -188,8 +201,14 @@ if [ -z "$mode" ] && [ "$assume_yes" = 0 ] && [ -t 0 ] && [ -t 1 ]; then
         ask 'Glyphs: auto, unicode, nerd (needs a Nerd Font) or ascii' auto
         case "$REPLY" in auto) break ;; unicode | nerd | ascii) want_glyphs="$REPLY"; break ;; *) echo "  answer auto, unicode, nerd or ascii" ;; esac
     done
+    d="${cur_sd:-$(sd_default "$mode")}"; [ "$d" = 1 ] && d=yes || d=no
+    while :; do
+        ask 'Shell defaults (history options, ls colors, aliases, completion): yes or no' "$d"
+        case "$REPLY" in yes) want_sd=1; break ;; no) want_sd=0; break ;; *) echo "  answer yes or no" ;; esac
+    done
 fi
 [ -n "$mode" ] || mode='replace'
+[ -n "$want_sd" ] || want_sd="${cur_sd:-$(sd_default "$mode")}"
 
 # ---------------------------------------------------------------------------
 # Uninstall.
@@ -279,8 +298,16 @@ case "$mode" in
 esac
 
 # Store the interactive choices in the config file.
-if [ -n "$want_theme" ]; then "$script_dir/bin/bga" config set theme "$want_theme"; fi
-if [ -n "$want_glyphs" ]; then "$script_dir/bin/bga" config set glyphs "$want_glyphs"; fi
+# Not fatal: the install itself is done (an unset key keeps 3.0 behavior).
+store() {
+    "$script_dir/bin/bga" config set "$1" "$2" \
+        || printf 'install: could not store %s; run: %s/bin/bga config set %s %s\n' "$1" "$script_dir" "$1" "$2" >&2
+}
+if [ -n "$want_theme" ]; then store theme "$want_theme"; fi
+if [ -n "$want_glyphs" ]; then store glyphs "$want_glyphs"; fi
+if [ "$want_sd" != "$cur_sd" ]; then
+    store shell_defaults "$want_sd"
+fi
 
 # ---------------------------------------------------------------------------
 # Next steps.

@@ -45,6 +45,10 @@ New in v3:
 | `BASHGITAWARE_POWERLINE` | `powerline` | `0`, `1` | `1` (only with Nerd glyphs) |
 | `BASHGITAWARE_MODE` | `mode` | `auto`, `plain`, `full` | `auto` |
 | `BASHGITAWARE_TRUST_REPO_CONFIG` | `trust_repo_config` | `0`, `1` | `0` |
+| `BASHGITAWARE_SHELL_DEFAULTS` | `shell_defaults` | `0`, `1` | unset: on (3.1); see below |
+| `BASHGITAWARE_RUNTIMES` | `runtimes` | comma list of `py`, `node`, `rust`, `go`, `ruby`, `deno`, `bun`, `java` | all |
+| `BASHGITAWARE_VI_MODE` | `vi_mode` | `auto`, `0` | `auto` |
+| `BASHGITAWARE_PROGRESS` | `progress` | `0`, `1` | `0` |
 | `BASHGITAWARE_CONFIG` | | path to the config file | `~/.config/bash-gitaware/config` |
 
 ## The config file and `bga`
@@ -76,5 +80,30 @@ reported with its line number and skipped.
 
 ## Install and uninstall
 
-`./install.sh` now asks a few questions on a terminal (`--yes` skips them).
+`./install.sh` now asks a few questions on a terminal. A mode flag
+(`--append`, `--replace`) or `--yes` skips them; `--yes` alone means
+replace mode, after a backup.
 `./install.sh --uninstall` reverses an install.
+
+## Upgrading from 3.0 to 3.1
+
+- **Shell defaults are a setting now.** The history options, `ls`/`grep`
+  colors, aliases (`ll`, `gs`, `gc`, `gp`, ...), `~/.bash_aliases` and
+  bash-completion that 3.0 always loaded are controlled by
+  `shell_defaults`. If you update with `git pull`, the key is not set and
+  nothing changes: they stay on, and `bga doctor` asks you to choose. Choose
+  with `bga config set shell_defaults 0` (prompt only) or `1`. 4.0 will
+  treat an unset key as `0`.
+- **New, all opt-in or invisible until used:** Ruby, Deno, Bun and Java
+  runtimes (from version files only), the `runtimes` key to pick which ones
+  show, a vi command-mode marker (`vi_mode = 0` turns it off), taskbar
+  progress (`progress = 1`), `bga config edit`, and the administrator
+  policy (`/etc/bash-gitaware/policy`).
+- **`bga reload` applies config changes.** In 3.0 it kept the values from
+  the previous load.
+- **`PATH` is no longer changed.** 3.0 added `~/.npm-global/bin` to the
+  front of `PATH`. If you need it, add it to your own `~/.bashrc`:
+
+  ```bash
+  PATH="$HOME/.npm-global/bin:$PATH"
+  ```

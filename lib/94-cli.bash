@@ -14,7 +14,7 @@
 #
 # Exit status: 0 ok, 1 a check or operation failed, 2 usage error.
 # ---------------------------------------------------------------------------
-_bga_version='3.0.0'
+_bga_version='3.1.0'
 
 __bga_cli_err() { printf 'bga: %s\n' "$*" >&2; }
 
@@ -27,6 +27,7 @@ usage: bga <command> [args]
   config get KEY              print one setting
   config set KEY VALUE        validate and store a setting
   config unset KEY            remove a setting
+  config edit                 edit the file in $VISUAL/$EDITOR, validated before saving
   theme list                  list the themes
   theme preview [NAME]        show a sample prompt in a theme
   theme set NAME              store the theme in the config file
@@ -63,6 +64,13 @@ __bga_cli_cfg_path() {
     REPLY="${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/bash-gitaware/config}"
 }
 
+# True (and an error printed) when key $1 is locked by the policy (ADR-0011).
+__bga_cli_locked() {
+    case "${_bga_policy_locked:- }" in *" $1 "*) ;; *) return 1 ;; esac
+    __bga_term_safe "$_bga_policy_path"
+    __bga_cli_err "'$1' is set by the administrator policy ($REPLY); your config cannot change it"
+}
+
 __bga_cli_config() {
     local sub="${1:-list}" f key line k
     [ "$#" -gt 0 ] && shift
@@ -74,7 +82,12 @@ __bga_cli_config() {
             while IFS= read -r line || [ -n "$line" ]; do
                 line="${line%$'\r'}"
                 case "$line" in '' | [[:blank:]]*'#'* | '#'*) continue ;; *=*) ;; *) continue ;; esac
-                __bga_term_safe "$line"; printf '%s\n' "$REPLY"
+                k="${line%%=*}"; k="${k#"${k%%[![:blank:]]*}"}"; k="${k%"${k##*[![:blank:]]}"}"; __bga_key_lc "$k"; k="$REPLY"
+                __bga_term_safe "$line"
+                case "${_bga_policy_locked:- }" in
+                    *" $k "*) printf '%s   (ignored: locked by policy)\n' "$REPLY" ;;
+                    *)        printf '%s\n' "$REPLY" ;;
+                esac
             done < "$f" ;;
         get)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config get KEY"; return 2; }
@@ -82,17 +95,22 @@ __bga_cli_config() {
             __bga_term_safe "$REPLY"; printf '%s\n' "$REPLY" ;;
         set)
             [ "$#" = 2 ] || { __bga_cli_err "usage: bga config set KEY VALUE"; return 2; }
-            key="${1,,}"
+            __bga_key_lc "$1"; key="$REPLY"
             __bga_config_valid "$key" "$2"
             case $? in
                 0) ;;
                 2) __bga_cli_err "unknown key '$key'"; return 2 ;;
                 *) __bga_cli_err "invalid value for '$key': $2"; return 2 ;;
             esac
+            __bga_cli_locked "$key" && return 1
             __bga_cli_cfg_write "$f" "$key" "$2" ;;
+        edit)
+            [ "$#" = 0 ] || { __bga_cli_err "usage: bga config edit"; return 2; }
+            __bga_cli_cfg_edit "$f" ;;
         unset)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config unset KEY"; return 2; }
-            key="${1,,}"
+            __bga_key_lc "$1"; key="$REPLY"
+            __bga_cli_locked "$key" && return 1
             __bga_cli_cfg_write "$f" "$key" ;;
         *) __bga_cli_err "unknown config command '$sub'"; return 2 ;;
     esac
@@ -100,7 +118,8 @@ __bga_cli_config() {
 
 # Value of KEY in file $1 into REPLY (last occurrence wins, like the loader).
 __bga_cli_cfg_find() {
-    local f="$1" want="${2,,}" line k v found=1
+    local f="$1" want line k v val='' found=1
+    __bga_key_lc "$2"; want="$REPLY"
     REPLY=''
     [ -f "$f" ] || return 1
     while IFS= read -r line || [ -n "$line" ]; do
@@ -108,13 +127,29 @@ __bga_cli_cfg_find() {
         line="${line#"${line%%[![:blank:]]*}"}"
         case "$line" in '' | '#'*) continue ;; *=*) ;; *) continue ;; esac
         k="${line%%=*}"; k="${k%"${k##*[![:blank:]]}"}"
-        [ "${k,,}" = "$want" ] || continue
+        __bga_key_lc "$k"; [ "$REPLY" = "$want" ] || continue
         v="${line#*=}"; v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
         case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
-        REPLY="$v" found=0
+        val="$v" found=0
     done < "$f"
+    REPLY="$val"
     return "$found"
 }
+
+# True if bga may write config file $1: the same rule as the loader. Its
+# directory must not be writable by group or others unless it is sticky
+# (like /tmp), and an existing file must be ours. Otherwise another user
+# could swap the temp file for a symlink before the mv (SR6 F1).
+__bga_cli_cfg_safe() {
+    local d="${1%/*}"; [ "$d" = "$1" ] && d=.
+    if [ -d "$d" ] && [ -n "$(find -L "$d" -maxdepth 0 \( -perm -020 -o -perm -002 \) ! -perm -1000 2>/dev/null)" ]; then
+        __bga_cli_err "$d is writable by other users; refusing to write the config there"; return 1
+    fi
+    if [ -e "$1" ] && [ ! -O "$1" ]; then __bga_cli_err "$1 is owned by another user"; return 1; fi
+}
+
+# True if temp file $1 is still a regular file of ours, not a symlink.
+__bga_cli_tmp_ok() { [ -f "$1" ] && [ ! -L "$1" ] && [ -O "$1" ]; }
 
 # Rewrite file $1 with KEY $2 set to $3 (or removed when $3 is absent).
 # Comments, other keys and their order are kept. The write is atomic (temp
@@ -125,6 +160,7 @@ __bga_cli_cfg_write() {
     [ "$#" = 3 ] && set_=1
     if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
     if [ -e "$f" ] && [ ! -f "$f" ]; then __bga_cli_err "$f is not a regular file"; return 1; fi
+    __bga_cli_cfg_safe "$f" || return 1
     dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
     ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
     # Build the new content first, then write it with one printf whose
@@ -137,7 +173,8 @@ __bga_cli_cfg_write() {
                 *=*) k="${k%%=*}"; k="${k%"${k##*[![:blank:]]}"}" ;;
                 *) out+="$line"$'\n'; continue ;;
             esac
-            if [ "${k,,}" = "$key" ]; then
+            __bga_key_lc "$k"
+            if [ "$REPLY" = "$key" ]; then
                 if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
                 done_=1
                 continue
@@ -148,7 +185,60 @@ __bga_cli_cfg_write() {
     if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
     tmp="$(umask 077; mktemp "$dir/.config.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
     if ! printf '%s' "$out" > "$tmp"; then rm -f "$tmp"; __bga_cli_err "write failed; $f unchanged"; return 1; fi
+    __bga_cli_tmp_ok "$tmp" || { rm -f "$tmp"; __bga_cli_err "temp file changed; $f unchanged"; return 1; }
     mv -f "$tmp" "$f" || { rm -f "$tmp"; __bga_cli_err "cannot replace $f"; return 1; }
+}
+
+# Edit config file $1 in the user's editor. The editor works on a 0600 copy
+# next to the file; the copy is validated with the loader's own parser and
+# replaces the file (mv, atomic) only when the user keeps it. The editor
+# command goes through sh -c, as git does, so "code --wait" works.
+# Runs in a subshell: it changes no shell state, and its traps remove the
+# temp copy on Ctrl-C, hangup or kill (SR6 F5) without touching the user's.
+__bga_cli_cfg_edit() { ( __bga_cli_cfg_edit_body "$@" ); }
+__bga_cli_cfg_edit_body() {
+    local f="$1" dir tmp='' ed="${VISUAL:-${EDITOR:-vi}}" msgs a k notes rest REPLY
+    trap 'rm -f "${tmp:-/nonexistent}"' EXIT
+    trap 'exit 130' INT; trap 'exit 129' HUP; trap 'exit 143' TERM
+    if [ ! -t 0 ] || [ ! -t 1 ]; then __bga_cli_err "config edit needs a terminal; use bga config set"; return 2; fi
+    if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
+    if [ -e "$f" ] && [ ! -f "$f" ]; then __bga_cli_err "$f is not a regular file"; return 1; fi
+    __bga_cli_cfg_safe "$f" || return 1
+    dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
+    ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
+    tmp="$(umask 077; mktemp "$dir/.config.edit.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
+    if [ -f "$f" ]; then
+        cat -- "$f" > "$tmp" || { rm -f "$tmp"; __bga_cli_err "cannot read $f"; return 1; }
+    else
+        printf '# bash-gitaware settings: key = value (see bga help)\n' > "$tmp"
+    fi
+    while :; do
+        if ! sh -c "$ed \"\$1\"" sh "$tmp"; then
+            rm -f "$tmp"; __bga_cli_err "the editor failed; $f unchanged"; return 1
+        fi
+        # Validate in a subshell: parsing assigns variables.
+        msgs="$( { __bga_config_parse "$tmp" config 0; } 2>&1 >/dev/null )"
+        notes='' rest="${_bga_policy_locked:- }"
+        while [ -n "${rest// /}" ]; do
+            rest="${rest# }"; k="${rest%% *}"; rest="${rest#"$k"}"
+            __bga_cli_cfg_find "$tmp" "$k" && notes+="bga: '$k' is locked by the administrator policy; that line has no effect"$'\n'
+        done
+        [ -n "$notes" ] && printf '%s' "$notes" >&2
+        [ -z "$msgs" ] && break
+        printf '%s\n' "$msgs" | sed 's/^bash-gitaware: /bga: /' >&2
+        while :; do
+            printf 'Edit again or discard your changes? [e/d] ' >&2
+            IFS= read -r a || a=d
+            case "$a" in e | E | '') continue 2 ;; d | D) rm -f "$tmp"; printf 'bga: discarded; %s unchanged\n' "$f" >&2; return 1 ;; esac
+        done
+    done
+    # The editor may have replaced the copy (some save by rename): it must
+    # still be a regular file of ours before chmod and mv follow it.
+    __bga_cli_tmp_ok "$tmp" || { __bga_cli_err "the edited copy is no longer a regular file of yours; $f unchanged"; return 1; }
+    chmod 600 "$tmp" 2>/dev/null
+    mv -f "$tmp" "$f" || { __bga_cli_err "cannot replace $f"; return 1; }
+    tmp=''
+    printf 'saved %s; open a new shell or run: bga reload\n' "$f"
 }
 
 # --- theme -------------------------------------------------------------------
@@ -199,7 +289,7 @@ __bga_cli_theme_preview() {
 # --- doctor ------------------------------------------------------------------
 
 __bga_cli_doctor() {
-    local bad=0 v REPLY f
+    local bad=0 v REPLY f k
     __bga_doc() { printf '  %-4s %-14s %s\n' "$1" "$2" "$3"; }
     printf 'bash-gitaware %s\n' "$_bga_version"
     if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" = 4 ] && [ "${BASH_VERSINFO[1]}" -ge 4 ]; }; then
@@ -234,5 +324,34 @@ __bga_cli_doctor() {
     else
         __bga_doc info config "$f (not present, defaults in use)"
     fi
+    # Administrator policy (ADR-0011).
+    __bga_term_safe "${_bga_policy_path:-}"; v="$REPLY"
+    case "${_bga_policy_state:-absent}" in
+        applied)
+            k="${_bga_policy_locked# }"; k="${k% }"
+            if [ -n "$k" ]; then k="${k// /, }"; else k=none; fi
+            __bga_doc ok policy "$v (locks: $k)"
+            if [ -f "$f" ]; then
+                # Split on spaces whatever the caller's IFS (shell-state rule).
+                local IFS=' '
+                for k in $_bga_policy_locked; do
+                    __bga_cli_cfg_find "$f" "$k" && printf '         your config sets %s; the policy wins\n' "$k"
+                done
+            fi ;;
+        refused)
+            __bga_term_safe "$_bga_policy_reason"
+            __bga_doc FAIL policy "$v: $REPLY; ignored"; bad=1 ;;
+        *) __bga_doc info policy "none" ;;
+    esac
+    # Unset means on until 4.0 (ADR-0010): say so, and how to choose. Not a
+    # problem, so the exit status is unchanged.
+    case "${BASHGITAWARE_SHELL_DEFAULTS:-}" in
+        0) __bga_doc info shell-defaults "off" ;;
+        1) __bga_doc info shell-defaults "on (history, ls colors, aliases, completion)" ;;
+        '') __bga_doc note shell-defaults "not set: on, as in 3.0; 4.0 turns it off when unset"
+            printf '         choose with: bga config set shell_defaults 1   (or 0)\n' ;;
+        *) __bga_term_safe "$BASHGITAWARE_SHELL_DEFAULTS"
+           __bga_doc note shell-defaults "on: BASHGITAWARE_SHELL_DEFAULTS='$REPLY' is not 0 or 1" ;;
+    esac
     return "$bad"
 }

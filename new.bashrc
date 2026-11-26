@@ -24,6 +24,11 @@
 #   BASHGITAWARE_TIMER_THRESHOLD=N           Show command duration only if it took >= N seconds. Default: 2.
 #   BASHGITAWARE_PATH_MAXDEPTH=N             Show at most N trailing path components (0 = unlimited). Default: 3.
 #   BASHGITAWARE_SHOW_HOST=auto|always|never Show user@host. "auto" = only over SSH or as root. Default: auto.
+#   BASHGITAWARE_RUNTIMES=py,node,...         Runtimes to show (py node rust go ruby deno bun java). Default: all.
+#   BASHGITAWARE_VI_MODE=auto|0              Mode indicator with `set -o vi`. Default: auto.
+#   BASHGITAWARE_PROGRESS=0|1                Taskbar progress (OSC 9;4) while a command runs. Default: 0.
+#   BASHGITAWARE_SHELL_DEFAULTS=0|1          History settings, ls/grep colors, aliases, completion.
+#                                           Unset = on (3.0 behavior); the installer writes it (ADR-0010).
 #   NO_COLOR                                 If set (any value), disable all color. https://no-color.org
 
 # Where this file lives (bga reload re-sources it).
@@ -39,17 +44,26 @@ case $- in
 esac
 
 # ---------------------------------------------------------------------------
-# Config file: ${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-~/.config}/bash-gitaware/config}
+# Settings files. Both use the same grammar and are parsed as data, never
+# sourced:
 #
 #   # comment
 #   preset = minimal          (keys are the BASHGITAWARE_* names, lowercase,
 #   glyphs = "unicode"         without the prefix; quotes are optional)
 #
-# The file is parsed as data and never sourced. Each key has a fixed set of
-# valid values; anything else is reported on stderr with its line number and
-# ignored. Precedence: environment > config file > preset defaults. The file is
-# refused when someone else owns it or group/others can write it (a symlink is
-# fine if its target passes).
+# Each key has a fixed set of valid values; anything else is reported on
+# stderr with its line number and ignored.
+#
+#   * Policy: /etc/bash-gitaware/policy, for administrators (ADR-0011). Used
+#     only if it and every directory on its physical path are root-owned and
+#     not writable by group, others or ACL entries. Its keys are locked: they
+#     win over the environment and the user's config.
+#   * User config: ${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-~/.config}/bash-gitaware/config}.
+#     Refused when someone else owns it or group/others can write it (a
+#     symlink is fine if its target passes). Lines for locked keys are
+#     skipped (bga doctor lists them).
+#
+# Precedence: policy > environment > user config > preset defaults.
 # ---------------------------------------------------------------------------
 # Warnings echo keys and paths from the file: strip control characters so a
 # hostile config cannot send escape sequences to the terminal.
@@ -64,12 +78,130 @@ __bga_config_valid() {
         mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
         theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
         style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
-        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline)
+        vi_mode)      case "$2" in auto | 0) ;; *) return 1 ;; esac ;;
+        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline \
+        | shell_defaults | progress)
                       case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
         timer_threshold | path_maxdepth)
                       case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;
+        runtimes)     # Comma list of runtime names (lib/50-runtime.bash).
+                      local rest="$2," x
+                      [ "$2" != '' ] || return 1
+                      while [ -n "$rest" ]; do
+                          x="${rest%%,*}"; rest="${rest#*,}"
+                          case "$x" in py | node | rust | go | ruby | deno | bun | java) ;; *) return 1 ;; esac
+                      done ;;
         *) return 2 ;;
     esac
+}
+
+# Key case folding in the C locale: keys are ASCII, and in some locales
+# (tr_TR) ${k^^} turns i into a dotted capital I, which is no valid variable
+# name. Only the conversion runs in C: the warnings must keep classifying
+# UTF-8 control characters (C1, such as U+009B) in the user's locale.
+__bga_key_lc() { local LC_ALL=C; REPLY="${1,,}"; }
+__bga_key_uc() { local LC_ALL=C; REPLY="${1^^}"; }
+
+# __bga_config_parse <file> <label> <policy 0|1>: apply the key = value lines
+# of a file already checked by the caller. Warnings say "<label>:N:".
+# Policy lines are assigned even over the environment and recorded in
+# _bga_policy_locked (" key key "); user lines fill only unset, unlocked keys.
+__bga_config_parse() {
+    local f="$1" label="$2" pol="$3" line k v n=0 var q=\' REPLY
+    while IFS= read -r line || [ -n "$line" ]; do
+        n=$(( n + 1 ))
+        line="${line%$'\r'}"
+        # Trim leading/trailing blanks.
+        line="${line#"${line%%[![:blank:]]*}"}"; line="${line%"${line##*[![:blank:]]}"}"
+        case "$line" in '' | '#'*) continue ;; esac
+        case "$line" in *=*) ;; *) __bga_config_warn "$label:$n: expected key = value"; continue ;; esac
+        k="${line%%=*}"; v="${line#*=}"
+        k="${k%"${k##*[![:blank:]]}"}"; v="${v#"${v%%[![:blank:]]*}"}"
+        case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; "$q"*"$q") v="${v#"$q"}"; v="${v%"$q"}" ;; esac
+        __bga_key_lc "$k"; k="$REPLY"
+        __bga_config_valid "$k" "$v"
+        case $? in
+            0) ;;
+            2) __bga_config_warn "$label:$n: unknown key '$k'"; continue ;;
+            *) __bga_config_warn "$label:$n: invalid value for '$k'"; continue ;;
+        esac
+        __bga_key_uc "$k"; var="BASHGITAWARE_$REPLY"
+        if [ "$pol" = 1 ]; then
+            printf -v "$var" '%s' "$v"
+            _bga_policy_vars+="$var "
+            case "$_bga_policy_locked" in *" $k "*) ;; *) _bga_policy_locked+="$k " ;; esac
+        else
+            case "$_bga_policy_locked" in *" $k "*) continue ;; esac
+            # Environment wins: only fill variables that are not set yet.
+            [ -n "${!var+set}" ] || printf -v "$var" '%s' "$v"
+        fi
+    done < "$f"
+}
+
+# __bga_policy_trusted <file>: true if the policy may be used, and then
+# _bga_policy_real is the physical path that was checked: the caller reads
+# that one, never $1 again, so a symlink on the way cannot be swapped between
+# the check and the read (SR5 F1). On failure, REPLY says why. Rules: regular
+# file, not a symlink, readable, no newline in the path; it and every
+# directory on its physical path owned by uid 0 and not writable by group or
+# others (one find over all of them that prints the paths that fail; any
+# output or error refuses, SR5 F2); on macOS, no ACL entry granting write.
+__bga_policy_trusted() {
+    local f="$1" d x out
+    REPLY='' _bga_policy_real=''
+    case "$f" in *$'\n'*) REPLY='has a newline in its path'; return 1 ;; esac
+    if [ -L "$f" ]; then REPLY='is a symlink'; return 1; fi
+    if [ ! -f "$f" ]; then REPLY='is not a regular file'; return 1; fi
+    if [ ! -r "$f" ]; then REPLY='is not readable (it should be mode 0644)'; return 1; fi
+    d="${f%/*}"; [ -n "$d" ] || d=/
+    # The trailing x keeps a trailing newline that $(...) would strip.
+    d="$(CDPATH='' builtin cd -P -- "$d" 2>/dev/null && pwd -P && printf x)" || { REPLY='directory not accessible'; return 1; }
+    d="${d%$'\n'x}"
+    case "$d" in *$'\n'*) REPLY='has a newline in its path'; return 1 ;; esac
+    local -a p=("${d%/}/${f##*/}")
+    x="$d"
+    while [ -n "$x" ] && [ "$x" != / ]; do p+=("$x"); x="${x%/*}"; done
+    p+=(/)
+    out="$(find "${p[@]}" -maxdepth 0 \( ! -user 0 -o -perm -020 -o -perm -002 \) -print 2>/dev/null; printf 'rc=%s' "$?")"
+    if [ "$out" != rc=0 ]; then
+        REPLY='it or a parent directory is not owned by root, or is writable by group or others'
+        return 1
+    fi
+    # POSIX ACLs (Linux) need no separate check: a named entry with write
+    # access raises the mask, which shows as group write above, and a masked
+    # entry grants nothing. macOS ACLs do not show in the mode bits.
+    if [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+        # macOS lists ACL entries under each path as " N: who allow perms".
+        out="$(ls -lde "${p[@]}" 2>/dev/null)"
+        while [ -n "$out" ]; do
+            x="${out%%$'\n'*}"
+            if [ "$x" = "$out" ]; then out=''; else out="${out#*$'\n'}"; fi
+            case "$x" in
+                [[:blank:]]*[0-9]': '*' allow '*write* | [[:blank:]]*[0-9]': '*' allow '*append* \
+                | [[:blank:]]*[0-9]': '*' allow '*add_* | [[:blank:]]*[0-9]': '*' allow '*delete_child*)
+                    REPLY='an ACL entry grants write access'; return 1 ;;
+            esac
+        done
+    fi
+    _bga_policy_real="${p[0]}"
+}
+
+# The policy path. Only the test suite changes it, through an unexported
+# _BGA_POLICY set before this file is sourced (an exported one is ignored,
+# like _BGA_CLI); the trust check applies there too (ADR-0011).
+__bga_policy_load() {
+    _bga_policy_locked=' ' _bga_policy_state=absent _bga_policy_reason='' _bga_policy_vars=''
+    _bga_policy_path=/etc/bash-gitaware/policy
+    if [ -n "${_BGA_POLICY:-}" ] && [[ "${_BGA_POLICY@a}" != *x* ]]; then _bga_policy_path="$_BGA_POLICY"; fi
+    [ -e "$_bga_policy_path" ] || [ -L "$_bga_policy_path" ] || return 0
+    local REPLY
+    if __bga_policy_trusted "$_bga_policy_path"; then
+        _bga_policy_state=applied
+        __bga_config_parse "$_bga_policy_real" policy 1
+    else
+        _bga_policy_state=refused _bga_policy_reason="$REPLY"
+        __bga_config_warn "$_bga_policy_path: $REPLY; policy ignored"
+    fi
 }
 
 __bga_config_load() {
@@ -89,29 +221,38 @@ __bga_config_load() {
        || { [ -L "$f" ] && [ -n "$(find -L "${f%/*}" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]; }; then
         __bga_config_warn "$f: owned or writable by other users, ignored"; return 0
     fi
-    local line k v n=0 var q=\'
-    while IFS= read -r line || [ -n "$line" ]; do
-        n=$(( n + 1 ))
-        line="${line%$'\r'}"
-        # Trim leading/trailing blanks.
-        line="${line#"${line%%[![:blank:]]*}"}"; line="${line%"${line##*[![:blank:]]}"}"
-        case "$line" in '' | '#'*) continue ;; esac
-        case "$line" in *=*) ;; *) __bga_config_warn "config:$n: expected key = value"; continue ;; esac
-        k="${line%%=*}"; v="${line#*=}"
-        k="${k%"${k##*[![:blank:]]}"}"; v="${v#"${v%%[![:blank:]]*}"}"
-        case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; "$q"*"$q") v="${v#"$q"}"; v="${v%"$q"}" ;; esac
-        k="${k,,}"
-        __bga_config_valid "$k" "$v"
-        case $? in
-            0) ;;
-            2) __bga_config_warn "config:$n: unknown key '$k'"; continue ;;
-            *) __bga_config_warn "config:$n: invalid value for '$k'"; continue ;;
-        esac
-        var="BASHGITAWARE_${k^^}"
-        # Environment wins: only fill variables that are not set yet.
-        [ -n "${!var+set}" ] || printf -v "$var" '%s' "$v"
-    done < "$f"
+    __bga_config_parse "$f" config 0
 }
+# bga reload re-sources this file. Values that bash-gitaware itself set on
+# the previous load (policy, config file, presets, plain-mode defaults) are
+# unset first, or they would look like environment and shadow the files; the
+# user's own environment is kept. _bga_managed is filled by
+# __bga_settings_mark (end of lib/10-detect.bash). ${!prefix@} lists names
+# without a subshell.
+__bga_settings_reset() {
+    local rest="${_bga_managed:-}" v
+    while [ -n "$rest" ]; do
+        v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
+        [ -n "$v" ] && unset "$v"
+    done
+    _bga_managed='' _bga_env_vars=' '
+    for v in "${!BASHGITAWARE_@}"; do _bga_env_vars+="$v "; done
+}
+__bga_settings_mark() {
+    local v
+    _bga_managed=''
+    for v in "${!BASHGITAWARE_@}"; do
+        case "$_bga_env_vars" in *" $v "*) ;; *) _bga_managed+="$v " ;; esac
+    done
+    # Policy values replace the environment's: always ours to reset.
+    local rest="${_bga_policy_vars:-}"
+    while [ -n "$rest" ]; do
+        v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
+        case " $_bga_managed" in *" $v "*) ;; *) [ -n "$v" ] && _bga_managed+="$v " ;; esac
+    done
+}
+__bga_settings_reset
+__bga_policy_load
 __bga_config_load
 
 # ---------------------------------------------------------------------------
@@ -230,6 +371,9 @@ if [ "$_bga_plain" = 1 ]; then
     : "${BASHGITAWARE_OSC:=0}" "${BASHGITAWARE_TRANSIENT:=0}" "${BASHGITAWARE_ASYNC:=0}"
     : "${BASHGITAWARE_GLYPHS:=ascii}" "${BASHGITAWARE_COMMIT_LINE:=0}"
 fi
+# Every default bash-gitaware assigns is in place now: remember which
+# BASHGITAWARE_* variables are ours, for bga reload (lib/00-options.bash).
+__bga_settings_mark
 
 # ---------------------------------------------------------------------------
 # Escaping untrusted text for PS1.
@@ -253,6 +397,7 @@ __bga_ps1_lit() {
     local s="$1" bs=\\ dl='$' bt='`'
     s="${s//[[:cntrl:]]/?}"
     case "$s" in *$'\xc2'*) __bga_strip_c1 "$s"; s="$REPLY" ;; esac
+    if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$s"; s="$REPLY"; fi
     if shopt -q promptvars; then
         s="${s//"$bs"/"$bs$bs"}"
         s="${s//"$dl"/"$bs$dl"}"
@@ -268,6 +413,7 @@ __bga_ps1_lit() {
 __bga_term_safe() {
     REPLY="${1//[[:cntrl:]]/?}"
     case "$REPLY" in *$'\xc2'*) __bga_strip_c1 "$REPLY" ;; esac
+    if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$REPLY"; fi
 }
 
 # C1 controls (U+0080-U+009F, UTF-8 bytes C2 80-9F; C2 9B is CSI) are only
@@ -279,16 +425,57 @@ __bga_strip_c1() {
     REPLY="${1//$'\xc2'[$'\x80'-$'\x9f']/?}"
 }
 
+# Outside a UTF-8 locale the terminal may be 8-bit, where a lone byte 0x9B is
+# CSI. In UTF-8 those bytes are continuation bytes of normal characters, so
+# this runs only when the locale is not UTF-8 (SR6 F4).
+__bga_strip_c1_raw() {
+    local LC_ALL=C
+    REPLY="${1//[$'\x80'-$'\x9f']/?}"
+}
+
 # Read the first line of a small file into REPLY (at most 256 bytes). Only
 # regular files: a cloned repo can ship .python-version -> /dev/zero, /dev/tty
 # or a FIFO, and an unbounded `read` there hangs every prompt. Returns 1 (and
 # empties REPLY) for anything else.
+# -d '': bash drops NUL bytes without counting them against -n, so a file
+# of NULs (cheap to ship: git stores it compressed) was read to the end on
+# every prompt, and Ctrl-C did not stop it (SR6 F2). A NUL now ends the read.
 __bga_read_line() {
     REPLY=''
     [ -f "$1" ] && [ -r "$1" ] || return 1
-    IFS= read -r -n 256 REPLY < "$1" 2>/dev/null
+    IFS= read -r -d '' -n 256 REPLY < "$1" 2>/dev/null
+    REPLY="${REPLY%%$'\n'*}"
     REPLY="${REPLY%$'\r'}"
     return 0
+}
+
+# A version from version file $1 into REPLY, or return 1. A symlink is
+# followed only to a file inside the repository (or the current directory
+# outside one): a cloned repo could point .ruby-version at
+# ~/.git-credentials and show it in the prompt (SR6 F3). The value must look
+# like a version: its first word, at most 32 characters of [A-Za-z0-9._+@/:-].
+# True if $1 is not a symlink, or is one whose target is inside the
+# repository (the current directory outside one). One readlink fork, only
+# for symlinks; the result is cached with the runtimes per directory.
+__bga_link_inside() {
+    [ -L "$1" ] || return 0
+    local t top="${_bga_git_top:-$PWD}"
+    command -v readlink >/dev/null 2>&1 || return 1
+    t="$(readlink -f -- "$1" 2>/dev/null)" || return 1
+    case "$t" in "${top%/}"/*) return 0 ;; esac
+    return 1
+}
+
+__bga_read_version() {
+    REPLY=''
+    __bga_link_inside "$1" || return 1
+    __bga_read_line "$1" || return 1
+    local v="$REPLY" LC_ALL=C
+    v="${v#"${v%%[![:blank:]]*}"}"; v="${v%%[[:blank:]]*}"
+    REPLY=''
+    [ -n "$v" ] && [ "${#v}" -le 32 ] || return 1
+    case "$v" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@/:-]*) return 1 ;; esac
+    REPLY="$v"
 }
 
 # ---------------------------------------------------------------------------
@@ -329,8 +516,9 @@ __bga_state_dir_init() {
 # directory this shell created.
 __bga_state_dir_cleanup() {
     [ -n "$_bga_state_dir" ] && [ -d "$_bga_state_dir" ] && [ ! -L "$_bga_state_dir" ] || return 0
-    rm -f "$_bga_state_dir"/* 2>/dev/null
-    rmdir "$_bga_state_dir" 2>/dev/null
+    # rm -r on the directory, not a glob: with failglob set, "$dir"/* on an
+    # empty directory is an error printed when the shell exits.
+    rm -rf -- "$_bga_state_dir" 2>/dev/null
     _bga_state_dir=''
 }
 
@@ -465,6 +653,10 @@ node     8ccf7e 114 92 0
 py       e6b450 179 93 0
 rust     f29e74 216 33 0
 go       5ccfe6  80 96 0
+ruby     ff6b81 204 91 0
+deno     8fb0d9 110 94 0
+bun      ff9f5a 215 33 0
+java     e6b450 179 93 0
 tag      ff9f5a 215 33 0
 timer    e6b450 179 93 0
 err      ff6b81 204 91 1
@@ -493,6 +685,10 @@ node     26702a  22 32 0
 py       8a5300  94 33 0
 rust     a34a06 130 33 0
 go       0b6e83  24 36 0
+ruby     b5172f 124 31 0
+deno     34538a  60 34 0
+bun      a34a06 130 33 0
+java     8a5300  94 33 0
 tag      a34a06 130 33 0
 timer    8a5300  94 33 0
 err      b5172f 124 31 1
@@ -518,6 +714,10 @@ node     8cff8c 120 92 0
 py       ffe600 220 93 0
 rust     ffb46e 215 93 0
 go       00e5ff  45 96 0
+ruby     ff6b6b 203 91 0
+deno     b4d7ff 153 94 0
+bun      ffb000 214 93 0
+java     ffe600 220 93 0
 tag      ffb000 214 93 0
 timer    ffe600 220 93 0
 err      ff6b6b 203 91 1
@@ -530,13 +730,13 @@ sym_err  ff6b6b 203 91 1
 _R='' _Rr=''
 _c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
 _c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit='' _c_node=''
-_c_py='' _c_rust='' _c_go='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
+_c_py='' _c_rust='' _c_go='' _c_ruby='' _c_deno='' _c_bun='' _c_java='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
 _cr_dim='' _cr_path='' _cr_user='' _cr_host='' _cr_host_ssh='' _cr_branch='' _cr_hash=''
 _cr_state='' _cr_ahead='' _cr_behind='' _cr_dirty='' _cr_stash='' _cr_commit='' _cr_node=''
-_cr_py='' _cr_rust='' _cr_go='' _cr_tag='' _cr_timer='' _cr_err='' _cr_ok='' _cr_sym_err=''
+_cr_py='' _cr_rust='' _cr_go='' _cr_ruby='' _cr_deno='' _cr_bun='' _cr_java='' _cr_tag='' _cr_timer='' _cr_err='' _cr_ok='' _cr_sym_err=''
 
 # Every token a theme must define (the test suite checks each theme).
-_bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash commit node py rust go tag timer err ok sym_err'
+_bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash commit node py rust go ruby deno bun java tag timer err ok sym_err'
 
 __bga_theme_apply() {
     local name="${1:-aware}" table var line tok sgr
@@ -991,6 +1191,8 @@ __bga_path() {
 
 # ---------------------------------------------------------------------------
 # Runtime / version modules -- shown only when the directory (or env) calls for it.
+# BASHGITAWARE_RUNTIMES (comma list) picks which ones; default all. Ruby, Deno,
+# Bun and Java read version files only and never run the tool (3.1, SPEC S6).
 # Result is cached per (PWD, virtualenv, conda env) so the version commands run
 # once when you cd into a project, not on every prompt. Sets _bga_rt_str (the
 # PS1 text for the classic layout) and _bga_rt_items (raw labels, one per
@@ -1000,14 +1202,54 @@ __bga_path() {
 # Reset together: a re-source (bga reload) must not keep a key whose items
 # were just cleared, or the cache would "hit" with no runtimes.
 _bga_rt_items=() _bga_rt_key='' _bga_rt_str=''
+
+# True if runtime $1 is enabled (BASHGITAWARE_RUNTIMES unset or lists it).
+__bga_rt_on() {
+    [ -z "${BASHGITAWARE_RUNTIMES:-}" ] && return 0
+    case ",$BASHGITAWARE_RUNTIMES," in *",$1,"*) return 0 ;; esac
+    return 1
+}
+
+# Add runtime $1 (token) with label $2 to the Lean items and classic string.
+__bga_rt_add() {
+    local REPLY tok="_c_$1"
+    _bga_rt_items+=("$1|$2")
+    __bga_ps1_lit "$2"; _bga_rt_str+=" ${_c_dim}via ${_R}${!tok}${REPLY}${_R}"
+}
+
+# Value of "key=value" line $2 in file $1 (first 50 lines of the first 12 KB;
+# one bounded read, NUL-terminated as in __bga_read_line) into REPLY, checked
+# like a version file value. Plain reads: the file is never sourced.
+__bga_rt_kv() {
+    local buf line n=0 v
+    REPLY=''
+    __bga_link_inside "$1" || return 1
+    [ -f "$1" ] && [ -r "$1" ] || return 1
+    IFS= read -r -d '' -n 12288 buf < "$1" 2>/dev/null
+    while [ -n "$buf" ] && [ "$n" -lt 50 ]; do
+        line="${buf%%$'\n'*}"
+        if [ "$line" = "$buf" ]; then buf=''; else buf="${buf#*$'\n'}"; fi
+        n=$(( n + 1 )); line="${line%$'\r'}"
+        case "$line" in
+            "$2="*)
+                v="${line#"$2="}"
+                local LC_ALL=C
+                [ -n "$v" ] && [ "${#v}" -le 32 ] || return 1
+                case "$v" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@/:-]*) return 1 ;; esac
+                REPLY="$v"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
 __bga_runtime() {
     if [ "${BASHGITAWARE_RUNTIME:-1}" = 0 ]; then _bga_rt_str=''; _bga_rt_items=(); return; fi
     # promptvars is part of the key: the cached string is escaped for it.
     local pv=0; shopt -q promptvars && pv=1
-    local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}|$pv"
+    local key="$PWD|${VIRTUAL_ENV:-}|${CONDA_DEFAULT_ENV:-}|$pv|${BASHGITAWARE_RUNTIMES:-}"
     [ "$key" = "${_bga_rt_key:-}" ] && return
     _bga_rt_key="$key"; _bga_rt_str=""; _bga_rt_items=()
-    local out="" v f s REPLY
+    local v f s REPLY
 
     # --- Python: an active virtualenv / conda env, or a Python project marker ---
     local pyenv=""
@@ -1020,50 +1262,70 @@ __bga_runtime() {
     elif [ -n "${CONDA_DEFAULT_ENV:-}" ] && [ "${CONDA_DEFAULT_ENV}" != base ]; then
         pyenv="conda:${CONDA_DEFAULT_ENV}"
     fi
-    if [ -n "$pyenv" ] || [ -e "$PWD/pyproject.toml" ] || [ -e "$PWD/setup.py" ] \
+    if __bga_rt_on py && { [ -n "$pyenv" ] || [ -e "$PWD/pyproject.toml" ] || [ -e "$PWD/setup.py" ] \
        || [ -e "$PWD/setup.cfg" ] || [ -e "$PWD/requirements.txt" ] || [ -e "$PWD/Pipfile" ] \
-       || [ -e "$PWD/.python-version" ]; then
+       || [ -e "$PWD/.python-version" ]; }; then
         v=""
-        __bga_read_line "$PWD/.python-version" && v="$REPLY"
+        __bga_read_version "$PWD/.python-version" && v="$REPLY"
         if [ -z "$v" ]; then
             if   command -v python3 >/dev/null 2>&1; then v="$(python3 --version 2>&1)"
             elif command -v python  >/dev/null 2>&1; then v="$(python --version 2>&1)"; fi
             v="${v#Python }"; v="${v%% *}"
         fi
         s="python"; [ -n "$v" ] && s="python $v"; [ -n "$pyenv" ] && s="$s ($pyenv)"
-        _bga_rt_items+=("py|$s")
-        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_py}${REPLY}${_R}"
+        __bga_rt_add py "$s"
     fi
 
     # --- Node: a package.json in the current directory ---
-    if [ -e "$PWD/package.json" ]; then
+    if __bga_rt_on node && [ -e "$PWD/package.json" ]; then
         v=""
         for f in .nvmrc .node-version; do
-            __bga_read_line "$PWD/$f" && { v="${REPLY#v}"; break; }
+            __bga_read_version "$PWD/$f" && { v="${REPLY#v}"; break; }
         done
         [ -z "$v" ] && command -v node >/dev/null 2>&1 && { v="$(node --version 2>/dev/null)"; v="${v#v}"; }
         s="node"; [ -n "$v" ] && s="node $v"
-        _bga_rt_items+=("node|$s")
-        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_node}${REPLY}${_R}"
+        __bga_rt_add node "$s"
     fi
 
     # --- Rust: a Cargo.toml in the current directory ---
-    if [ -e "$PWD/Cargo.toml" ]; then
+    if __bga_rt_on rust && [ -e "$PWD/Cargo.toml" ]; then
         v=""; command -v rustc >/dev/null 2>&1 && { v="$(rustc --version 2>/dev/null)"; v="${v#rustc }"; v="${v%% *}"; }
         s="rust"; [ -n "$v" ] && s="rust $v"
-        _bga_rt_items+=("rust|$s")
-        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_rust}${REPLY}${_R}"
+        __bga_rt_add rust "$s"
     fi
 
     # --- Go: a go.mod in the current directory ---
-    if [ -e "$PWD/go.mod" ]; then
+    if __bga_rt_on go && [ -e "$PWD/go.mod" ]; then
         v=""; command -v go >/dev/null 2>&1 && { v="$(go env GOVERSION 2>/dev/null)"; v="${v#go}"; }
         s="go"; [ -n "$v" ] && s="go $v"
-        _bga_rt_items+=("go|$s")
-        __bga_ps1_lit "$s"; out="$out ${_c_dim}via ${_R}${_c_go}${REPLY}${_R}"
+        __bga_rt_add go "$s"
     fi
 
-    _bga_rt_str="$out"
+    # --- Ruby: .ruby-version or a Gemfile (version file only) ---
+    if __bga_rt_on ruby && { [ -e "$PWD/.ruby-version" ] || [ -e "$PWD/Gemfile" ]; }; then
+        __bga_read_version "$PWD/.ruby-version"; v="${REPLY#ruby-}"
+        s="ruby"; [ -n "$v" ] && s="ruby $v"
+        __bga_rt_add ruby "$s"
+    fi
+
+    # --- Deno: deno.json(c) (no version file convention) ---
+    if __bga_rt_on deno && { [ -e "$PWD/deno.json" ] || [ -e "$PWD/deno.jsonc" ]; }; then
+        __bga_rt_add deno deno
+    fi
+
+    # --- Bun: a lockfile or bunfig.toml ---
+    if __bga_rt_on bun && { [ -e "$PWD/bun.lockb" ] || [ -e "$PWD/bun.lock" ] || [ -e "$PWD/bunfig.toml" ]; }; then
+        __bga_rt_add bun bun
+    fi
+
+    # --- Java: .java-version (jenv) or java=... in .sdkmanrc ---
+    if __bga_rt_on java && { [ -e "$PWD/.java-version" ] || [ -e "$PWD/.sdkmanrc" ]; }; then
+        v=''
+        if __bga_read_version "$PWD/.java-version"; then v="$REPLY"
+        elif __bga_rt_kv "$PWD/.sdkmanrc" java; then v="$REPLY"; fi
+        s="java"; [ -n "$v" ] && s="java $v"
+        __bga_rt_add java "$s"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -1079,6 +1341,7 @@ __bga_prompt() {
     # terminal sees the just-finished command's exit and the new cwd before
     # the next prompt is drawn. No-op if BASHGITAWARE_OSC=0.
     __bga_osc_prompt_cycle_start "$exit_code"
+    __bga_osc_progress_end "$exit_code" "${_bga_timer_start:+1}"
 
     # Elapsed wall-clock time of the command that just finished.
     _bga_last_duration=''
@@ -1442,6 +1705,31 @@ if [ "${BASHGITAWARE_OSC:-1}" != 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# OSC 9;4 taskbar progress (3.1, opt-in: progress = 1; ADR-0012). PS0 sets the
+# indeterminate state when a command starts; the next prompt clears it, or
+# shows the error state for one prompt after a failed command. Off with
+# osc = 0, in plain mode, and inside tmux/screen, which do not pass it on.
+# ---------------------------------------------------------------------------
+# Turned off by a reload: PS0 has already set the busy state for the
+# `bga reload` command itself, and no later prompt would clear it.
+if [ "${_bga_progress:-0}" = 1 ]; then printf '\e]9;4;0;0\a'; fi
+_bga_progress=0
+if [ "${BASHGITAWARE_PROGRESS:-0}" = 1 ] && [ "${BASHGITAWARE_OSC:-1}" != 0 ] \
+   && [ "${_bga_plain:-0}" != 1 ] && [ -z "${TMUX:-}" ] && [ -z "${STY:-}" ]; then
+    _bga_progress=1
+fi
+# Re-sourcing (bga reload) adds the mark once, and removes it when off.
+if [ -n "${PS0:-}" ]; then PS0="${PS0//$'\e]9;4;3;0\a'/}"; fi
+if [ "$_bga_progress" = 1 ]; then PS0=$'\e]9;4;3;0\a'"${PS0:-}"; fi
+
+# __bga_osc_progress_end <exit code> <1 if a command ran>
+__bga_osc_progress_end() {
+    [ "$_bga_progress" = 1 ] || return 0
+    if [ "$2" = 1 ] && [ "$1" != 0 ]; then printf '\e]9;4;2;100\a'
+    else printf '\e]9;4;0;0\a'; fi
+}
+
+# ---------------------------------------------------------------------------
 # Transient prompt -- collapse the previous prompt to a one-line form on submit.
 #
 # Strategy: bind -x to an auxiliary chord (\C-x\C-t) runs the collapse function;
@@ -1509,6 +1797,70 @@ if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ] && [[ $- == *i* ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# vi-mode indicator (3.1, SPEC S5; ADR-0012). readline draws a mode string
+# at the start of the last prompt line when show-mode-in-prompt is on, so
+# the indicator costs nothing per prompt and readline itself redraws it on
+# every mode switch. Insert mode shows nothing; command mode shows a marker
+# in the theme's "state" color. The emacs string is emptied, so emacs mode
+# looks as before.
+#
+# Left alone when the user configured any of it (show-mode-in-prompt on, or
+# a mode string changed from readline's default), with vi_mode = 0, in plain
+# mode, and outside interactive shells (bind needs line editing).
+# ---------------------------------------------------------------------------
+# True while the readline variables are still the ones we set: the insert
+# and emacs strings empty and the indicator on. $1 = `bind -v` output.
+__bga_vimode_still_ours() {
+    local v="${1-}"
+    [ -n "$v" ] || v="$(bind -v 2>/dev/null)"
+    case "$v" in *'show-mode-in-prompt on'*) ;; *) return 1 ;; esac
+    # An empty value prints as "name " at the end of its line (the last line
+    # has no newline once $(...) strips it).
+    case "$v" in *$'vi-ins-mode-string \n'* | *'vi-ins-mode-string ') ;; *) return 1 ;; esac
+    case "$v" in *$'emacs-mode-string \n'* | *'emacs-mode-string ') ;; *) return 1 ;; esac
+}
+
+__bga_vimode_setup() {
+    [[ $- == *i* ]] || return 0
+    if [ "${BASHGITAWARE_VI_MODE:-auto}" = 0 ] || [ "${_bga_plain:-0}" = 1 ]; then
+        # Turned off since an earlier load: put readline's defaults back,
+        # unless the user has changed the strings since (see below).
+        if [ "${_bga_vimode_set:-0}" = 1 ] && __bga_vimode_still_ours; then
+            bind 'set show-mode-in-prompt off' 2>/dev/null
+            bind 'set emacs-mode-string "@"' 2>/dev/null
+            bind 'set vi-ins-mode-string "(ins)"' 2>/dev/null
+            bind 'set vi-cmd-mode-string "(cmd)"' 2>/dev/null
+            _bga_vimode_set=0
+        fi
+        return 0
+    fi
+    local v
+    v="$(bind -v 2>/dev/null)" || return 0
+    # Ours from an earlier load (bga reload): set them again for the theme,
+    # unless the user changed them after that load.
+    if [ "${_bga_vimode_set:-0}" = 1 ] && ! __bga_vimode_still_ours "$v"; then _bga_vimode_set=0; return 0; fi
+    if [ "${_bga_vimode_set:-0}" != 1 ]; then
+        case "$v" in *'show-mode-in-prompt on'*) return 0 ;; esac
+        case "$v" in *'vi-cmd-mode-string (cmd)'*) ;; *) return 0 ;; esac
+        case "$v" in *'vi-ins-mode-string (ins)'*) ;; *) return 0 ;; esac
+        case "$v" in *'emacs-mode-string @'*) ;; *) return 0 ;; esac
+    fi
+    local mark=N sgr="${_cr_state:-}" reset="${_Rr:-}" s
+    [ "${_bga_glyphs:-ascii}" = nerd ] && mark=$''
+    # Colors go inside \1 \2 so readline does not count them as width. The
+    # escapes come from the theme tables (fixed SGR codes); ESC is written
+    # as \e for bind.
+    sgr="${sgr//$'\e'/\\e}" reset="${reset//$'\e'/\\e}"
+    if [ -n "$sgr" ]; then s="\\1${sgr}\\2${mark}\\1${reset}\\2 "; else s="${mark} "; fi
+    bind 'set show-mode-in-prompt on' 2>/dev/null
+    bind 'set emacs-mode-string ""' 2>/dev/null
+    bind 'set vi-ins-mode-string ""' 2>/dev/null
+    bind "set vi-cmd-mode-string \"$s\"" 2>/dev/null
+    _bga_vimode_set=1
+}
+__bga_vimode_setup
+
+# ---------------------------------------------------------------------------
 # Async / non-blocking rendering -- deferred refresh on the next prompt.
 #
 # Strategy (per ADR-0005): split git work into "cheap" (always sync:
@@ -1538,7 +1890,8 @@ fi
 #     Kills any still-running background job and removes the cache file.
 #
 # Cache file:
-#   ${XDG_RUNTIME_DIR:-/tmp}/bga-${$}.cache
+#   <state dir>/cache, in the private per-shell directory of lib/16-state.bash
+#   (bga.XXXXXXXX under $XDG_RUNTIME_DIR or ${TMPDIR:-/tmp}, mode 0700).
 #   Plain key=value lines. Parsed defensively (no `source`): we accept only
 #   four known keys and ignore everything else.
 # ---------------------------------------------------------------------------
@@ -1775,7 +2128,7 @@ __bga_hooks_install
 #
 # Exit status: 0 ok, 1 a check or operation failed, 2 usage error.
 # ---------------------------------------------------------------------------
-_bga_version='3.0.0'
+_bga_version='3.1.0'
 
 __bga_cli_err() { printf 'bga: %s\n' "$*" >&2; }
 
@@ -1788,6 +2141,7 @@ usage: bga <command> [args]
   config get KEY              print one setting
   config set KEY VALUE        validate and store a setting
   config unset KEY            remove a setting
+  config edit                 edit the file in $VISUAL/$EDITOR, validated before saving
   theme list                  list the themes
   theme preview [NAME]        show a sample prompt in a theme
   theme set NAME              store the theme in the config file
@@ -1824,6 +2178,13 @@ __bga_cli_cfg_path() {
     REPLY="${BASHGITAWARE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/bash-gitaware/config}"
 }
 
+# True (and an error printed) when key $1 is locked by the policy (ADR-0011).
+__bga_cli_locked() {
+    case "${_bga_policy_locked:- }" in *" $1 "*) ;; *) return 1 ;; esac
+    __bga_term_safe "$_bga_policy_path"
+    __bga_cli_err "'$1' is set by the administrator policy ($REPLY); your config cannot change it"
+}
+
 __bga_cli_config() {
     local sub="${1:-list}" f key line k
     [ "$#" -gt 0 ] && shift
@@ -1835,7 +2196,12 @@ __bga_cli_config() {
             while IFS= read -r line || [ -n "$line" ]; do
                 line="${line%$'\r'}"
                 case "$line" in '' | [[:blank:]]*'#'* | '#'*) continue ;; *=*) ;; *) continue ;; esac
-                __bga_term_safe "$line"; printf '%s\n' "$REPLY"
+                k="${line%%=*}"; k="${k#"${k%%[![:blank:]]*}"}"; k="${k%"${k##*[![:blank:]]}"}"; __bga_key_lc "$k"; k="$REPLY"
+                __bga_term_safe "$line"
+                case "${_bga_policy_locked:- }" in
+                    *" $k "*) printf '%s   (ignored: locked by policy)\n' "$REPLY" ;;
+                    *)        printf '%s\n' "$REPLY" ;;
+                esac
             done < "$f" ;;
         get)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config get KEY"; return 2; }
@@ -1843,17 +2209,22 @@ __bga_cli_config() {
             __bga_term_safe "$REPLY"; printf '%s\n' "$REPLY" ;;
         set)
             [ "$#" = 2 ] || { __bga_cli_err "usage: bga config set KEY VALUE"; return 2; }
-            key="${1,,}"
+            __bga_key_lc "$1"; key="$REPLY"
             __bga_config_valid "$key" "$2"
             case $? in
                 0) ;;
                 2) __bga_cli_err "unknown key '$key'"; return 2 ;;
                 *) __bga_cli_err "invalid value for '$key': $2"; return 2 ;;
             esac
+            __bga_cli_locked "$key" && return 1
             __bga_cli_cfg_write "$f" "$key" "$2" ;;
+        edit)
+            [ "$#" = 0 ] || { __bga_cli_err "usage: bga config edit"; return 2; }
+            __bga_cli_cfg_edit "$f" ;;
         unset)
             [ "$#" = 1 ] || { __bga_cli_err "usage: bga config unset KEY"; return 2; }
-            key="${1,,}"
+            __bga_key_lc "$1"; key="$REPLY"
+            __bga_cli_locked "$key" && return 1
             __bga_cli_cfg_write "$f" "$key" ;;
         *) __bga_cli_err "unknown config command '$sub'"; return 2 ;;
     esac
@@ -1861,7 +2232,8 @@ __bga_cli_config() {
 
 # Value of KEY in file $1 into REPLY (last occurrence wins, like the loader).
 __bga_cli_cfg_find() {
-    local f="$1" want="${2,,}" line k v found=1
+    local f="$1" want line k v val='' found=1
+    __bga_key_lc "$2"; want="$REPLY"
     REPLY=''
     [ -f "$f" ] || return 1
     while IFS= read -r line || [ -n "$line" ]; do
@@ -1869,13 +2241,29 @@ __bga_cli_cfg_find() {
         line="${line#"${line%%[![:blank:]]*}"}"
         case "$line" in '' | '#'*) continue ;; *=*) ;; *) continue ;; esac
         k="${line%%=*}"; k="${k%"${k##*[![:blank:]]}"}"
-        [ "${k,,}" = "$want" ] || continue
+        __bga_key_lc "$k"; [ "$REPLY" = "$want" ] || continue
         v="${line#*=}"; v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
         case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
-        REPLY="$v" found=0
+        val="$v" found=0
     done < "$f"
+    REPLY="$val"
     return "$found"
 }
+
+# True if bga may write config file $1: the same rule as the loader. Its
+# directory must not be writable by group or others unless it is sticky
+# (like /tmp), and an existing file must be ours. Otherwise another user
+# could swap the temp file for a symlink before the mv (SR6 F1).
+__bga_cli_cfg_safe() {
+    local d="${1%/*}"; [ "$d" = "$1" ] && d=.
+    if [ -d "$d" ] && [ -n "$(find -L "$d" -maxdepth 0 \( -perm -020 -o -perm -002 \) ! -perm -1000 2>/dev/null)" ]; then
+        __bga_cli_err "$d is writable by other users; refusing to write the config there"; return 1
+    fi
+    if [ -e "$1" ] && [ ! -O "$1" ]; then __bga_cli_err "$1 is owned by another user"; return 1; fi
+}
+
+# True if temp file $1 is still a regular file of ours, not a symlink.
+__bga_cli_tmp_ok() { [ -f "$1" ] && [ ! -L "$1" ] && [ -O "$1" ]; }
 
 # Rewrite file $1 with KEY $2 set to $3 (or removed when $3 is absent).
 # Comments, other keys and their order are kept. The write is atomic (temp
@@ -1886,6 +2274,7 @@ __bga_cli_cfg_write() {
     [ "$#" = 3 ] && set_=1
     if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
     if [ -e "$f" ] && [ ! -f "$f" ]; then __bga_cli_err "$f is not a regular file"; return 1; fi
+    __bga_cli_cfg_safe "$f" || return 1
     dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
     ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
     # Build the new content first, then write it with one printf whose
@@ -1898,7 +2287,8 @@ __bga_cli_cfg_write() {
                 *=*) k="${k%%=*}"; k="${k%"${k##*[![:blank:]]}"}" ;;
                 *) out+="$line"$'\n'; continue ;;
             esac
-            if [ "${k,,}" = "$key" ]; then
+            __bga_key_lc "$k"
+            if [ "$REPLY" = "$key" ]; then
                 if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
                 done_=1
                 continue
@@ -1909,7 +2299,60 @@ __bga_cli_cfg_write() {
     if [ "$set_" = 1 ] && [ "$done_" = 0 ]; then out+="$key = $3"$'\n'; fi
     tmp="$(umask 077; mktemp "$dir/.config.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
     if ! printf '%s' "$out" > "$tmp"; then rm -f "$tmp"; __bga_cli_err "write failed; $f unchanged"; return 1; fi
+    __bga_cli_tmp_ok "$tmp" || { rm -f "$tmp"; __bga_cli_err "temp file changed; $f unchanged"; return 1; }
     mv -f "$tmp" "$f" || { rm -f "$tmp"; __bga_cli_err "cannot replace $f"; return 1; }
+}
+
+# Edit config file $1 in the user's editor. The editor works on a 0600 copy
+# next to the file; the copy is validated with the loader's own parser and
+# replaces the file (mv, atomic) only when the user keeps it. The editor
+# command goes through sh -c, as git does, so "code --wait" works.
+# Runs in a subshell: it changes no shell state, and its traps remove the
+# temp copy on Ctrl-C, hangup or kill (SR6 F5) without touching the user's.
+__bga_cli_cfg_edit() { ( __bga_cli_cfg_edit_body "$@" ); }
+__bga_cli_cfg_edit_body() {
+    local f="$1" dir tmp='' ed="${VISUAL:-${EDITOR:-vi}}" msgs a k notes rest REPLY
+    trap 'rm -f "${tmp:-/nonexistent}"' EXIT
+    trap 'exit 130' INT; trap 'exit 129' HUP; trap 'exit 143' TERM
+    if [ ! -t 0 ] || [ ! -t 1 ]; then __bga_cli_err "config edit needs a terminal; use bga config set"; return 2; fi
+    if [ -L "$f" ]; then __bga_cli_err "$f is a symlink; edit its target by hand"; return 1; fi
+    if [ -e "$f" ] && [ ! -f "$f" ]; then __bga_cli_err "$f is not a regular file"; return 1; fi
+    __bga_cli_cfg_safe "$f" || return 1
+    dir="${f%/*}"; [ "$dir" = "$f" ] && dir=.
+    ( umask 077; mkdir -p "$dir" ) || { __bga_cli_err "cannot create $dir"; return 1; }
+    tmp="$(umask 077; mktemp "$dir/.config.edit.XXXXXX")" || { __bga_cli_err "cannot write in $dir"; return 1; }
+    if [ -f "$f" ]; then
+        cat -- "$f" > "$tmp" || { rm -f "$tmp"; __bga_cli_err "cannot read $f"; return 1; }
+    else
+        printf '# bash-gitaware settings: key = value (see bga help)\n' > "$tmp"
+    fi
+    while :; do
+        if ! sh -c "$ed \"\$1\"" sh "$tmp"; then
+            rm -f "$tmp"; __bga_cli_err "the editor failed; $f unchanged"; return 1
+        fi
+        # Validate in a subshell: parsing assigns variables.
+        msgs="$( { __bga_config_parse "$tmp" config 0; } 2>&1 >/dev/null )"
+        notes='' rest="${_bga_policy_locked:- }"
+        while [ -n "${rest// /}" ]; do
+            rest="${rest# }"; k="${rest%% *}"; rest="${rest#"$k"}"
+            __bga_cli_cfg_find "$tmp" "$k" && notes+="bga: '$k' is locked by the administrator policy; that line has no effect"$'\n'
+        done
+        [ -n "$notes" ] && printf '%s' "$notes" >&2
+        [ -z "$msgs" ] && break
+        printf '%s\n' "$msgs" | sed 's/^bash-gitaware: /bga: /' >&2
+        while :; do
+            printf 'Edit again or discard your changes? [e/d] ' >&2
+            IFS= read -r a || a=d
+            case "$a" in e | E | '') continue 2 ;; d | D) rm -f "$tmp"; printf 'bga: discarded; %s unchanged\n' "$f" >&2; return 1 ;; esac
+        done
+    done
+    # The editor may have replaced the copy (some save by rename): it must
+    # still be a regular file of ours before chmod and mv follow it.
+    __bga_cli_tmp_ok "$tmp" || { __bga_cli_err "the edited copy is no longer a regular file of yours; $f unchanged"; return 1; }
+    chmod 600 "$tmp" 2>/dev/null
+    mv -f "$tmp" "$f" || { __bga_cli_err "cannot replace $f"; return 1; }
+    tmp=''
+    printf 'saved %s; open a new shell or run: bga reload\n' "$f"
 }
 
 # --- theme -------------------------------------------------------------------
@@ -1960,7 +2403,7 @@ __bga_cli_theme_preview() {
 # --- doctor ------------------------------------------------------------------
 
 __bga_cli_doctor() {
-    local bad=0 v REPLY f
+    local bad=0 v REPLY f k
     __bga_doc() { printf '  %-4s %-14s %s\n' "$1" "$2" "$3"; }
     printf 'bash-gitaware %s\n' "$_bga_version"
     if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" = 4 ] && [ "${BASH_VERSINFO[1]}" -ge 4 ]; }; then
@@ -1995,6 +2438,35 @@ __bga_cli_doctor() {
     else
         __bga_doc info config "$f (not present, defaults in use)"
     fi
+    # Administrator policy (ADR-0011).
+    __bga_term_safe "${_bga_policy_path:-}"; v="$REPLY"
+    case "${_bga_policy_state:-absent}" in
+        applied)
+            k="${_bga_policy_locked# }"; k="${k% }"
+            if [ -n "$k" ]; then k="${k// /, }"; else k=none; fi
+            __bga_doc ok policy "$v (locks: $k)"
+            if [ -f "$f" ]; then
+                # Split on spaces whatever the caller's IFS (shell-state rule).
+                local IFS=' '
+                for k in $_bga_policy_locked; do
+                    __bga_cli_cfg_find "$f" "$k" && printf '         your config sets %s; the policy wins\n' "$k"
+                done
+            fi ;;
+        refused)
+            __bga_term_safe "$_bga_policy_reason"
+            __bga_doc FAIL policy "$v: $REPLY; ignored"; bad=1 ;;
+        *) __bga_doc info policy "none" ;;
+    esac
+    # Unset means on until 4.0 (ADR-0010): say so, and how to choose. Not a
+    # problem, so the exit status is unchanged.
+    case "${BASHGITAWARE_SHELL_DEFAULTS:-}" in
+        0) __bga_doc info shell-defaults "off" ;;
+        1) __bga_doc info shell-defaults "on (history, ls colors, aliases, completion)" ;;
+        '') __bga_doc note shell-defaults "not set: on, as in 3.0; 4.0 turns it off when unset"
+            printf '         choose with: bga config set shell_defaults 1   (or 0)\n' ;;
+        *) __bga_term_safe "$BASHGITAWARE_SHELL_DEFAULTS"
+           __bga_doc note shell-defaults "on: BASHGITAWARE_SHELL_DEFAULTS='$REPLY' is not 0 or 1" ;;
+    esac
     return "$bad"
 }
 
@@ -2002,72 +2474,69 @@ __bga_cli_doctor() {
 # for interactive shells only.
 if [ -n "${_BGA_CLI:-}" ]; then return 0; fi
 
-# ---------------------------------------------------------------------------
-# History
-# ---------------------------------------------------------------------------
-HISTCONTROL=ignoreboth
-HISTSIZE=10000
-HISTFILESIZE=20000
-shopt -s histappend
+# The prompt itself needs these, whatever shell_defaults says: checkwinsize
+# keeps COLUMNS current for the right-aligned block (bash 4.4 does not enable
+# it by default), and the chroot name is shown as a tag on line 1.
 shopt -s checkwinsize
-
-[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
-
 if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
     debian_chroot="$(cat /etc/debian_chroot)"
 fi
 
 # ---------------------------------------------------------------------------
-# ls / grep colors
+# Shell defaults (shell_defaults = 1): the settings a stock Debian/Ubuntu
+# ~/.bashrc has, plus git aliases. Unset means on, so a 3.0 install updated
+# with `git pull` keeps them; the 3.1 installer always writes the key
+# (ADR-0010). An `if` block and not a function: bash-completion must be
+# sourced at top level, or its declarations would become function locals.
+# bash-gitaware never changes PATH.
 # ---------------------------------------------------------------------------
-if [ -x /usr/bin/dircolors ]; then
-    if [ -r ~/.dircolors ]; then eval "$(dircolors -b ~/.dircolors)"; else eval "$(dircolors -b)"; fi
-    alias ls='ls --color=auto'
-    alias grep='grep --color=auto'
-    alias fgrep='fgrep --color=auto'
-    alias egrep='egrep --color=auto'
-fi
+if [ "${BASHGITAWARE_SHELL_DEFAULTS:-1}" != 0 ]; then
+    HISTCONTROL=ignoreboth
+    HISTSIZE=10000
+    HISTFILESIZE=20000
+    shopt -s histappend
 
-# ---------------------------------------------------------------------------
-# Aliases
-# ---------------------------------------------------------------------------
-alias ll='ls -alF'
-alias la='ls -A'
-alias l='ls -CF'
+    [ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
 
-# "alert" for long-running commands: `some-long-command; alert`
-alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
+    # ls / grep colors
+    if [ -x /usr/bin/dircolors ]; then
+        if [ -r ~/.dircolors ]; then eval "$(dircolors -b ~/.dircolors)"; else eval "$(dircolors -b)"; fi
+        alias ls='ls --color=auto'
+        alias grep='grep --color=auto'
+        alias fgrep='fgrep --color=auto'
+        alias egrep='egrep --color=auto'
+    fi
 
-# Git shortcuts
-alias gs='git status'
-alias ga='git add'
-alias gc='git commit'
-alias gp='git push'
-alias gl='git log --oneline --graph --decorate --all'
-alias gd='git diff'
-alias gb='git branch'
-alias gco='git checkout'
-alias gst='git stash'
-alias gsp='git stash pop'
+    alias ll='ls -alF'
+    alias la='ls -A'
+    alias l='ls -CF'
 
-# ---------------------------------------------------------------------------
-# User overrides and bash completion
-# ---------------------------------------------------------------------------
-# shellcheck source=/dev/null
-[ -f ~/.bash_aliases ] && . ~/.bash_aliases
+    # "alert" for long-running commands: `some-long-command; alert`
+    alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
 
-# shellcheck source=/dev/null
-if ! shopt -oq posix; then
-    if   [ -f /usr/share/bash-completion/bash_completion ]; then . /usr/share/bash-completion/bash_completion
-    elif [ -f /etc/bash_completion ]; then . /etc/bash_completion
+    # Git shortcuts
+    alias gs='git status'
+    alias ga='git add'
+    alias gc='git commit'
+    alias gp='git push'
+    alias gl='git log --oneline --graph --decorate --all'
+    alias gd='git diff'
+    alias gb='git branch'
+    alias gco='git checkout'
+    alias gst='git stash'
+    alias gsp='git stash pop'
+
+    # User overrides and bash completion
+    # shellcheck source=/dev/null
+    [ -f ~/.bash_aliases ] && . ~/.bash_aliases
+
+    # shellcheck source=/dev/null
+    if ! shopt -oq posix; then
+        if   [ -f /usr/share/bash-completion/bash_completion ]; then . /usr/share/bash-completion/bash_completion
+        elif [ -f /etc/bash_completion ]; then . /etc/bash_completion
+        fi
     fi
 fi
-
-# ---------------------------------------------------------------------------
-# PATH (edit to taste; idempotent so re-sourcing this file is safe)
-# ---------------------------------------------------------------------------
-case ":$PATH:" in *":$HOME/.npm-global/bin:"*) ;; *) PATH="$HOME/.npm-global/bin:$PATH" ;; esac
-export PATH
 
 # ---------------------------------------------------------------------------
 # Cleanup

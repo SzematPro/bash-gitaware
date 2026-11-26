@@ -6,6 +6,69 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-26
+
+### Added
+
+- **`shell_defaults` setting.** The history options, `ls`/`grep` colors,
+  aliases, `~/.bash_aliases` and bash-completion that 3.0 always loaded can
+  now be turned off (`bga config set shell_defaults 0`). The installer
+  writes the key (by default `0` for append and `1` for replace; it asks on
+  a terminal and keeps an existing value). When it is not set, they
+  stay on as in 3.0, and `bga doctor` asks you to choose.
+
+- **Administrator policy** (`/etc/bash-gitaware/policy`). Root can set and
+  lock settings for every user. The policy is used only when root owns it
+  and no one else can write it, and `bga doctor` shows what it locks.
+
+- **Ruby, Deno, Bun and Java runtimes**, read from version files only (no
+  program runs). `runtimes = py,node,...` picks which runtimes show.
+- **vi-mode indicator**: with `set -o vi`, a marker appears in command mode,
+  drawn by readline. Your own readline mode settings are kept.
+- **Taskbar progress** (`progress = 1`, OSC 9;4) while a command runs, with
+  the error state after a failure. Off by default, and inside tmux/screen.
+- **`bga config edit`** opens `$VISUAL`/`$EDITOR` and checks the file
+  before saving it.
+
+### Changed
+
+- Startup is about 12 ms faster with `shell_defaults = 0` where
+  bash-completion is installed.
+- CI tests macOS both with and without Homebrew coreutils. The render budget
+  is now set per platform: 60 ms, or 90 ms on macOS.
+
+### Fixed
+
+- `bga reload` now applies config changes. Before, `bga theme set X;
+  bga reload` kept the old theme, because values loaded from the config
+  file counted as environment on the second load.
+- Settings whose names contain an `i` (`commit_line`, `timer_threshold`,
+  `runtime`, ...) did not apply in a Turkish locale.
+- With `shopt -s failglob`, closing the shell printed `no match`.
+
+### Security
+
+- **A repository could freeze the prompt** with a version file full of NUL
+  bytes (`.python-version`, `.nvmrc`, and the new runtime files). bash
+  read it to the end on every prompt (11 s per prompt for 1 GB, which
+  compresses to about 1 MB in git), and Ctrl-C did not stop it. Affects
+  3.0.x.
+- **A version file symlinked outside the repository** (for example to
+  `~/.git-credentials`) showed that file's first line in the prompt.
+  Symlinks are now followed only within the repository, and only
+  version-like values are shown. Affects 3.0.x.
+- Outside a UTF-8 locale, lone bytes 0x80-0x9F (0x9B is CSI on 8-bit
+  terminals) are now replaced like other control characters.
+- `bga config set`/`edit` refuse to write into a directory other users can
+  write, where one of them could swap the file for a symlink.
+- Reviews SR5 (policy file) and SR6 (wave 7) reproduced every finding; the
+  records are in `docs/v3.1/reviews/`.
+
+### Removed
+
+- bash-gitaware no longer adds `~/.npm-global/bin` to `PATH`. If you need
+  it, add it to your own `~/.bashrc` (see `docs/MIGRATION.md`).
+
 ## [3.0.0] - 2026-11-25
 
 ### Added

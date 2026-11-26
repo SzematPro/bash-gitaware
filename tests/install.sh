@@ -80,10 +80,42 @@ scenario_install_interactive() {
     if ! command -v script >/dev/null 2>&1 || ! script -qc true /dev/null >/dev/null 2>&1; then
         skip "interactive installer (needs util-linux script)"; rm -rf "$c"; return
     fi
-    printf 'append\naware\nascii\n' | BASHGITAWARE_CONFIG="$c/cfg" \
+    printf 'append\naware\nascii\nyes\n' | BASHGITAWARE_CONFIG="$c/cfg" \
         script -qc "bash '$c/repo/install.sh' --target '$c/rc3'" /dev/null >/dev/null 2>&1
     assert_contains "$(cat "$c/rc3" 2>/dev/null)" "new.bashrc" "answer 'append' wrote a source line"
     assert_contains "$(cat "$c/cfg" 2>/dev/null)" "theme = aware"  "theme answer stored in the config"
     assert_contains "$(cat "$c/cfg" 2>/dev/null)" "glyphs = ascii" "glyph answer stored in the config"
+    assert_contains "$(cat "$c/cfg" 2>/dev/null)" "shell_defaults = 1" "shell-defaults answer stored (yes over the append default)"
+    rm -rf "$c"
+}
+
+scenario_install_shell_defaults() {
+    section "install.sh: always writes shell_defaults (ADR-0010)"
+    local c rc out; c="$(_in_copy)"
+    BASHGITAWARE_CONFIG="$c/cfg-a" bash "$c/repo/install.sh" --append --target "$c/rc-a" >/dev/null 2>&1
+    assert_contains "$(cat "$c/cfg-a" 2>/dev/null)" "shell_defaults = 0" "--append writes 0"
+    BASHGITAWARE_CONFIG="$c/cfg-r" bash "$c/repo/install.sh" --replace --no-backup --target "$c/rc-r" >/dev/null 2>&1
+    assert_contains "$(cat "$c/cfg-r" 2>/dev/null)" "shell_defaults = 1" "--replace writes 1"
+    BASHGITAWARE_CONFIG="$c/cfg-y" bash "$c/repo/install.sh" --yes --no-backup --target "$c/rc-y" </dev/null >/dev/null 2>&1
+    assert_contains "$(cat "$c/cfg-y" 2>/dev/null)" "shell_defaults = 1" "--yes takes the default mode's value (replace: 1)"
+    # A re-run keeps what the user chose.
+    printf 'shell_defaults = 1\n' > "$c/cfg-k"; chmod 600 "$c/cfg-k"
+    BASHGITAWARE_CONFIG="$c/cfg-k" bash "$c/repo/install.sh" --append --target "$c/rc-k" >/dev/null 2>&1
+    out="$(cat "$c/cfg-k")"
+    assert_contains "$out" "shell_defaults = 1" "re-run keeps an existing value"
+    assert_lacks    "$out" "shell_defaults = 0" "re-run does not add a second value"
+    # A config that cannot be written does not fail the install.
+    # A path through a regular file cannot be created, not even by root.
+    : > "$c/not-a-dir"
+    out="$(BASHGITAWARE_CONFIG="$c/not-a-dir/cfg" bash "$c/repo/install.sh" --append --target "$c/rc-n" 2>&1)"; rc=$?
+    if [ "$rc" = 0 ]; then ok "unwritable config: install still succeeds"; else fail "unwritable config failed the install ($rc)"; fi
+    assert_contains "$out" "could not store shell_defaults" "unwritable config: warning with the fix"
+    assert_contains "$(cat "$c/rc-n" 2>/dev/null)" "new.bashrc" "unwritable config: source line written"
+    # --uninstall skips the tamper check, so it must not run repository code
+    # (bin/bga sources new.bashrc) to read shell_defaults.
+    bash "$c/repo/install.sh" --append --target "$c/rc-u" >/dev/null 2>&1
+    printf 'touch %q\n' "$c/PWNED_UNINST" >> "$c/repo/new.bashrc"; chmod o+w "$c/repo/new.bashrc"
+    BASHGITAWARE_CONFIG="$c/cfg-u" bash "$c/repo/install.sh" --uninstall --target "$c/rc-u" >/dev/null 2>&1
+    if [ -e "$c/PWNED_UNINST" ]; then fail "--uninstall ran new.bashrc"; else ok "--uninstall does not run new.bashrc"; fi
     rm -rf "$c"
 }

@@ -20,8 +20,8 @@ dependencies beyond git.
 
 - Line 1: the path (relative to the repository root inside a repository)
   and git. Git shows the branch, rebase or merge state, a dirty mark,
-  ahead/behind counts and stashes. Runtimes (Python, Node, Rust, Go) are
-  aligned to the right.
+  ahead/behind counts and stashes. Runtimes (Python, Node, Rust, Go,
+  Ruby, Deno, Bun, Java) are aligned to the right.
 - Line 2: the prompt symbol, red after a failure.
 - After a command that failed or took longer than the threshold, a result
   line (`  ✘1 · 3s`) stays in your scrollback.
@@ -36,12 +36,13 @@ The expensive part of `git status` runs in the background. In a
 ```bash
 git clone https://github.com/SzematPro/bash-gitaware ~/.bash-gitaware
 cd ~/.bash-gitaware
-./install.sh            # asks: append to ~/.bashrc or replace it, theme, glyphs
+./install.sh            # asks: append or replace, theme, glyphs, shell defaults
 exec bash
 ```
 
-Use `./install.sh --yes` to take the defaults without questions, and
-`./install.sh --uninstall` to undo the install.
+Use `./install.sh --yes` to take the defaults without questions (replace
+mode, after a backup of `~/.bashrc`), and `./install.sh --uninstall` to
+undo the install.
 
 ## Configure
 
@@ -52,6 +53,7 @@ Settings live in `~/.config/bash-gitaware/config`. The file is plain
 bga config set theme light      # aware, light, contrast
 bga config set style classic    # the v2 three-line layout
 bga theme preview contrast
+bga config edit                 # opens $VISUAL or $EDITOR, checks before saving
 bga doctor                      # checks your setup
 bga reload                      # applies changes to this shell
 ```
@@ -67,10 +69,55 @@ bga reload                      # applies changes to this shell
 | `timer_threshold` | seconds | `2` |
 | `show_host` | `auto`, `always`, `never` | `auto` (over SSH or as root) |
 | `mode` | `auto`, `plain`, `full` | `auto` |
+| `runtimes` | comma list of `py`, `node`, `rust`, `go`, `ruby`, `deno`, `bun`, `java` | all |
+| `vi_mode` | `auto`, `0` | `auto` (marker in vi command mode) |
+| `progress` | `0`, `1` (taskbar progress while a command runs, OSC 9;4) | `0` |
+| `shell_defaults` | `0`, `1` | written by the installer (see below) |
 
 Every key also works as an environment variable (`BASHGITAWARE_THEME`,
 and so on), which takes precedence over the file. `NO_COLOR` is honored.
 The full list is in [docs/MIGRATION.md](docs/MIGRATION.md).
+
+## Shell defaults
+
+bash-gitaware can also set what a stock Debian/Ubuntu `~/.bashrc` sets:
+history options (`HISTCONTROL=ignoreboth`, `HISTSIZE=10000`,
+`HISTFILESIZE=20000`, `histappend`), the aliases `ll`, `la`, `l` and
+`alert`, the git aliases `gs`, `ga`, `gc`, `gp`, `gl`, `gd`, `gb`, `gco`,
+`gst` and `gsp`, and `~/.bash_aliases`. Where the system has them
+(`/usr/bin/dircolors`, `/usr/bin/lesspipe`, the Debian bash-completion
+paths), it also sets `ls`/`grep` colors, `lesspipe` and completion.
+
+```bash
+bga config set shell_defaults 0    # prompt only
+bga config set shell_defaults 1    # prompt plus the settings above
+```
+
+The installer writes this key. By default it writes `0` when it appends to
+your `~/.bashrc` and `1` when it replaces it; it asks on a terminal, and
+keeps a value you already set. If the key is not set (an install from 3.0), the
+settings stay on and `bga doctor` asks you to choose. bash-gitaware never
+changes your `PATH`. See
+[ADR-0010](docs/adr/ADR-0010-shell-defaults-module.md).
+
+## For administrators
+
+On shared or managed machines, root can set and lock settings for every
+user in `/etc/bash-gitaware/policy`. It uses the same `key = value` format
+as the user config:
+
+```bash
+# /etc/bash-gitaware/policy (owned by root, mode 0644)
+mode = plain
+async = 0
+```
+
+Keys in the policy win over the environment and the user config, and
+`bga config set` refuses to change them. The file is used only if it and
+every directory above it are owned by root and nobody else can write them;
+otherwise it is ignored with a warning and `bga doctor` reports why. The
+policy sets defaults; it does not stop users from skipping bash-gitaware.
+See [ADR-0011](docs/adr/ADR-0011-admin-policy-file.md).
 
 ## Plain mode
 

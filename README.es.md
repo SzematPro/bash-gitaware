@@ -21,7 +21,7 @@ dependencias que git.
 - Línea 1: la ruta (relativa a la raíz dentro de un repositorio) y git. Git
   muestra la rama, el estado de rebase o merge, una marca de cambios sin
   commitear, los commits adelante/atrás y los stashes. Los runtimes
-  (Python, Node, Rust, Go) se alinean a la derecha.
+  (Python, Node, Rust, Go, Ruby, Deno, Bun, Java) se alinean a la derecha.
 - Línea 2: el símbolo del prompt, en rojo después de un fallo.
 - Tras un comando que falló o superó el umbral de tiempo, queda una línea
   de resultado (`  ✘1 · 3s`) en el historial de la terminal.
@@ -36,11 +36,12 @@ de 100.000 archivos el prompt tarda unos 11 ms.
 ```bash
 git clone https://github.com/SzematPro/bash-gitaware ~/.bash-gitaware
 cd ~/.bash-gitaware
-./install.sh            # asks: append to ~/.bashrc or replace it, theme, glyphs
+./install.sh            # asks: append or replace, theme, glyphs, shell defaults
 exec bash
 ```
 
-Con `./install.sh --yes` se usan los valores por defecto sin preguntas, y
+Con `./install.sh --yes` se usan los valores por defecto sin preguntas
+(modo replace, con copia de seguridad de `~/.bashrc`), y
 `./install.sh --uninstall` deshace la instalación.
 
 ## Configuración
@@ -53,6 +54,7 @@ con `bga`:
 bga config set theme light      # aware, light, contrast
 bga config set style classic    # the v2 three-line layout
 bga theme preview contrast
+bga config edit                 # opens $VISUAL or $EDITOR, checks before saving
 bga doctor                      # checks your setup
 bga reload                      # applies changes to this shell
 ```
@@ -68,10 +70,57 @@ bga reload                      # applies changes to this shell
 | `timer_threshold` | segundos | `2` |
 | `show_host` | `auto`, `always`, `never` | `auto` (por SSH o como root) |
 | `mode` | `auto`, `plain`, `full` | `auto` |
+| `runtimes` | lista separada por comas de `py`, `node`, `rust`, `go`, `ruby`, `deno`, `bun`, `java` | todos |
+| `vi_mode` | `auto`, `0` | `auto` (marca en el modo comando de vi) |
+| `progress` | `0`, `1` (progreso en la barra de tareas mientras corre un comando, OSC 9;4) | `0` |
+| `shell_defaults` | `0`, `1` | lo escribe el instalador (ver abajo) |
 
 Cada clave también funciona como variable de entorno (`BASHGITAWARE_THEME`,
 etc.), que tiene prioridad sobre el archivo. Se respeta `NO_COLOR`. La
 lista completa está en [docs/MIGRATION.md](docs/MIGRATION.md).
+
+## Ajustes de shell
+
+bash-gitaware también puede aplicar lo que trae un `~/.bashrc` estándar de
+Debian/Ubuntu: opciones de historial (`HISTCONTROL=ignoreboth`,
+`HISTSIZE=10000`, `HISTFILESIZE=20000`, `histappend`), los alias `ll`,
+`la`, `l` y `alert`, los alias de git `gs`, `ga`, `gc`, `gp`, `gl`, `gd`,
+`gb`, `gco`, `gst` y `gsp`, y `~/.bash_aliases`. Si el sistema los tiene
+(`/usr/bin/dircolors`, `/usr/bin/lesspipe`, las rutas de bash-completion de
+Debian), también aplica colores para `ls`/`grep`, `lesspipe` y el
+autocompletado.
+
+```bash
+bga config set shell_defaults 0    # prompt only
+bga config set shell_defaults 1    # prompt plus the settings above
+```
+
+El instalador escribe esta clave. Por defecto escribe `0` cuando añade la
+carga a tu `~/.bashrc` y `1` cuando lo sustituye; en una terminal lo
+pregunta, y conserva el valor si ya lo habías definido. Si la clave no está definida (una
+instalación de 3.0), los ajustes siguen activos y `bga doctor` te pide que
+elijas. bash-gitaware nunca cambia tu `PATH`. Más detalles en
+[ADR-0010](docs/adr/ADR-0010-shell-defaults-module.md).
+
+## Para administradores
+
+En máquinas compartidas o gestionadas, root puede fijar y bloquear ajustes
+para todos los usuarios en `/etc/bash-gitaware/policy`. Usa el mismo
+formato `clave = valor` que el config del usuario:
+
+```bash
+# /etc/bash-gitaware/policy (owned by root, mode 0644)
+mode = plain
+async = 0
+```
+
+Las claves del policy tienen prioridad sobre el entorno y el config del
+usuario, y `bga config set` se niega a cambiarlas. El archivo solo se usa si
+él y todos los directorios por encima pertenecen a root y nadie más puede
+escribirlos; si no, se ignora con un aviso y `bga doctor` explica el motivo.
+El policy fija valores por defecto; no impide que un usuario prescinda de
+bash-gitaware. Más detalles en
+[ADR-0011](docs/adr/ADR-0011-admin-policy-file.md).
 
 ## Modo plain
 

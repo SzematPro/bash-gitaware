@@ -36,6 +36,9 @@ jobs:
       - name: Lint (shellcheck on the generated artifact + scripts)
         run: shellcheck -x new.bashrc bin/*.sh bin/bga tests/*.sh install.sh
 
+      - name: Root-owned policy fixtures (tests/policy.sh)
+        run: sudo sh tests/policy-fixtures.sh
+
       - name: Run tests
         run: bash tests/run.sh
 
@@ -50,7 +53,7 @@ jobs:
         bash-version: ['4.4', '5.0', '5.1', '5.2', 'latest']
     steps:
       - name: Install git + ncurses (bash docker image is minimal Alpine)
-        run: apk add --no-cache git ncurses shadow
+        run: apk add --no-cache git ncurses shadow util-linux
 
       - name: Check out repository
         uses: actions/checkout@v4
@@ -67,17 +70,38 @@ jobs:
         run: |
           adduser -D -h /home/bgauser bgauser
           chown -R bgauser:bgauser .
+          sh tests/policy-fixtures.sh
           su -s /bin/sh -c "cd $(pwd) && bash tests/run.sh" bgauser
 
   macos-tests:
-    name: tests on macos (Homebrew bash)
+    # Both time-limit paths of lib/30-git.bash: stock macOS has no timeout(1),
+    # so git calls run under the shell watchdog; Homebrew coreutils adds a
+    # real timeout. Same 90 ms render budget for both (ruling R-8).
+    # BGA_EXPECT_TMO makes tests/perf.sh fail if a job exercises the wrong one.
+    name: tests on macos (Homebrew bash, ${{ matrix.tmo }})
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tmo: [watchdog, coreutils]
+    env:
+      BGA_EXPECT_TMO: ${{ matrix.tmo }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Install Homebrew bash
         run: brew install bash
+
+      - name: Install coreutils
+        if: matrix.tmo == 'coreutils'
+        run: brew install coreutils
+
+      - name: Show time-limit helpers on PATH
+        run: command -v timeout gtimeout || true
+
+      - name: Root-owned policy fixtures (tests/policy.sh)
+        run: sudo sh tests/policy-fixtures.sh
 
       - name: Run tests with Homebrew bash
         run: |

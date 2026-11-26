@@ -34,6 +34,16 @@ source "$HERE/lean.sh"
 source "$HERE/cli.sh"
 # shellcheck source=install.sh
 source "$HERE/install.sh"
+# shellcheck source=shell.sh
+source "$HERE/shell.sh"
+# shellcheck source=policy.sh
+source "$HERE/policy.sh"
+# shellcheck source=runtime.sh
+source "$HERE/runtime.sh"
+# shellcheck source=progress.sh
+source "$HERE/progress.sh"
+# shellcheck source=vimode.sh
+source "$HERE/vimode.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -83,8 +93,18 @@ scenario_install_tamper_check
 scenario_install_uninstall
 scenario_install_hostile_path
 scenario_install_interactive
+scenario_install_shell_defaults
 scenario_path_maxdepth
 scenario_runtime_cache
+scenario_runtime_new_runtimes
+scenario_runtime_no_exec
+scenario_runtime_hostile_version_files
+scenario_runtime_key_validation
+scenario_runtime_sr6_version_files
+scenario_runtime_sr6_c1_bytes
+scenario_progress_osc94
+scenario_vimode_setup
+scenario_vimode_pty
 
 # Security: untrusted text is never evaluated by the prompt.
 scenario_security_branch_name
@@ -135,6 +155,12 @@ scenario_config_file
 scenario_config_file_validation
 scenario_config_file_permissions
 scenario_config_file_sticky_dir
+scenario_config_turkish_locale
+scenario_shell_defaults
+scenario_shell_path_untouched
+scenario_policy_untrusted_user_file
+scenario_policy_applied
+scenario_policy_refused
 
 # Plain mode.
 scenario_plain_mode
@@ -162,11 +188,15 @@ scenario_lean_powerline
 scenario_cli_basics
 scenario_cli_config
 scenario_cli_theme_and_doctor
+scenario_cli_reload_applies_config
+scenario_cli_config_edit
+scenario_cli_config_unsafe_dir
 scenario_cli_shell_function
 scenario_cli_reload_keeps_runtime
 
 # Shell-state independence.
 scenario_shell_state_independence
+scenario_shellstate_failglob_exit
 
 # Performance.
 scenario_perf_budget

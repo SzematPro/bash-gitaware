@@ -53,18 +53,55 @@ scenario_perf_budget() {
         fail "perf: startup ${startup}ms exceeds budget ${BGA_BUDGET_STARTUP_MS}ms"
     fi
 
+    # Startup with the shell-defaults module off (ADR-0010): within budget
+    # everywhere. "Not slower than on" is only checked where the module loads
+    # bash-completion, the one heavy part: elsewhere (macOS, Alpine) both runs
+    # do the same work and the two medians differ by noise alone (macOS CI
+    # measured 19 ms off against 11 ms on). The slack absorbs timer noise.
+    local src_off startup_off slack=5 heavy=0
+    src_off="$(_perf_median_ms 5 "$env; export BASHGITAWARE_SHELL_DEFAULTS=0; source '$REPO/new.bashrc'")"
+    startup_off=$(( src_off - base )); [ "$startup_off" -lt 0 ] && startup_off=0
+    { [ -f /usr/share/bash-completion/bash_completion ] || [ -f /etc/bash_completion ]; } && heavy=1
+    if [ "$startup_off" -gt "$BGA_BUDGET_STARTUP_MS" ]; then
+        fail "perf: startup ${startup_off}ms with shell_defaults=0 exceeds budget ${BGA_BUDGET_STARTUP_MS}ms"
+    elif [ "$heavy" = 1 ] && [ "$startup_off" -gt $(( startup + slack )) ]; then
+        fail "perf: startup ${startup_off}ms with shell_defaults=0 is slower than on (${startup}ms)"
+    else
+        ok "perf: startup ${startup_off}ms with shell_defaults=0 (on: ${startup}ms)"
+    fi
+
     # Render: per-prompt cost, amortized over n renders in one shell.
     local n=50 total per
-    total="$(_perf_median_ms 3 "$env; source '$REPO/new.bashrc'; i=0; while [ \$i -lt $n ]; do __bga_prompt; i=\$(( i + 1 )); done")"
+    # Median of 5: hosted runners are noisy (ruling R-8).
+    total="$(_perf_median_ms 5 "$env; source '$REPO/new.bashrc'; i=0; while [ \$i -lt $n ]; do __bga_prompt; i=\$(( i + 1 )); done")"
     per=$(( (total - src) / n )); [ "$per" -lt 0 ] && per=0
-    local budget="$BGA_BUDGET_RENDER_MS" how="timeout(1)"
-    if ! command -v timeout >/dev/null 2>&1 && ! command -v gtimeout >/dev/null 2>&1; then
-        budget="$BGA_BUDGET_RENDER_WATCHDOG_MS" how="watchdog"
+    # The budget depends on the platform (R-8). The time-limit helper the
+    # library picked at load (lib/30-git.bash: timeout, gtimeout, or '' for
+    # the watchdog) is only reported, and checked when CI pins it.
+    local how budget plat
+    how="$(bash --norc --noprofile -i -c "$env; source '$REPO/new.bashrc' >/dev/null 2>&1; printf '%s' \"\${_bga_tmo:-watchdog}\"" 2>/dev/null)"
+    case "$how" in timeout | gtimeout) ;; *) how=watchdog ;; esac
+    plat="$(uname -s 2>/dev/null)"
+    case "$plat" in
+        Darwin) budget="$BGA_BUDGET_RENDER_MACOS_MS" ;;
+        *)      budget="$BGA_BUDGET_RENDER_MS" ;;
+    esac
+    # CI pins the path each job must exercise, so a runner image change cannot
+    # silently move a job to the other one. "coreutils" accepts either name:
+    # Homebrew's coreutils puts an unprefixed timeout on PATH.
+    if [ -n "${BGA_EXPECT_TMO:-}" ]; then
+        local want="$BGA_EXPECT_TMO"
+        [ "$want" = coreutils ] && case "$how" in timeout | gtimeout) want="$how" ;; esac
+        if [ "$how" = "$want" ]; then
+            ok "perf: time-limit helper is $how (expected $BGA_EXPECT_TMO)"
+        else
+            fail "perf: time-limit helper is $how, expected $BGA_EXPECT_TMO"
+        fi
     fi
     if [ "$per" -le "$budget" ]; then
-        ok "perf: ${per}ms/render across $n renders (budget ${budget}ms, $how)"
+        ok "perf: ${per}ms/render across $n renders (budget ${budget}ms, ${plat:-?}, $how)"
     else
-        fail "perf: ${per}ms/render exceeds budget ${budget}ms ($how)"
+        fail "perf: ${per}ms/render exceeds budget ${budget}ms (${plat:-?}, $how)"
     fi
 
     rm -rf "$d"

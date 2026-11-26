@@ -70,10 +70,39 @@ scenario_cli_theme_and_doctor() {
     out="$(_bga_cmd doctor)"; rc=$?
     assert_contains "$out" "bash " "doctor reports bash"
     if [ "$rc" = 0 ]; then ok "doctor exits 0 on a healthy setup"; else fail "doctor exit $rc"; fi
+    # shell_defaults unset (ADR-0010): a notice with the fix, exit status 0.
+    assert_contains "$out" "note shell-defaults" "doctor: notice when shell_defaults is unset"
+    assert_contains "$out" "bga config set shell_defaults" "doctor: notice says how to choose"
+    _bga_cmd config set shell_defaults 0 >/dev/null
+    out="$(_bga_cmd doctor)"; rc=$?
+    assert_contains "$out" "info shell-defaults off" "doctor: shell_defaults = 0 reported as off"
+    assert_lacks    "$out" "note shell-defaults" "doctor: no notice once set"
+    if [ "$rc" = 0 ]; then ok "doctor exits 0 with shell_defaults set"; else fail "doctor exit $rc with shell_defaults set"; fi
+    out="$(BASHGITAWARE_SHELL_DEFAULTS=yes _bga_cmd doctor)"
+    assert_contains "$out" "is not 0 or 1" "doctor: an invalid env value is reported, not shown as unset"
     printf 'glyphs = bogus\n' > "$dir/config"
     out="$(_bga_cmd doctor 2>&1)"; rc=$?
     if [ "$rc" = 1 ]; then ok "doctor exits 1 on an invalid config"; else fail "doctor exit $rc on bad config"; fi
     unset BASHGITAWARE_CONFIG
+    rm -rf "$dir"
+}
+
+scenario_cli_reload_applies_config() {
+    section "bga reload applies config changes (3.0 kept the old values)"
+    local dir out; dir="$(mktemp -d "${TMPDIR:-/tmp}/bga-cli-XXXXXX")"
+    printf 'theme = light\npreset = minimal\n' > "$dir/config"; chmod 600 "$dir/config"
+    out="$(BASHGITAWARE_CONFIG="$dir/config" bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH'
+        source '$REPO/new.bashrc'
+        bga theme set contrast >/dev/null; bga config set preset default
+        bga reload >/dev/null 2>&1
+        echo \"theme=\$BASHGITAWARE_THEME runtime=\${BASHGITAWARE_RUNTIME:-unset}\"" 2>/dev/null)"
+    assert_contains "$out" "theme=contrast runtime=unset" "reload: new config value and preset applied"
+    out="$(BASHGITAWARE_CONFIG="$dir/config" BASHGITAWARE_THEME=aware bash --norc --noprofile -i -c "
+        export HOME='$HOME' PATH='$PATH'; IFS=:
+        source '$REPO/new.bashrc'; bga reload >/dev/null 2>&1
+        echo \"theme=\$BASHGITAWARE_THEME\"" 2>/dev/null)"
+    assert_contains "$out" "theme=aware" "reload: the user's environment still wins (IFS=:)"
     rm -rf "$dir"
 }
 
@@ -103,3 +132,86 @@ scenario_cli_reload_keeps_runtime() {
     assert_contains "$out" "node 20.1.0" "runtime shown after reload"
     rm -rf "$base"
 }
+
+scenario_cli_config_edit() {
+    section "bga config edit: validated before saving"
+    local dir f out rc; dir="$(mktemp -d "${TMPDIR:-/tmp}/bga-cli-XXXXXX")"; f="$dir/cfg/config"
+    mkdir -m 700 "$dir/cfg"
+    out="$(BASHGITAWARE_CONFIG="$f" _bga_cmd config edit </dev/null 2>&1)"; rc=$?
+    if [ "$rc" = 2 ]; then ok "no terminal: exit 2"; else fail "no terminal: exit $rc"; fi
+    assert_contains "$out" "needs a terminal" "no terminal: says why"
+    if ! command -v script >/dev/null 2>&1 || ! script -qc true /dev/null >/dev/null 2>&1; then
+        skip "config edit on a terminal (needs util-linux script)"; rm -rf "$dir"; return
+    fi
+    # Editors: append a valid line; append an invalid one; fail; invalid
+    # first, then fixed on the second run.
+    printf '#!/bin/sh\nprintf "clock = 1\\n" >> "$1"\n' > "$dir/ed-ok"
+    printf '#!/bin/sh\nprintf "glyphs = bogus\\n" >> "$1"\n' > "$dir/ed-bad"
+    printf '#!/bin/sh\nexit 3\n' > "$dir/ed-fail"
+    {
+        printf '#!/bin/sh\n'
+        printf 'mark=%s/n\n' "$dir"
+        printf '%s\n' 'if [ -e "$mark" ]; then' \
+            '  sed "s/bogus/ascii/" "$1" > "$1.n" && cat "$1.n" > "$1" && rm -f "$1.n"' \
+            'else' '  : > "$mark"; printf "glyphs = bogus\n" >> "$1"' 'fi'
+    } > "$dir/ed-fix"
+    chmod 755 "$dir"/ed-*
+    printf '# keep this comment\ntheme = light\n' > "$f"; chmod 600 "$f"
+    _ce() { printf '%s' "$2" | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/$1" VISUAL='' script -qc "'$REPO/bin/bga' config edit" /dev/null 2>&1; }
+
+    out="$(_ce ed-ok '')"
+    assert_contains "$(cat "$f")" "clock = 1" "valid edit saved"
+    assert_contains "$(cat "$f")" "# keep this comment" "comments kept"
+    if [ -z "$(find "$f" -maxdepth 0 -perm 600 2>/dev/null)" ]; then fail "saved file is not mode 0600"; else ok "saved file is mode 0600"; fi
+    assert_contains "$out" "bga reload" "save says how to apply"
+
+    cp "$f" "$dir/before"
+    out="$(_ce ed-bad $'d\n')"
+    assert_contains "$out" "config:4: invalid value for 'glyphs'" "invalid edit: warning with the line"
+    if cmp -s "$f" "$dir/before"; then ok "discard: file unchanged"; else fail "discard changed the file"; fi
+    out="$(_ce ed-fix $'e\n')"
+    assert_contains "$(cat "$f")" "glyphs = ascii" "edit again: fixed version saved"
+    cp "$f" "$dir/before"
+    out="$(_ce ed-fail '')"
+    assert_contains "$out" "the editor failed" "editor failure reported"
+    if cmp -s "$f" "$dir/before"; then ok "editor failure: file unchanged"; else fail "editor failure changed the file"; fi
+    local left; left="$(cd "$dir/cfg" && for x in .config.edit.*; do [ -e "$x" ] && printf '%s ' "$x"; done)"
+    if [ -n "$left" ]; then fail "temp copy left behind: $left"; else ok "no temp copy left behind"; fi
+
+    # VISUAL wins over EDITOR, and an editor command with arguments gets the
+    # file as its last argument.
+    printf '#!/bin/sh\nprintf "%%s\\n" "$*" > "%s/args"\nprintf "osc = 0\\n" >> "$3"\n' "$dir" > "$dir/ed-args"; chmod 755 "$dir/ed-args"
+    printf '' | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/ed-fail" VISUAL="$dir/ed-args --wait -n" script -qc "'$REPO/bin/bga' config edit" /dev/null >/dev/null 2>&1
+    assert_contains "$(cat "$dir/args" 2>/dev/null)" "--wait -n " "VISUAL with arguments used"
+    case "$(cat "$dir/args" 2>/dev/null)" in *' -n '*'/.config.edit.'*) ok "the file is the editor's last argument" ;; *) fail "file not passed last" ;; esac
+    assert_contains "$(cat "$f")" "osc = 0" "edit through VISUAL saved"
+    ln -s "$f" "$dir/link"
+    out="$(printf '' | BASHGITAWARE_CONFIG="$dir/link" EDITOR="$dir/ed-ok" script -qc "'$REPO/bin/bga' config edit" /dev/null 2>&1)"
+    assert_contains "$out" "is a symlink" "symlinked config refused"
+    rm -rf "$dir"
+}
+
+scenario_cli_config_unsafe_dir() {
+    section "bga config: no writes where other users could swap files (SR6)"
+    local dir out rc; dir="$(mktemp -d "${TMPDIR:-/tmp}/bga-cli-XXXXXX")"
+    mkdir "$dir/open" "$dir/sticky"; chmod 777 "$dir/open"; chmod 1777 "$dir/sticky"
+    out="$(BASHGITAWARE_CONFIG="$dir/open/config" _bga_cmd config set clock 1 2>&1)"; rc=$?
+    if [ "$rc" = 1 ] && [ ! -e "$dir/open/config" ]; then ok "set refused in a directory others can write"; else fail "set in an open directory: rc=$rc"; fi
+    assert_contains "$out" "writable by other users" "set: says why"
+    BASHGITAWARE_CONFIG="$dir/sticky/config" _bga_cmd config set clock 1 >/dev/null 2>&1; rc=$?
+    if [ "$rc" = 0 ]; then ok "set allowed in a sticky directory (like /tmp)"; else fail "sticky directory refused ($rc)"; fi
+    if command -v script >/dev/null 2>&1 && script -qc true /dev/null >/dev/null 2>&1; then
+        out="$(printf '' | BASHGITAWARE_CONFIG="$dir/open/config" EDITOR=true script -qc "'$REPO/bin/bga' config edit" /dev/null 2>&1)"
+        assert_contains "$out" "writable by other users" "edit refused in a directory others can write"
+        # SR6 F5: an interrupt while the editor runs leaves no temp copy.
+        mkdir -m 700 "$dir/cfg"
+        printf '#!/bin/sh\nkill -INT 0\nsleep 2\n' > "$dir/ed-int"; chmod 755 "$dir/ed-int"
+        printf '' | BASHGITAWARE_CONFIG="$dir/cfg/config" EDITOR="$dir/ed-int" script -qc "'$REPO/bin/bga' config edit" /dev/null >/dev/null 2>&1
+        local left; left="$(cd "$dir/cfg" && for x in .config.edit.*; do [ -e "$x" ] && printf '%s ' "$x"; done)"
+        if [ -z "$left" ]; then ok "interrupted edit: no temp copy left"; else fail "interrupted edit left: $left"; fi
+    else
+        skip "config edit refusal and interrupt (needs util-linux script)"
+    fi
+    rm -rf "$dir"
+}
+

@@ -60,8 +60,13 @@ __bga_transient_collapse() {
 
 # Install the Enter remap once at source time, only in interactive shells.
 # The auxiliary chord \C-x\C-t carries our function; \C-m runs it then \C-j
-# (default-bound to accept-line) submits the line.
+# (default-bound to accept-line) submits the line. In every keymap a user
+# can type Enter in (emacs, vi insert, vi command), not only the one active
+# at load: before 3.2.1, Enter in vi command mode did not collapse.
 if [ "${BASHGITAWARE_TRANSIENT:-1}" != 0 ] && [[ $- == *i* ]]; then
-    bind -x '"\C-x\C-t": __bga_transient_collapse' 2>/dev/null
-    bind '"\C-m": "\C-x\C-t\C-j"' 2>/dev/null
+    for _bga_km in emacs vi-insert vi-command; do
+        bind -m "$_bga_km" -x '"\C-x\C-t": __bga_transient_collapse' 2>/dev/null
+        bind -m "$_bga_km" '"\C-m": "\C-x\C-t\C-j"' 2>/dev/null
+    done
+    unset _bga_km
 fi

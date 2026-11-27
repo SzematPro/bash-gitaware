@@ -218,3 +218,18 @@ scenario_cli_config_unsafe_dir() {
     rm -rf "$dir"
 }
 
+scenario_cli_config_list_all() {
+    section "bga config list --all: value and source of every key"
+    local dir out; dir="$(mktemp -d "${TMPDIR:-/tmp}/bga-cli-XXXXXX")"
+    printf '# c\ntheme = light\nclock = 1\nclock = bogus\npreset = minimal\n' > "$dir/config"; chmod 600 "$dir/config"
+    out="$(BASHGITAWARE_CONFIG="$dir/config" BASHGITAWARE_STYLE=classic _bga_cmd config list --all 2>/dev/null)"
+    assert_contains "$out" "theme = light   (config:2)" "value from the config file, with its line"
+    assert_contains "$out" "clock = 1   (config:3)" "last valid line wins (an invalid later line is ignored)"
+    assert_contains "$out" "style = classic   (environment)" "value from the environment"
+    assert_contains "$out" "runtime = 0   (default)" "value set by a preset"
+    assert_contains "$out" "show_host   (unset, default)" "unset key"
+    out="$(BASHGITAWARE_CONFIG="$dir/config" BASHGITAWARE_THEME=$'x\e]0;y' _bga_cmd config list --all 2>/dev/null)"
+    assert_lacks "$out" $'\e' "values made safe for the terminal"
+    rm -rf "$dir"
+}
+

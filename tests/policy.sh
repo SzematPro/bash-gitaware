@@ -70,6 +70,8 @@ scenario_policy_applied() {
     assert_contains "$out" "ok   policy         $_PF/ok/policy (locks: theme, glyphs)" "doctor lists locked keys"
     assert_contains "$out" "your config sets theme; the policy wins" "doctor points at the shadowed line"
     assert_contains "$out" "doctor=0" "doctor exits 0 with an applied policy"
+    out="$(_pol_run "$_PF/ok/policy" 'export BASHGITAWARE_THEME=aware' 'bga config list --all')"
+    assert_contains "$out" "theme = contrast   (policy)" "config list --all names the policy as the source"
 
     # A root-owned symlinked directory on the path is fine (macOS /etc).
     out="$(_pol_run "$_PF/alias/policy" '' 'echo "theme=$BASHGITAWARE_THEME state=$_bga_policy_state real=$_bga_policy_real"')"

@@ -24,6 +24,7 @@ usage: bga <command> [args]
 
   config path                 print the config file path
   config list                 print the settings in the config file
+  config list --all           every key: its value and where it comes from
   config get KEY              print one setting
   config set KEY VALUE        validate and store a setting
   config unset KEY            remove a setting
@@ -78,6 +79,7 @@ __bga_cli_config() {
     case "$sub" in
         path) printf '%s\n' "$f" ;;
         list)
+            if [ "${1:-}" = --all ]; then __bga_cli_cfg_all "$f"; return; fi
             [ -f "$f" ] || return 0
             while IFS= read -r line || [ -n "$line" ]; do
                 line="${line%$'\r'}"
@@ -134,6 +136,54 @@ __bga_cli_cfg_find() {
     done < "$f"
     REPLY="$val"
     return "$found"
+}
+
+# `bga config list --all`: every key from _bga_config_keys with its effective
+# value and where it comes from: policy, environment, config:N (the last
+# valid line for it in file $1) or default (a preset or plain-mode default,
+# or unset). Values are made safe for the terminal.
+__bga_cli_cfg_all() {
+    local f="$1" rest="$_bga_config_keys" line key var src v n REPLY
+    while [ -n "$rest" ]; do
+        line="${rest%%$'\n'*}"
+        if [ "$line" = "$rest" ]; then rest=''; else rest="${rest#*$'\n'}"; fi
+        [ -n "$line" ] || continue
+        key="${line%% *}"
+        __bga_key_uc "$key"; var="BASHGITAWARE_$REPLY"
+        if [ -z "${!var+set}" ]; then printf '%s   (unset, default)\n' "$key"; continue; fi
+        case "${_bga_policy_locked:- }" in
+            *" $key "*) src=policy ;;
+            *)
+                case " ${_bga_managed:-} " in
+                    *" $var "*)
+                        if __bga_cli_cfg_validline "$f" "$key" && [ "$REPLY" -gt 0 ]; then src="config:$REPLY"
+                        else src=default; fi ;;
+                    *) src=environment ;;
+                esac ;;
+        esac
+        __bga_term_safe "${!var}"; v="$REPLY"
+        printf '%s = %s   (%s)\n' "$key" "$v" "$src"
+    done
+}
+
+# Line number of the last valid "key = value" line for key $2 in file $1
+# into REPLY (0 if none), with the loader's own rules.
+__bga_cli_cfg_validline() {
+    local f="$1" want="$2" line k v n=0 last=0 q=\'
+    REPLY=0
+    [ -f "$f" ] && [ -r "$f" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        n=$(( n + 1 ))
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:blank:]]*}"}"; line="${line%"${line##*[![:blank:]]}"}"
+        case "$line" in '' | '#'*) continue ;; *=*) ;; *) continue ;; esac
+        k="${line%%=*}"; v="${line#*=}"
+        k="${k%"${k##*[![:blank:]]}"}"; v="${v#"${v%%[![:blank:]]*}"}"
+        case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; "$q"*"$q") v="${v#"$q"}"; v="${v%"$q"}" ;; esac
+        __bga_key_lc "$k"; [ "$REPLY" = "$want" ] || continue
+        __bga_config_valid "$want" "$v" && last="$n"
+    done < "$f"
+    REPLY="$last"
 }
 
 # True if bga may write config file $1: the same rule as the loader. Its
@@ -356,3 +406,55 @@ __bga_cli_doctor() {
     esac
     return "$bad"
 }
+
+# --- completion (3.2, SPEC C1) -----------------------------------------------
+# Subcommands, config keys and their values (from _bga_config_keys) and theme
+# names. No subshell and no external command: words are filtered against the
+# current word in a loop. A completion the user set for bga is kept.
+__bga_complete() {
+    local cur="${COMP_WORDS[COMP_CWORD]:-}" w1="${COMP_WORDS[1]:-}" w2="${COMP_WORDS[2]:-}"
+    local words='' pre='' w REPLY kind IFS=$' \t\n' -
+    set -f
+    COMPREPLY=()
+    case "$COMP_CWORD" in
+        1) words='config theme doctor reload version help' ;;
+        2) case "$w1" in
+               config) words='path list get set unset edit' ;;
+               theme)  words='list preview set' ;;
+           esac ;;
+        3) case "$w1 $w2" in
+               'config get' | 'config set' | 'config unset')
+                   local rest="$_bga_config_keys" line
+                   while [ -n "$rest" ]; do
+                       line="${rest%%$'\n'*}"
+                       if [ "$line" = "$rest" ]; then rest=''; else rest="${rest#*$'\n'}"; fi
+                       [ -n "$line" ] && words+="${line%% *} "
+                   done ;;
+               'config list') words='--all' ;;
+               'theme preview' | 'theme set')
+                   for w in "${!_bga_theme_@}"; do
+                       [ "$w" = _bga_theme_tokens ] || words+="${w#_bga_theme_} "
+                   done ;;
+           esac ;;
+        4) if [ "$w1 $w2" = 'config set' ] && __bga_config_spec "${COMP_WORDS[3]:-}"; then
+               kind="${REPLY%% *}"
+               case "$kind" in
+                   enum) words="${REPLY#enum }" ;;
+                   bool) words='0 1' ;;
+                   theme) for w in "${!_bga_theme_@}"; do
+                              [ "$w" = _bga_theme_tokens ] || words+="${w#_bga_theme_} "
+                          done ;;
+                   list) words="${REPLY#list }"
+                         # Complete the item after the last comma.
+                         case "$cur" in *,*) pre="${cur%,*},"; cur="${cur##*,}" ;; esac ;;
+               esac
+           fi ;;
+    esac
+    for w in $words; do
+        case "$w" in "$cur"*) COMPREPLY+=("$pre$w") ;; esac
+    done
+    return 0
+}
+if [[ $- == *i* ]] && [ "${_bga_plain:-0}" != 1 ] && [ -z "${_BGA_CLI:-}" ]; then
+    complete -p bga >/dev/null 2>&1 || complete -F __bga_complete bga
+fi

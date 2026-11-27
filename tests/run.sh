@@ -44,6 +44,8 @@ source "$HERE/runtime.sh"
 source "$HERE/progress.sh"
 # shellcheck source=vimode.sh
 source "$HERE/vimode.sh"
+# shellcheck source=complete.sh
+source "$HERE/complete.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -192,6 +194,9 @@ scenario_cli_theme_and_doctor
 scenario_cli_reload_applies_config
 scenario_cli_config_edit
 scenario_cli_config_unsafe_dir
+scenario_cli_config_list_all
+scenario_complete_positions
+scenario_complete_pty
 scenario_cli_shell_function
 scenario_cli_reload_keeps_runtime
 

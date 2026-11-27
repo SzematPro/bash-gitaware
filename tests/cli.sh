@@ -157,7 +157,9 @@ scenario_cli_config_edit() {
     } > "$dir/ed-fix"
     chmod 755 "$dir"/ed-*
     printf '# keep this comment\ntheme = light\n' > "$f"; chmod 600 "$f"
-    _ce() { printf '%s' "$2" | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/$1" VISUAL='' pty_run "'$REPO/bin/bga' config edit" 2>&1; }
+    # The answer is sent after a pause, once the question is waiting: on
+    # macOS, input written to the pty while the editor runs is lost.
+    _ce() { { sleep 1; printf '%s' "$2"; sleep 1; } | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/$1" VISUAL='' pty_run "'$REPO/bin/bga' config edit" 2>&1; }
 
     out="$(_ce ed-ok '')"
     assert_contains "$(cat "$f")" "clock = 1" "valid edit saved"
@@ -171,6 +173,7 @@ scenario_cli_config_edit() {
     if cmp -s "$f" "$dir/before"; then ok "discard: file unchanged"; else fail "discard changed the file"; fi
     out="$(_ce ed-fix $'e\n')"
     assert_contains "$(cat "$f")" "glyphs = ascii" "edit again: fixed version saved"
+    case "$(cat "$f")" in *'glyphs = ascii'*) ;; *) printf '    pty transcript: %s\n' "$(printf '%s' "$out" | od -c | head -12 | tr -s ' ' | tr '\n' '|')" ;; esac
     cp "$f" "$dir/before"
     out="$(_ce ed-fail '')"
     assert_contains "$out" "the editor failed" "editor failure reported"

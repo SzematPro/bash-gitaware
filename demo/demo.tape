@@ -1,10 +1,10 @@
-# demo/demo.tape -- vhs script for demo/demo.gif (v3, Lean style).
-# Regenerate with `make demo` (needs vhs, ttyd and ffmpeg).
+# demo/demo.tape -- the README GIF, recorded with vhs (https://github.com/charmbracelet/vhs).
 #
-# Shows: the Lean prompt, the dirty mark and ahead count, a runtime in the
-# right block, the transient collapse, a result line for a slow failing
-# command, and switching themes with bga.
-
+#   vhs demo/demo.tape     # from the repository root; writes demo/demo.gif
+#
+# Shows the Lean prompt, the dirty mark and the detailed git status, the
+# result line, a context segment on the right, bga completion with TAB and a
+# theme switch. The setup runs hidden in a throwaway repository under /tmp.
 Output demo/demo.gif
 Set Shell bash
 Set FontSize 16
@@ -15,11 +15,11 @@ Set TypingSpeed 50ms
 Set Framerate 12
 
 Hide
-Type `BGA_REPO="$PWD"; export LANG=en_US.UTF-8 BASHGITAWARE_MODE=full BASHGITAWARE_CONFIG=/tmp/bga-demo.cfg; rm -f /tmp/bga-demo.cfg`
+Type `BGA_REPO="$PWD"; export LANG=en_US.UTF-8 BASHGITAWARE_MODE=full BASHGITAWARE_ASYNC=0 BASHGITAWARE_CONFIG=/tmp/bga-demo.cfg AWS_PROFILE=staging; rm -f /tmp/bga-demo.cfg`
 Enter
 Type "cd /tmp && rm -rf demo-app && git init -q -b main demo-app && cd demo-app"
 Enter
-Type "git config user.email demo@example.com && git config user.name Demo && printf '{}\n' > package.json"
+Type "git config user.email demo@example.com && git config user.name Demo && printf '{}\n' > package.json && printf '20.11.1\n' > .nvmrc"
 Enter
 Type "git add -A && git commit -qm 'feat: first version' && git commit --allow-empty -qm 'feat: second'"
 Enter
@@ -29,18 +29,26 @@ Sleep 600ms
 Show
 
 Sleep 1200ms
-Type "echo 'todo' > notes.txt"
-Enter
-Sleep 1200ms
-Type "git status --short"
+Type "echo 'todo' > notes.txt && git add notes.txt && echo '{ }' > package.json"
 Enter
 Sleep 1500ms
+Type "bga config set git_status detail && bga config set contexts aws && bga reload"
+Enter
+Sleep 2000ms
 Type "sleep 3; false"
 Enter
 Sleep 4500ms
-Type "bga theme set contrast && bga reload"
+Type "bga th"
+Sleep 400ms
+Tab
+Sleep 600ms
+Type "s"
+Sleep 400ms
+Tab
+Sleep 600ms
+Type "contrast"
 Enter
-Sleep 2000ms
-Type "ls"
+Sleep 800ms
+Type "bga reload"
 Enter
-Sleep 2500ms
+Sleep 3000ms

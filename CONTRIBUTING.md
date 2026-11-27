@@ -62,18 +62,33 @@ boundary, propose a new ADR alongside the change. Copy
 
 ## Tests
 
-`tests/run.sh` runs:
+`make test` (or `bash tests/run.sh`) runs about 500 checks:
 
-1. `bash -n` syntax check on every `lib/*.bash`.
-2. Build-freshness check (`bin/build.sh` output matches the committed
-   `new.bashrc`).
-3. Nine scenario tests in throwaway git repos: non-git path, clean repo,
-   dirty repo, ahead-of-remote, detached HEAD, in-progress rebase, NO_COLOR,
-   `BASHGITAWARE_GLYPHS=ascii`, `BASHGITAWARE_PATH_MAXDEPTH` trim.
-4. A render-time perf budget (50 renders, generous budget).
+1. `bash -n` on every `lib/*.bash` and the build-freshness gate.
+2. Scenario files in `tests/`, each in throwaway repositories and a
+   sandboxed environment: rendering and layout (`scenarios.sh`, `lean.sh`,
+   `plain.sh`, `theme.sh`, `width.sh`), git and its trust model
+   (`gitconfig.sh`, `gitdetail.sh`), runtimes and contexts (`runtime.sh`,
+   `context.sh`), hooks and shell state (`hooks.sh`, `shellstate.sh`), the
+   CLI and completion (`cli.sh`, `complete.sh`), the installer
+   (`install.sh`), the config file and policy (`config.sh`, `shell.sh`,
+   `policy.sh`), vi mode and OSC 9;4 (`vimode.sh`, `progress.sh`), and
+   hostile input (`security.sh`).
+3. Startup and render budgets (`perf.sh`, `budgets.sh`).
 
-If you add a feature, add at least one scenario. If you change behaviour,
-update the scenarios.
+Some checks need extra setup and are skipped, not failed, without it:
+
+- **Policy trust:** root-owned fixtures. Run `sudo sh tests/policy-fixtures.sh`
+  once (CI does it before switching to an unprivileged user).
+- **pty runs** (vi mode, completion, `config edit`, interactive installer):
+  `script(1)`, in either the util-linux or the BSD/macOS form.
+
+CI runs the suite on bash 4.4, 5.0, 5.1, 5.2 and 5.3 (Alpine containers, as a
+non-root user), on Ubuntu, and on macOS with and without Homebrew coreutils.
+`tests/MANUAL.md` lists the checks that need a human at a real terminal.
+
+If you add a feature, add tests for it. If you change behaviour, update the
+tests that pin it.
 
 ## Identity and provenance
 

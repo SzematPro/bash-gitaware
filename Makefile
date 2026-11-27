@@ -5,7 +5,7 @@
 #   test    Run the test suite (M1.4 will populate tests/).
 #   lint    Run shellcheck on lib/, bin/, scripts.
 #   check   Verify new.bashrc is up to date with lib/ (the CI gate).
-#   demo    Regenerate the vhs demo (M6 lands the tape).
+#   demo    Re-record demo/demo.gif from demo/demo.tape (needs vhs).
 #   clean   Remove build leftovers.
 
 .PHONY: build test lint check demo clean

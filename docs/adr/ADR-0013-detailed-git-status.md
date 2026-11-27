@@ -16,7 +16,8 @@ closes the pipe and git stops early.
 ## Decision
 
 - **Opt-in** with `git_status = detail`. The default, `compact`, renders
-  byte for byte as in 3.1 (tested against the `v3.1.0` build).
+  byte for byte as in 3.1 (tested against the `v3.1.0` build), except for
+  the upstream-gone mark below.
 - **Counts:** `+N` staged (X field not `.`), `!N` unstaged (Y not `.`),
   `?N` untracked (`?` lines), and `✘N` conflicts (`u` lines; `x` in the
   ascii tier). Each has its own color token in every theme, and the
@@ -29,7 +30,8 @@ closes the pipe and git stops early.
   quadratic, and took 17.6 s for 2000 entries. The linear loop takes
   0.18 s, and a test guards it.
 - **Upstream gone** (both modes): the `branch.upstream` header is present
-  but `branch.ab` is missing. It shows as `⇣gone` (`gone` in ascii) in the
+  but `branch.ab` is missing, on a branch that has a commit (an unborn
+  branch prints no `branch.ab` either). It shows as `⇣gone` (`gone` in ascii) in the
   `state` color.
 - **Cache:** the worker's file gains a format version and the new fields,
   and the mode is part of the cache key. An old cache, or a result computed

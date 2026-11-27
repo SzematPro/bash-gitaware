@@ -13,7 +13,7 @@
 | T9.1 | C1, C2 | Key table | `_bga_config_keys` lists every key with its value pattern; `__bga_config_valid` uses it; `tests/config.sh` unchanged and green | done |
 | T9.2 | C1 | `__bga_complete` | Each position in SPEC C1 completes, checked through `compgen`-style calls in `tests/complete.sh` and in a pty run; a user-defined `complete -p bga` is kept | done |
 | T9.3 | C2 | `config list --all` | Sources `policy`, `environment`, `config:N` and `default` are each named correctly (policy one uses the root fixtures); values made terminal-safe | done |
-| T9.4 | C1, C2 | Docs | README (EN/ES) CLI section, `bga help`, CHANGELOG | todo |
+| T9.4 | C1, C2 | Docs | README (EN/ES) CLI section, `bga help`, CHANGELOG | done |
 
 ## Wave 10: detailed git status (G1)
 

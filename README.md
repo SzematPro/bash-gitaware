@@ -54,6 +54,7 @@ bga config set theme light      # aware, light, contrast
 bga config set style classic    # the v2 three-line layout
 bga theme preview contrast
 bga config edit                 # opens $VISUAL or $EDITOR, checks before saving
+bga config list --all           # every setting, its value and where it comes from
 bga doctor                      # checks your setup
 bga reload                      # applies changes to this shell
 ```
@@ -73,6 +74,8 @@ bga reload                      # applies changes to this shell
 | `vi_mode` | `auto`, `0` | `auto` (marker in vi command mode) |
 | `progress` | `0`, `1` (taskbar progress while a command runs, OSC 9;4) | `0` |
 | `shell_defaults` | `0`, `1` | written by the installer (see below) |
+
+`bga` completes its commands, keys and values with TAB.
 
 Every key also works as an environment variable (`BASHGITAWARE_THEME`,
 and so on), which takes precedence over the file. `NO_COLOR` is honored.

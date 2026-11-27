@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **TAB completion for `bga`**: commands, config keys, their valid values
+  and theme names.
+- **`bga config list --all`** shows every setting, its effective value and
+  where it comes from (policy, environment, a config line or the default).
+
 ## [3.1.0] - 2026-11-26
 
 ### Added

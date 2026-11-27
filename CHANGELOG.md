@@ -13,6 +13,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`bga config list --all`** shows every setting, its effective value and
   where it comes from (policy, environment, a config line or the default).
 
+- **Detailed git status** (`git_status = detail`): `+N` staged, `!N`
+  unstaged, `?N` untracked and `✘N` conflicts instead of one dirty mark.
+  Counted in the background, at most 2000 entries.
+- **Upstream gone**: a branch whose upstream was deleted shows `⇣gone`.
+
 ### Changed
 
 - When a key appears twice in the config file, the **last** valid line now

@@ -23,7 +23,7 @@
 | T10.2 | G1 | Worker and cache | New cache fields, numeric-only on read; an old-format cache is discarded (test) | done |
 | T10.3 | G1 | Render | `git_status = detail` segments with tokens in every theme (contrast checked); `compact` output byte-identical to 3.1 (test); upstream gone in both | done |
 | T10.4 | G1 | Budget | 100k-file repository with many changes: render under budget with async on; startup unchanged. Measured: about 7 ms per render in both modes; the detail worker went from 17.6 s (quadratic string cutting, past its 10 s limit) to 0.18 s after a linear rewrite; regression test added | done |
-| T10.5 | G1 | ADR-0013 and docs | Why opt-in, the 2000 cap, symbols | todo |
+| T10.5 | G1 | ADR-0013 and docs | Why opt-in, the 2000 cap, symbols | done |
 
 ## Wave 11: context segments (X1)
 

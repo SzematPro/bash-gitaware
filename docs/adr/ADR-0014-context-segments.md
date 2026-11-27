@@ -44,6 +44,7 @@ is untrusted (ADR-0008, SR6).
 ## Consequences
 
 - With `contexts` empty, the only cost is one string test per prompt.
-- The kube cache relies on mtime. On a filesystem with one-second mtimes, a
-  change made within the same second as the last read shows up on the next
-  change.
+- The kube cache relies on mtime. The file is read again unless the marker
+  is strictly newer than it. On bash before 5.1, which compares whole
+  seconds, a change in the same second as the last read is still picked
+  up. The cost is extra reads during that one second.

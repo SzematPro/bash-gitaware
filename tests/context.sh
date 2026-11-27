@@ -68,7 +68,8 @@ scenario_context_layout() {
     section "contexts: dropped before runtimes when space runs out"
     local d out; d="$(mktemp -d "${TMPDIR:-/tmp}/bga-cx-XXXXXX")"
     printf '{}\n' > "$d/package.json"; printf '20.1.0\n' > "$d/.nvmrc"
-    out="$(_cx_visible "$(cd "$d" && AWS_PROFILE=production-account-with-a-long-name bash --norc --noprofile -i -c "export HOME='$HOME' PATH='$PATH' TERM=xterm-256color LANG=C.UTF-8 COLUMNS=60 BASHGITAWARE_MODE=full BASHGITAWARE_ASYNC=0 BASHGITAWARE_STYLE=lean BASHGITAWARE_CONTEXTS=aws; source '$REPO/new.bashrc'; __bga_prompt; printf '%s' \"\${PS1@P}\"" 2>/dev/null)")"
+    # HOME=$d: the path shows as ~, whatever the length of TMPDIR (macOS).
+    out="$(_cx_visible "$(cd "$d" && AWS_PROFILE=production-account-with-a-long-name bash --norc --noprofile -i -c "export HOME='$d' PATH='$PATH' TERM=xterm-256color LANG=C.UTF-8 COLUMNS=40 BASHGITAWARE_MODE=full BASHGITAWARE_ASYNC=0 BASHGITAWARE_STYLE=lean BASHGITAWARE_CONTEXTS=aws; source '$REPO/new.bashrc'; __bga_prompt; printf '%s' \"\${PS1@P}\"" 2>/dev/null)")"
     assert_contains "$out" "node 20.1.0" "narrow terminal: runtime kept"
     assert_lacks    "$out" "aws production" "narrow terminal: context dropped first"
     rm -rf "$d"

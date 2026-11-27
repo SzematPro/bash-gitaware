@@ -1536,7 +1536,11 @@ __bga_context() {
     if __bga_ctx_on kube; then
         f="${KUBECONFIG:-$HOME/.kube/config}"; f="${f%%:*}"
         local mark="${_bga_state_dir:+$_bga_state_dir/kube.mark}"
-        if [ "$f" != "$_bga_kube_file" ] || [ -z "$mark" ] || [ ! -e "$mark" ] || [ "$f" -nt "$mark" ]; then
+        # Reread unless the marker is strictly newer than the file. bash
+        # before 5.1 compares whole seconds, so "file newer than marker"
+        # would miss a change made in the same second as the last read and
+        # keep showing the old cluster; this way that second rereads.
+        if [ "$f" != "$_bga_kube_file" ] || [ -z "$mark" ] || [ ! -e "$mark" ] || ! [ "$mark" -nt "$f" ]; then
             __bga_kube_read "$f"
             _bga_kube_file="$f"
             # `: >` sets the marker's mtime to now without a fork.

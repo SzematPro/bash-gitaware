@@ -94,3 +94,16 @@ scenario_config_turkish_locale() {
     rm -rf "$dir"
 }
 
+scenario_config_key_table() {
+    section "config: one key table drives validation"
+    local out
+    out="$(bash --norc --noprofile -i -c "export HOME='$HOME' PATH='$PATH'; source '$REPO/new.bashrc'
+        v() { __bga_config_valid \"\$1\" \"\$2\"; printf '%s=%s:%s ' \"\$1\" \"\$2\" \"\$?\"; }
+        v preset full; v preset bogus; v clock 1; v clock 2; v path_maxdepth 0; v path_maxdepth -1
+        v theme aware; v theme 'a b'; v runtimes py,go; v runtimes py,,go; v runtimes ''; v vi_mode 0
+        v nosuch x; v style 'lean classic'; v style '*'" 2>/dev/null)"
+    assert_contains "$out" "preset=full:0 preset=bogus:1 clock=1:0 clock=2:1 path_maxdepth=0:0 path_maxdepth=-1:1" "enum, bool and num kinds"
+    assert_contains "$out" "theme=aware:0 theme=a b:1 runtimes=py,go:0 runtimes=py,,go:1 runtimes=:1 vi_mode=0:0" "theme and list kinds"
+    assert_contains "$out" "nosuch=x:2 style=lean classic:1 style=*:1" "unknown key, spaces and globs"
+}
+

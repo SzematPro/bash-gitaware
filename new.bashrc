@@ -69,30 +69,66 @@ esac
 # hostile config cannot send escape sequences to the terminal.
 __bga_config_warn() { local m="$*"; printf 'bash-gitaware: %s\n' "${m//[[:cntrl:]]/?}" >&2; }
 
-# Valid values per key, as a case pattern. Echoes nothing; returns 1 if invalid.
+# Every config key and its values, one per line: "<key> <kind> [values]".
+# Kinds: enum (one of the values), bool (0 or 1), num (digits), theme (a
+# theme name), list (a comma list of the values). __bga_config_valid, the
+# bga completion and `bga config list --all` all read this one table.
+_bga_config_keys='
+preset enum minimal default powerline full
+glyphs enum nerd unicode ascii
+show_host enum auto always never
+mode enum auto plain full
+theme theme
+style enum lean classic
+vi_mode enum auto 0
+nerd_font bool
+async bool
+osc bool
+transient bool
+commit_line bool
+runtime bool
+trust_repo_config bool
+clock bool
+powerline bool
+shell_defaults bool
+progress bool
+timer_threshold num
+path_maxdepth num
+runtimes list py node rust go ruby deno bun java
+'
+
+# The table line of key $1 without the key ("<kind> [values]") in REPLY;
+# returns 1 for an unknown key.
+__bga_config_spec() {
+    REPLY=''
+    case "$1" in '' | *[!a-z_]*) return 1 ;; esac
+    case "$_bga_config_keys" in *$'\n'"$1 "*) ;; *) return 1 ;; esac
+    REPLY="${_bga_config_keys#*$'\n'"$1 "}"; REPLY="${REPLY%%$'\n'*}"
+}
+
+# Valid value $2 for key $1? Returns 0 if valid, 1 if invalid, 2 if the key
+# is unknown. Echoes nothing.
 __bga_config_valid() {
-    case "$1" in
-        preset)       case "$2" in minimal | default | powerline | full) ;; *) return 1 ;; esac ;;
-        glyphs)       case "$2" in nerd | unicode | ascii) ;; *) return 1 ;; esac ;;
-        show_host)    case "$2" in auto | always | never) ;; *) return 1 ;; esac ;;
-        mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
-        theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
-        style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
-        vi_mode)      case "$2" in auto | 0) ;; *) return 1 ;; esac ;;
-        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline \
-        | shell_defaults | progress)
-                      case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
-        timer_threshold | path_maxdepth)
-                      case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;
-        runtimes)     # Comma list of runtime names (lib/50-runtime.bash).
-                      local rest="$2," x
-                      [ "$2" != '' ] || return 1
-                      while [ -n "$rest" ]; do
-                          x="${rest%%,*}"; rest="${rest#*,}"
-                          case "$x" in py | node | rust | go | ruby | deno | bun | java) ;; *) return 1 ;; esac
-                      done ;;
-        *) return 2 ;;
+    local REPLY kind vals rest x
+    __bga_config_spec "$1" || return 2
+    kind="${REPLY%% *}"; vals=" ${REPLY#"$kind"} "
+    [ -n "$2" ] || return 1
+    case "$2" in *[[:space:]]*) return 1 ;; esac
+    case "$kind" in
+        enum)  case "$vals" in *" $2 "*) return 0 ;; esac; return 1 ;;
+        bool)  case "$2" in 0 | 1) return 0 ;; esac; return 1 ;;
+        num)   case "$2" in '' | *[!0-9]*) return 1 ;; esac; return 0 ;;
+        theme) case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac; return 0 ;;
+        list)  [ -n "$2" ] || return 1
+               rest="$2,"
+               while [ -n "$rest" ]; do
+                   x="${rest%%,*}"; rest="${rest#*,}"
+                   [ -n "$x" ] || return 1
+                   case "$vals" in *" $x "*) ;; *) return 1 ;; esac
+               done
+               return 0 ;;
     esac
+    return 1
 }
 
 # Key case folding in the C locale: keys are ASCII, and in some locales

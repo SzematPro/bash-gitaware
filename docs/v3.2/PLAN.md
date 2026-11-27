@@ -52,4 +52,3 @@ Exit gate: review and **SR7** (kubeconfig and `.terraform` parsing, cache). Done
 | 3 | 100k-file repository: render budget holds with `git_status = detail` and async on | Pass | About 7 ms per render; the detail worker takes 0.18 s (W10 review: 129 ms) |
 | 4 | Hostile `.terraform/environment` handled like a version file | Pass | SR7, F5 fixed; `tests/context.sh` |
 | 5 | CI green on every job; no budget raised | Pass | 17e702c green; budgets unchanged (Linux render 8-13 ms, macOS 53-56 ms against 90 ms) |
-

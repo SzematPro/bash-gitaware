@@ -138,7 +138,10 @@ downloaded: branch names, commit subjects, directory names, version files.
 That text is always shown, never run, and terminal escape sequences are
 stripped from it. The prompt's own git calls never run hooks, fsmonitor,
 repository-local filter drivers or lazy fetches, and each call has a time
-limit. See [SECURITY.md](SECURITY.md) and
+limit. Version files are read as data: a symlink that points outside the
+repository is not followed, and only version-like values are shown. On
+shared machines, an administrator policy is used only when root owns it.
+See [SECURITY.md](SECURITY.md) and
 [ADR-0008](docs/adr/ADR-0008-v3-git-worker-trust-and-state.md).
 
 ## Compatibility

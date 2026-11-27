@@ -199,6 +199,7 @@ scenario_cli_reload_applies_config
 scenario_cli_config_edit
 scenario_cli_config_unsafe_dir
 scenario_cli_config_list_all
+scenario_cli_doctor_mode_source
 scenario_complete_positions
 scenario_complete_pty
 scenario_gitdetail_counts

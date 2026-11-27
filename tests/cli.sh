@@ -244,3 +244,14 @@ scenario_cli_config_list_all() {
     rm -rf "$dir"
 }
 
+scenario_cli_doctor_mode_source() {
+    section "bga doctor: says why the mode is plain or full"
+    local out
+    out="$(BASHGITAWARE_MODE=plain _bga_cmd doctor 2>/dev/null)"
+    assert_contains "$out" "plain (mode = plain, from environment)" "forced plain: names the setting"
+    out="$(env -u BASHGITAWARE_MODE "$REPO/bin/bga" doctor 2>/dev/null)"
+    assert_contains "$out" "plain (dumb terminal, no tty, CI or agent detected)" "detected plain: says detected"
+    out="$(BASHGITAWARE_MODE=full _bga_cmd doctor 2>/dev/null)"
+    assert_contains "$out" "full (mode = full, from environment)" "forced full: names the setting"
+}
+

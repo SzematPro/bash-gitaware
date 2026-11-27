@@ -32,7 +32,7 @@
 | T11.1 | X1 | kube | `current-context` from the first kubeconfig file, bounded read, cached by mtime (no reread when unchanged: test); never runs kubectl (stub test) | done |
 | T11.2 | X1 | aws, tf | `AWS_PROFILE`/`AWS_VAULT`; `.terraform/environment` through the version-file rules (symlink, NUL, pattern) | done |
 | T11.3 | X1 | Layout | Right block after the runtimes, dropped first; tokens in every theme; `contexts` key validated | done |
-| T11.4 | X1 | ADR-0014 and docs | README (EN/ES), MIGRATION, CHANGELOG | todo |
+| T11.4 | X1 | ADR-0014 and docs | README (EN/ES), MIGRATION, CHANGELOG | done |
 
 Exit gate: review and **SR7** (kubeconfig and `.terraform` parsing, cache).
 

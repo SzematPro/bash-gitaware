@@ -72,6 +72,7 @@ bga reload                      # applies changes to this shell
 | `mode` | `auto`, `plain`, `full` | `auto` |
 | `runtimes` | comma list of `py`, `node`, `rust`, `go`, `ruby`, `deno`, `bun`, `java` | all |
 | `vi_mode` | `auto`, `0` | `auto` (marker in vi command mode) |
+| `contexts` | comma list of `kube` (kubectl context), `aws` (profile), `tf` (Terraform workspace) | none |
 | `git_status` | `compact` (one `●`), `detail` (`+staged !unstaged ?untracked ✘conflicts`) | `compact` |
 | `progress` | `0`, `1` (taskbar progress while a command runs, OSC 9;4) | `0` |
 | `shell_defaults` | `0`, `1` | written by the installer (see below) |

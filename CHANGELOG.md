@@ -17,6 +17,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unstaged, `?N` untracked and `✘N` conflicts instead of one dirty mark.
   Counted in the background, at most 2000 entries.
 - **Upstream gone**: a branch whose upstream was deleted shows `⇣gone`.
+- **Context segments** (`contexts = kube,aws,tf`): the kubectl context, AWS
+  profile and Terraform workspace on the right. Files are read as data; no
+  program runs.
 
 ### Changed
 

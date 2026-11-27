@@ -19,6 +19,7 @@ MADR-style template (see [`template.md`](template.md)).
 | 0011 | [Administrator policy file](ADR-0011-admin-policy-file.md) | Accepted |
 | 0012 | [vi-mode indicator and OSC 9;4 progress](ADR-0012-vi-mode-indicator-and-osc-9-4-progress.md) | Accepted |
 | 0013 | [Detailed git status, opt-in](ADR-0013-detailed-git-status.md) | Accepted |
+| 0014 | [Context segments (kube, aws, terraform), opt-in](ADR-0014-context-segments.md) | Accepted |
 
 ## Conventions
 

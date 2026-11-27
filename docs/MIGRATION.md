@@ -50,6 +50,7 @@ New in v3:
 | `BASHGITAWARE_VI_MODE` | `vi_mode` | `auto`, `0` | `auto` |
 | `BASHGITAWARE_PROGRESS` | `progress` | `0`, `1` | `0` |
 | `BASHGITAWARE_GIT_STATUS` | `git_status` | `compact`, `detail` | `compact` |
+| `BASHGITAWARE_CONTEXTS` | `contexts` | comma list of `kube`, `aws`, `tf` | none |
 | `BASHGITAWARE_CONFIG` | | path to the config file | `~/.config/bash-gitaware/config` |
 
 ## The config file and `bga`

@@ -77,11 +77,11 @@ scenario_install_interactive() {
     local c out; c="$(_in_copy)"
     out="$(bash "$c/repo/install.sh" --yes --target "$c/rc" --no-backup </dev/null 2>&1)"
     assert_lacks "$out" "Install mode" "--yes asks nothing"
-    if ! command -v script >/dev/null 2>&1 || ! script -qc true /dev/null >/dev/null 2>&1; then
-        skip "interactive installer (needs util-linux script)"; rm -rf "$c"; return
+    if ! pty_ok; then
+        skip "interactive installer (needs script(1))"; rm -rf "$c"; return
     fi
     printf 'append\naware\nascii\nyes\n' | BASHGITAWARE_CONFIG="$c/cfg" \
-        script -qc "bash '$c/repo/install.sh' --target '$c/rc3'" /dev/null >/dev/null 2>&1
+        pty_run "bash '$c/repo/install.sh' --target '$c/rc3'" >/dev/null 2>&1
     assert_contains "$(cat "$c/rc3" 2>/dev/null)" "new.bashrc" "answer 'append' wrote a source line"
     assert_contains "$(cat "$c/cfg" 2>/dev/null)" "theme = aware"  "theme answer stored in the config"
     assert_contains "$(cat "$c/cfg" 2>/dev/null)" "glyphs = ascii" "glyph answer stored in the config"

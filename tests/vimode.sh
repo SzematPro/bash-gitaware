@@ -43,14 +43,14 @@ scenario_vimode_setup() {
 
 scenario_vimode_pty() {
     section "vi-mode: readline draws the marker on a mode switch (pty)"
-    if ! command -v script >/dev/null 2>&1 || ! script -qc true /dev/null >/dev/null 2>&1; then
-        skip "vi-mode pty run (needs util-linux script)"; return
+    if ! pty_ok; then
+        skip "vi-mode pty run (needs script(1))"; return
     fi
     local d out; d="$(mktemp -d "${TMPDIR:-/tmp}/bga-vm-XXXXXX")"
     printf 'export BASHGITAWARE_MODE=full BASHGITAWARE_ASYNC=0 TERM=xterm-256color\nset -o vi\nsource %q\n' "$REPO/new.bashrc" > "$d/rc"
     # ESC needs a pause after it, or readline reads ESC + i as Meta-i.
     out="$( { sleep 1; printf 'echo one'; sleep 0.3; printf '\033'; sleep 1; printf 'A two\r'; sleep 0.5; printf 'exit\r'; sleep 0.5; } \
-        | HOME="$d" script -qc "bash --rcfile '$d/rc' -i" /dev/null 2>&1)"
+        | HOME="$d" pty_run "bash --rcfile '$d/rc' -i" 2>&1)"
     case "$out" in *$'\e['*'mN'$'\e[0m '*) ok "command mode: colored N drawn by readline" ;;
                    *) fail "command mode: no marker in the pty output" ;; esac
     assert_contains "$out" "one two" "editing still works (ESC, A, typed text)"

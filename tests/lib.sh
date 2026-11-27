@@ -63,6 +63,30 @@ run_bounded() {
     return 124
 }
 
+# Pseudo-terminal runs through script(1), which comes in two dialects:
+# util-linux (`script -qc CMD /dev/null`) and BSD/macOS
+# (`script -q /dev/null sh -c CMD`). pty_ok says whether either works;
+# pty_run "<shell command>" runs the command on a pty, stdin passed through.
+_pty_kind=''
+pty_ok() {
+    if [ -z "$_pty_kind" ]; then
+        _pty_kind=none
+        if command -v script >/dev/null 2>&1; then
+            if script -qc true /dev/null >/dev/null 2>&1 </dev/null; then _pty_kind=util
+            elif script -q /dev/null true >/dev/null 2>&1 </dev/null; then _pty_kind=bsd
+            fi
+        fi
+    fi
+    [ "$_pty_kind" != none ]
+}
+pty_run() {
+    pty_ok || return 127
+    case "$_pty_kind" in
+        util) script -qc "$1" /dev/null ;;
+        bsd)  script -q /dev/null sh -c "$1" ;;
+    esac
+}
+
 # Create a fresh empty git repo in a temp dir. Echoes the dir path.
 mktemp_repo() {
     local d; d="$(mktemp -d "${TMPDIR:-/tmp}/bga-test-XXXXXX")"

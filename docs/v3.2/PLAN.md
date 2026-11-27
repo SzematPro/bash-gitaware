@@ -40,5 +40,16 @@ Exit gate: review and **SR7** (kubeconfig and `.terraform` parsing, cache). Done
 
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
-| T12.1 | all | Release check | SPEC section 3, each criterion recorded here | todo |
+| T12.1 | all | Release check | SPEC section 3, each criterion recorded here | done |
 | T12.2 | all | Release 3.2.0 | Version, CHANGELOG, squash to main, tag, GitHub release, after the owner confirms | todo |
+
+## Release check (T12.1, 2026-11-27)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | Completion works in a pty on bash 4.4 to 5.3 | Pass | `tests/complete.sh` pty scenario on every container job, Ubuntu and both macOS jobs (BSD `script` through `pty_run`) |
+| 2 | `config list --all` names each of the four sources | Pass | `tests/cli.sh` (config line, environment, default, refused file) and `tests/policy.sh` (policy, root fixtures in CI) |
+| 3 | 100k-file repository: render budget holds with `git_status = detail` and async on | Pass | About 7 ms per render; the detail worker takes 0.18 s (W10 review: 129 ms) |
+| 4 | Hostile `.terraform/environment` handled like a version file | Pass | SR7, F5 fixed; `tests/context.sh` |
+| 5 | CI green on every job; no budget raised | Pass | 17e702c green; budgets unchanged (Linux render 8-13 ms, macOS 53-56 ms against 90 ms) |
+

@@ -210,6 +210,7 @@ scenario_context_segments
 scenario_context_kube_cache_and_noexec
 scenario_context_tf_hostile
 scenario_context_layout
+scenario_context_sr7
 scenario_cli_shell_function
 scenario_cli_reload_keeps_runtime
 

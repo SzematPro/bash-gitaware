@@ -117,6 +117,8 @@ __bga_async_apply_or_dispatch() {
 
 __bga_async_dispatch() {
     [ -z "$_bga_async_cache" ] && return
+    # The directory must still be ours before the job writes into it.
+    __bga_state_ok || return
     local key="$1" top="$2"
     [ -z "$top" ] && return
 

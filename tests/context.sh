@@ -74,3 +74,28 @@ scenario_context_layout() {
     assert_lacks    "$out" "aws production" "narrow terminal: context dropped first"
     rm -rf "$d"
 }
+
+scenario_context_sr7() {
+    section "contexts: SR7 regressions"
+    local d out t0 rc; d="$(mktemp -d "${TMPDIR:-/tmp}/bga-cx-XXXXXX")"
+    # F1: a 64 KB kubeconfig of newlines used to take minutes per prompt.
+    { printf 'apiVersion: v1\n'; head -c 65000 /dev/zero | tr '\0' '\n'; printf 'current-context: late\n'; } > "$d/kc"
+    t0=$SECONDS
+    out="$(run_bounded 20 env KUBECONFIG="$d/kc" bash -c "source '$REPO/tests/lib.sh'; REPO='$REPO'; bga_render '$d' BASHGITAWARE_CONTEXTS=kube")"; rc=$?
+    if [ "$rc" != 124 ] && [ $(( SECONDS - t0 )) -le 3 ]; then ok "64 KB of newlines in the kubeconfig: immediate"; else fail "kubeconfig of newlines: slow or hung"; fi
+    # F4: noclobber does not break the marker.
+    printf 'current-context: a\n' > "$d/kc2"
+    out="$(bash --norc --noprofile -i -c "export HOME='$HOME' PATH='$PATH' BASHGITAWARE_MODE=full BASHGITAWARE_ASYNC=1 BASHGITAWARE_CONTEXTS=kube KUBECONFIG='$d/kc2'; set -o noclobber; source '$REPO/new.bashrc'; __bga_context; touch '$d/kc2'; __bga_context; echo \"ctx=\$_bga_kube_ctx\"" 2>&1)"
+    assert_lacks "$out" "cannot overwrite" "noclobber: no error from the marker"
+    # F3: a state directory that is no longer ours gets no marker.
+    out="$(bash --norc --noprofile -i -c "export HOME='$HOME' PATH='$PATH' BASHGITAWARE_MODE=full BASHGITAWARE_ASYNC=1 BASHGITAWARE_CONTEXTS=kube KUBECONFIG='$d/kc2'; source '$REPO/new.bashrc'; rm -rf \"\$_bga_state_dir\"; mkdir '$d/other'; ln -s '$d/other' \"\$_bga_state_dir\"; __bga_context; ls -A '$d/other'; echo end" 2>/dev/null)"
+    assert_lacks "$out" "kube.mark" "replaced state directory: nothing written through it"
+    # F5: .terraform as a symlink out of the repository.
+    mkdir -p "$d/sec" "$d/w"; printf 'leak123\n' > "$d/sec/environment"; ln -s "$d/sec" "$d/w/.terraform"
+    out="$(bga_render "$d/w" BASHGITAWARE_CONTEXTS=tf)"
+    assert_lacks "$out" "leak123" ".terraform symlinked out: not read"
+    # F6: bidi controls are replaced.
+    out="$(LANG=C.UTF-8 bash --norc --noprofile -i -c "source '$REPO/new.bashrc'; __bga_ps1_lit \$'pro‮doc⁦x‏'; printf '%s' \"\$REPLY\"" 2>/dev/null)"
+    if [ "$out" = 'pro?doc?x?' ]; then ok "bidi controls replaced"; else fail "bidi controls: got '$out'"; fi
+    rm -rf "$d"
+}

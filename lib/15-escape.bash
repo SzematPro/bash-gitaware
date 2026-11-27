@@ -21,6 +21,7 @@ __bga_ps1_lit() {
     local s="$1" bs=\\ dl='$' bt='`'
     s="${s//[[:cntrl:]]/?}"
     case "$s" in *$'\xc2'*) __bga_strip_c1 "$s"; s="$REPLY" ;; esac
+    case "$s" in *$'\xe2'*) __bga_strip_bidi "$s"; s="$REPLY" ;; esac
     if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$s"; s="$REPLY"; fi
     if shopt -q promptvars; then
         s="${s//"$bs"/"$bs$bs"}"
@@ -37,6 +38,7 @@ __bga_ps1_lit() {
 __bga_term_safe() {
     REPLY="${1//[[:cntrl:]]/?}"
     case "$REPLY" in *$'\xc2'*) __bga_strip_c1 "$REPLY" ;; esac
+    case "$REPLY" in *$'\xe2'*) __bga_strip_bidi "$REPLY" ;; esac
     if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$REPLY"; fi
 }
 
@@ -47,6 +49,17 @@ __bga_term_safe() {
 __bga_strip_c1() {
     local LC_ALL=C
     REPLY="${1//$'\xc2'[$'\x80'-$'\x9f']/?}"
+}
+
+# Bidi and invisible format controls: U+200E/U+200F (marks), U+202A-U+202E
+# (embeddings and overrides; U+202E reverses text), U+2066-U+2069
+# (isolates). They are not [[:cntrl:]], terminals draw them as zero width
+# while the width table counted one cell, and with bidi support they can
+# reorder a branch or context name on screen (SR7 F6). Matched as bytes.
+__bga_strip_bidi() {
+    local LC_ALL=C s="$1"
+    s="${s//$'\xe2\x80'[$'\x8e'$'\x8f'$'\xaa'-$'\xae']/?}"
+    REPLY="${s//$'\xe2\x81'[$'\xa6'-$'\xa9']/?}"
 }
 
 # Outside a UTF-8 locale the terminal may be 8-bit, where a lone byte 0x9B is

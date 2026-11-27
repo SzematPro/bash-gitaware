@@ -33,6 +33,14 @@ __bga_state_dir_init() {
     _bga_state_dir="$d"
 }
 
+# True if the state directory is still ours: a real directory we own. It is
+# created private, but a cleaner may delete it while the shell lives, and
+# another user could then recreate the name and plant symlinks in it (SR7
+# F3). Builtin tests only, so it costs no fork; checked before each write.
+__bga_state_ok() {
+    [ -n "${_bga_state_dir:-}" ] && [ -d "$_bga_state_dir" ] && [ ! -L "$_bga_state_dir" ] && [ -O "$_bga_state_dir" ]
+}
+
 # Remove the state directory and everything we put in it. Only touches the
 # directory this shell created.
 __bga_state_dir_cleanup() {

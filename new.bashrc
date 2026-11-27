@@ -455,6 +455,7 @@ __bga_ps1_lit() {
     local s="$1" bs=\\ dl='$' bt='`'
     s="${s//[[:cntrl:]]/?}"
     case "$s" in *$'\xc2'*) __bga_strip_c1 "$s"; s="$REPLY" ;; esac
+    case "$s" in *$'\xe2'*) __bga_strip_bidi "$s"; s="$REPLY" ;; esac
     if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$s"; s="$REPLY"; fi
     if shopt -q promptvars; then
         s="${s//"$bs"/"$bs$bs"}"
@@ -471,6 +472,7 @@ __bga_ps1_lit() {
 __bga_term_safe() {
     REPLY="${1//[[:cntrl:]]/?}"
     case "$REPLY" in *$'\xc2'*) __bga_strip_c1 "$REPLY" ;; esac
+    case "$REPLY" in *$'\xe2'*) __bga_strip_bidi "$REPLY" ;; esac
     if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$REPLY"; fi
 }
 
@@ -481,6 +483,17 @@ __bga_term_safe() {
 __bga_strip_c1() {
     local LC_ALL=C
     REPLY="${1//$'\xc2'[$'\x80'-$'\x9f']/?}"
+}
+
+# Bidi and invisible format controls: U+200E/U+200F (marks), U+202A-U+202E
+# (embeddings and overrides; U+202E reverses text), U+2066-U+2069
+# (isolates). They are not [[:cntrl:]], terminals draw them as zero width
+# while the width table counted one cell, and with bidi support they can
+# reorder a branch or context name on screen (SR7 F6). Matched as bytes.
+__bga_strip_bidi() {
+    local LC_ALL=C s="$1"
+    s="${s//$'\xe2\x80'[$'\x8e'$'\x8f'$'\xaa'-$'\xae']/?}"
+    REPLY="${s//$'\xe2\x81'[$'\xa6'-$'\xa9']/?}"
 }
 
 # Outside a UTF-8 locale the terminal may be 8-bit, where a lone byte 0x9B is
@@ -568,6 +581,14 @@ __bga_state_dir_init() {
         return 1
     fi
     _bga_state_dir="$d"
+}
+
+# True if the state directory is still ours: a real directory we own. It is
+# created private, but a cleaner may delete it while the shell lives, and
+# another user could then recreate the name and plant symlinks in it (SR7
+# F3). Builtin tests only, so it costs no fork; checked before each write.
+__bga_state_ok() {
+    [ -n "${_bga_state_dir:-}" ] && [ -d "$_bga_state_dir" ] && [ ! -L "$_bga_state_dir" ] && [ -O "$_bga_state_dir" ]
 }
 
 # Remove the state directory and everything we put in it. Only touches the
@@ -1487,8 +1508,9 @@ __bga_runtime() {
 # _bga_ctx_str (the classic-layout text). No program runs: kubectl, aws and
 # terraform are never called.
 #   kube  current-context of the first file in $KUBECONFIG (or
-#         ~/.kube/config); reread only when the file is newer than a marker
-#         in the state directory.
+#         ~/.kube/config); reread unless a marker in the state directory is
+#         newer (a file with a future mtime is reread on every prompt, which
+#         the single bounded read keeps cheap).
 #   aws   $AWS_PROFILE, else $AWS_VAULT.
 #   tf    the workspace in ./.terraform/environment. It comes from the
 #         repository, so it is read with the version-file rules (no symlink
@@ -1512,21 +1534,17 @@ __bga_ctx_short() {
 # current-context from kubeconfig file $1 into _bga_kube_ctx. One bounded
 # read (64 KB, NUL-terminated); the file is parsed as data.
 __bga_kube_read() {
-    local buf line v
+    local buf v re=$'(^|\n)current-context:([^\n]*)'
     _bga_kube_ctx=''
     [ -f "$1" ] && [ -r "$1" ] || return 0
     IFS= read -r -d '' -n 65536 buf < "$1" 2>/dev/null
-    while [ -n "$buf" ]; do
-        line="${buf%%$'\n'*}"
-        if [ "$line" = "$buf" ]; then buf=''; else buf="${buf#*$'\n'}"; fi
-        case "$line" in
-            current-context:*)
-                v="${line#current-context:}"; v="${v%$'\r'}"
-                v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
-                case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
-                _bga_kube_ctx="$v"; return 0 ;;
-        esac
-    done
+    # One regex match, not a loop that cuts lines off the buffer: that is
+    # quadratic, and a 64 KB file of newlines took 141 s per prompt (SR7 F1).
+    [[ $buf =~ $re ]] || return 0
+    v="${BASH_REMATCH[2]}"; v="${v%$'\r'}"
+    v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
+    case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
+    _bga_kube_ctx="$v"
 }
 
 __bga_context() {
@@ -1535,7 +1553,8 @@ __bga_context() {
     local REPLY v f
     if __bga_ctx_on kube; then
         f="${KUBECONFIG:-$HOME/.kube/config}"; f="${f%%:*}"
-        local mark="${_bga_state_dir:+$_bga_state_dir/kube.mark}"
+        local mark=''
+        __bga_state_ok && mark="$_bga_state_dir/kube.mark"
         # Reread unless the marker is strictly newer than the file. bash
         # before 5.1 compares whole seconds, so "file newer than marker"
         # would miss a change made in the same second as the last read and
@@ -1543,8 +1562,9 @@ __bga_context() {
         if [ "$f" != "$_bga_kube_file" ] || [ -z "$mark" ] || [ ! -e "$mark" ] || ! [ "$mark" -nt "$f" ]; then
             __bga_kube_read "$f"
             _bga_kube_file="$f"
-            # `: >` sets the marker's mtime to now without a fork.
-            [ -n "$mark" ] && : > "$mark" 2>/dev/null
+            # `: >|` sets the marker's mtime to now without a fork (>| so
+            # noclobber does not refuse it, SR7 F4).
+            [ -n "$mark" ] && { : >| "$mark"; } 2>/dev/null
         fi
         if [ -n "$_bga_kube_ctx" ]; then __bga_ctx_short "$_bga_kube_ctx"; __bga_ctx_add kube "k8s $REPLY"; fi
     fi
@@ -1552,7 +1572,9 @@ __bga_context() {
         v="${AWS_PROFILE:-${AWS_VAULT:-}}"
         if [ -n "$v" ]; then __bga_ctx_short "$v"; __bga_ctx_add aws "aws $REPLY"; fi
     fi
-    if __bga_ctx_on tf && __bga_read_version "$PWD/.terraform/environment"; then
+    # .terraform itself may be a symlink out of the repository (SR7 F5).
+    if __bga_ctx_on tf && __bga_link_inside "$PWD/.terraform" \
+       && __bga_read_version "$PWD/.terraform/environment"; then
         __bga_ctx_add tf "tf $REPLY"
     fi
     return 0
@@ -2236,6 +2258,8 @@ __bga_async_apply_or_dispatch() {
 
 __bga_async_dispatch() {
     [ -z "$_bga_async_cache" ] && return
+    # The directory must still be ours before the job writes into it.
+    __bga_state_ok || return
     local key="$1" top="$2"
     [ -z "$top" ] && return
 

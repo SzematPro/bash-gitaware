@@ -142,7 +142,10 @@ archivos de versión. Ese texto siempre se muestra y nunca se ejecuta, y se
 le quitan las secuencias de escape de terminal. Las llamadas a git del
 propio prompt nunca ejecutan hooks, fsmonitor, filtros definidos en el
 repositorio ni descargas diferidas, y cada una tiene un límite de tiempo.
-Ver [SECURITY.md](SECURITY.md) y
+Los archivos de versión se leen como datos: no se sigue un symlink que
+apunte fuera del repositorio y solo se muestran valores con forma de
+versión. En máquinas compartidas, el policy de administrador solo se usa si
+pertenece a root. Ver [SECURITY.md](SECURITY.md) y
 [ADR-0008](docs/adr/ADR-0008-v3-git-worker-trust-and-state.md).
 
 ## Compatibilidad

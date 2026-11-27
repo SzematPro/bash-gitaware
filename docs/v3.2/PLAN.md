@@ -41,7 +41,7 @@ Exit gate: review and **SR7** (kubeconfig and `.terraform` parsing, cache). Done
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
 | T12.1 | all | Release check | SPEC section 3, each criterion recorded here | done |
-| T12.2 | all | Release 3.2.0 | Version, CHANGELOG, squash to main, tag, GitHub release, after the owner confirms | todo |
+| T12.2 | all | Release 3.2.0 | Version, CHANGELOG, squash to main, tag, GitHub release, after the owner confirms | done |
 
 ## Release check (T12.1, 2026-11-27)
 

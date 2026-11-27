@@ -87,6 +87,17 @@ reported with its line number and skipped.
 replace mode, after a backup.
 `./install.sh --uninstall` reverses an install.
 
+## Upgrading from 3.1 to 3.2
+
+- Nothing changes until you opt in. The new keys are `git_status = detail`
+  (staged, unstaged, untracked and conflict counts) and
+  `contexts = kube,aws,tf`. TAB completes `bga`, and `bga config list --all`
+  shows every setting and where it comes from.
+- **When a key appears twice in the config file, the last valid line now
+  wins.** Before, the first one did. `bga config set` keeps a single line,
+  so this only matters for files edited by hand.
+- A branch whose upstream was deleted now shows `⇣gone`.
+
 ## Upgrading from 3.0 to 3.1
 
 - **Shell defaults are a setting now.** The history options, `ls`/`grep`

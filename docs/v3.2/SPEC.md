@@ -1,6 +1,6 @@
 # bash-gitaware 3.2: spec
 
-- Status: Accepted (scope chosen by the owner on 2026-11-27)
+- Status: Released as 3.2.0 and 3.2.1 on 2026-11-27 (scope chosen by the owner the same day)
 - Base: 3.1.0 (`v3.1.0`, cd121d8) plus #3 (7d8a4d1)
 - Builds on: [`../v3/SPEC.md`](../v3/SPEC.md) (locked decisions,
   non-functional requirements, lessons) and [`../v3.1/SPEC.md`](../v3.1/SPEC.md).

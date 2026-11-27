@@ -49,7 +49,7 @@ scenario_vimode_pty() {
     local d out; d="$(mktemp -d "${TMPDIR:-/tmp}/bga-vm-XXXXXX")"
     printf 'export BASHGITAWARE_MODE=full BASHGITAWARE_ASYNC=0 TERM=xterm-256color\nset -o vi\nsource %q\n' "$REPO/new.bashrc" > "$d/rc"
     # ESC needs a pause after it, or readline reads ESC + i as Meta-i.
-    out="$( { sleep 1; printf 'echo one'; sleep 0.3; printf '\033'; sleep 1; printf 'A two\r'; sleep 0.5; printf 'exit\r'; sleep 0.5; } \
+    out="$( { sleep 1; printf 'echo one'; sleep 0.3; printf '\033'; sleep 1; printf 'A two\r'; sleep 0.5; printf 'echo three'; sleep 0.3; printf '\033'; sleep 1; printf '\r'; sleep 0.5; printf 'exit\r'; sleep 0.5; } \
         | HOME="$d" pty_run "bash --rcfile '$d/rc' -i" 2>&1)"
     case "$out" in *$'\e['*'mN'$'\e[0m '*) ok "command mode: colored N drawn by readline" ;;
                    *) fail "command mode: no marker in the pty output" ;; esac
@@ -61,5 +61,8 @@ scenario_vimode_pty() {
     plain="$(printf '%s' "$out" | sed -E $'s/\x1b\\[[0-9;?]*[A-Za-z]//g; s/\x1b\\][^\a]*\a//g; s/\x1b[78]//g')"
     n="$(printf '%s' "$plain" | grep -oE '(❯|>) echo one two' | wc -l | tr -d ' ')"
     if [ "${n:-0}" -ge 2 ]; then ok "transient collapse after a vi-mode edit"; else fail "no transient collapse after a vi-mode edit ($n)"; fi
+    # Enter pressed in vi command mode collapses too (3.2.1).
+    n="$(printf '%s' "$plain" | grep -oE '(❯|>) echo three' | wc -l | tr -d ' ')"
+    if [ "${n:-0}" -ge 2 ]; then ok "transient collapse on Enter in vi command mode"; else fail "no collapse on Enter in vi command mode ($n)"; fi
     rm -rf "$d"
 }

@@ -14,7 +14,7 @@
 #
 # Exit status: 0 ok, 1 a check or operation failed, 2 usage error.
 # ---------------------------------------------------------------------------
-_bga_version='3.2.0'
+_bga_version='3.2.1'
 
 __bga_cli_err() { printf 'bga: %s\n' "$*" >&2; }
 
@@ -334,8 +334,14 @@ __bga_cli_doctor() {
     __bga_doc info glyphs "$_bga_glyphs"
     __bga_doc info colors "depth=$_bga_depth TERM=${TERM:-unset}${COLORTERM:+ COLORTERM=$COLORTERM}"
     __bga_doc info style "${BASHGITAWARE_STYLE:-lean}, theme ${BASHGITAWARE_THEME:-aware}"
-    if [ "${_bga_plain:-0}" = 1 ]; then __bga_doc info mode "plain (dumb terminal, no tty, CI or agent detected)"
-    else __bga_doc info mode "full"; fi
+    # Say why: forced by the mode setting (with its source) or detected.
+    if [ "${_bga_plain:-0}" = 1 ]; then
+        if [ "${BASHGITAWARE_MODE:-auto}" = plain ]; then __bga_doc info mode "plain (mode = plain, from ${_bga_src_mode:-environment})"
+        else __bga_doc info mode "plain (dumb terminal, no tty, CI or agent detected)"; fi
+    else
+        if [ "${BASHGITAWARE_MODE:-auto}" = full ]; then __bga_doc info mode "full (mode = full, from ${_bga_src_mode:-environment})"
+        else __bga_doc info mode "full"; fi
+    fi
     if [ -n "${_bga_tmo:-}" ]; then __bga_doc ok timeouts "$_bga_tmo"
     else __bga_doc ok timeouts "watchdog (no timeout(1))"; fi
     if [ -n "${_bga_state_dir:-}" ]; then __bga_doc ok state "$_bga_state_dir"

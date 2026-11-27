@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-11-27
+
+### Fixed
+
+- Enter pressed in vi command mode now collapses the transient prompt, as
+  it does in insert and emacs mode.
+- `bga doctor` says when plain or full mode comes from the `mode` setting,
+  instead of reporting it as detected.
+
 ## [3.2.0] - 2026-11-27
 
 ### Added

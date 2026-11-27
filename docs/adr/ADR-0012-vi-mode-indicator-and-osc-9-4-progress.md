@@ -67,9 +67,9 @@ R-5). Anything printed from the side corrupts the input.
 - The indicator has no per-prompt cost: one `bind -v` at load.
 - When the user switches the editing mode with `set -o vi` after loading,
   the indicator still works, because the variables are already set.
-- Pressing Enter in vi command mode does not collapse the transient prompt.
-  The Enter remap lives in the keymap that was active at load. This
-  predates 3.1.
+- Since 3.2.1, the Enter remap is installed in the emacs, vi-insert and
+  vi-command keymaps, so Enter collapses the transient prompt in vi command
+  mode too. Before that, it lived only in the keymap active at load.
 - The vi-mode tests do not run `set -o vi` in `bash -i -c` without a tty.
   bash 4.4 to 5.2 crash there, with or without bash-gitaware, and 5.3
   fixes it. The real vi mode is tested in a pty.

@@ -67,7 +67,16 @@ __bga_lean_left() {
         fi
         __bga_lean_add branch "${_g_branch}${_bga_git_branch}"
         [ -n "$_bga_git_state" ]                 && __bga_lean_add state " $_bga_git_state"
-        [ "$_bga_git_dirty" = 1 ]                && __bga_lean_add dirty " $_g_dirty"
+        if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
+            local cap=''; [ "${_bga_git_capped:-0}" = 1 ] && cap='+'
+            [ "${_bga_git_staged:-0}"    -gt 0 ] 2>/dev/null && __bga_lean_add staged    " ${_g_staged}${_bga_git_staged}"
+            [ "${_bga_git_unstaged:-0}"  -gt 0 ] 2>/dev/null && __bga_lean_add unstaged  " ${_g_unstaged}${_bga_git_unstaged}"
+            [ "${_bga_git_untracked:-0}" -gt 0 ] 2>/dev/null && __bga_lean_add untracked " ${_g_untracked}${_bga_git_untracked}${cap}"
+            [ "${_bga_git_conflicts:-0}" -gt 0 ] 2>/dev/null && __bga_lean_add conflict  " ${_g_conflict}${_bga_git_conflicts}"
+        elif [ "$_bga_git_dirty" = 1 ]; then
+            __bga_lean_add dirty " $_g_dirty"
+        fi
+        [ "${_bga_git_gone:-0}" = 1 ]            && __bga_lean_add state " $_g_gone"
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null && __bga_lean_add ahead " ${_g_ahead}${_bga_git_ahead}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null && __bga_lean_add behind " ${_g_behind}${_bga_git_behind}"
         [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null && __bga_lean_add stash " ${_g_stash}${_bga_git_stash}"

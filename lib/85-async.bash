@@ -63,30 +63,42 @@ __bga_async_cleanup() {
 # expensive vars, _bga_async_pending=0. Miss -> defaults stay (0,0,0),
 # dispatch a job, _bga_async_pending=1.
 __bga_async_apply_or_dispatch() {
-    local key="${PWD}|${_bga_git_dir}"
+    # The git_status mode is part of the key: a compact result has no counts.
+    local key="${PWD}|${_bga_git_dir}|${BASHGITAWARE_GIT_STATUS:-compact}"
     key="${key//$'\n'/?}"     # the cache is line-based: one line per key
-    local cache_key='' dirty='' ahead='' behind=''
+    local cache_key='' dirty='' ahead='' behind='' ver='' f
+    local gone='' staged='' unstaged='' untracked='' conflicts='' capped=''
 
     if [ -n "$_bga_async_cache" ] && [ -e "$_bga_async_cache" ]; then
         local k v
-        # Defensive parse: no `source`; accept only four known keys.
+        # Defensive parse: no `source`; accept only known keys.
         while IFS='=' read -r k v; do
             v="${v#\"}"; v="${v%\"}"
             case "$k" in
-                _bga_async_key)    cache_key="$v" ;;
-                _bga_async_dirty)  dirty="$v" ;;
-                _bga_async_ahead)  ahead="$v" ;;
-                _bga_async_behind) behind="$v" ;;
+                _bga_async_key)       cache_key="$v" ;;
+                _bga_async_v)         ver="$v" ;;
+                _bga_async_dirty)     dirty="$v" ;;
+                _bga_async_ahead)     ahead="$v" ;;
+                _bga_async_behind)    behind="$v" ;;
+                _bga_async_gone)      gone="$v" ;;
+                _bga_async_staged)    staged="$v" ;;
+                _bga_async_unstaged)  unstaged="$v" ;;
+                _bga_async_untracked) untracked="$v" ;;
+                _bga_async_conflicts) conflicts="$v" ;;
+                _bga_async_capped)    capped="$v" ;;
             esac
         done < "$_bga_async_cache"
-        if [ "$cache_key" = "$key" ]; then
+        # A cache from another format version is a miss, never misread.
+        if [ "$cache_key" = "$key" ] && [ "$ver" = 2 ]; then
             # Cache hit: only accept numeric values; reject anything funky.
-            case "$dirty"  in '' | *[!0-9]*) dirty=0  ;; esac
-            case "$ahead"  in '' | *[!0-9]*) ahead=0  ;; esac
-            case "$behind" in '' | *[!0-9]*) behind=0 ;; esac
+            for f in dirty ahead behind gone staged unstaged untracked conflicts capped; do
+                case "${!f}" in '' | *[!0-9]*) printf -v "$f" 0 ;; esac
+            done
             _bga_git_dirty="$dirty"
             _bga_git_ahead="$ahead"
             _bga_git_behind="$behind"
+            _bga_git_gone="$gone" _bga_git_staged="$staged" _bga_git_unstaged="$unstaged"
+            _bga_git_untracked="$untracked" _bga_git_conflicts="$conflicts" _bga_git_capped="$capped"
             _bga_async_pending=0
             # A command just ran (the timer is set): it may have changed the
             # tree, so refresh in the background. The cached values stay on

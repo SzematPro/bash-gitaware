@@ -35,4 +35,9 @@ case "$_bga_glyphs" in
         _g_dirty='*' _g_ahead='^' _g_behind='v' _g_stash='s' _g_commit='' _g_sym='>' _g_ell='...'
         ;;
 esac
+# Detailed git status (git_status = detail) and "upstream gone".
+case "$_bga_glyphs" in
+    ascii) _g_staged='+' _g_unstaged='!' _g_untracked='?' _g_conflict='x' _g_gone='gone' ;;
+    *)     _g_staged='+' _g_unstaged='!' _g_untracked='?' _g_conflict='✘' _g_gone='⇣gone' ;;
+esac
 [ "$_bga_root" = 1 ] && _g_sym='#'

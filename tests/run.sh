@@ -46,6 +46,8 @@ source "$HERE/progress.sh"
 source "$HERE/vimode.sh"
 # shellcheck source=complete.sh
 source "$HERE/complete.sh"
+# shellcheck source=gitdetail.sh
+source "$HERE/gitdetail.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -197,6 +199,10 @@ scenario_cli_config_unsafe_dir
 scenario_cli_config_list_all
 scenario_complete_positions
 scenario_complete_pty
+scenario_gitdetail_counts
+scenario_gitdetail_cap_and_compact
+scenario_gitdetail_upstream_gone
+scenario_gitdetail_old_cache
 scenario_cli_shell_function
 scenario_cli_reload_keeps_runtime
 

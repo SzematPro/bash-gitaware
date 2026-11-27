@@ -83,7 +83,16 @@ __bga_prompt() {
         fi
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_ahead}${_g_ahead}${_bga_git_ahead}${_R}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
-        [ "$_bga_git_dirty"  = 1 ]                && ps1+=" ${_c_dirty}${_g_dirty}${_R}"
+        if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
+            local cap=''; [ "${_bga_git_capped:-0}" = 1 ] && cap='+'
+            [ "${_bga_git_staged:-0}"    -gt 0 ] 2>/dev/null && ps1+=" ${_c_staged}${_g_staged}${_bga_git_staged}${_R}"
+            [ "${_bga_git_unstaged:-0}"  -gt 0 ] 2>/dev/null && ps1+=" ${_c_unstaged}${_g_unstaged}${_bga_git_unstaged}${_R}"
+            [ "${_bga_git_untracked:-0}" -gt 0 ] 2>/dev/null && ps1+=" ${_c_untracked}${_g_untracked}${_bga_git_untracked}${cap}${_R}"
+            [ "${_bga_git_conflicts:-0}" -gt 0 ] 2>/dev/null && ps1+=" ${_c_conflict}${_g_conflict}${_bga_git_conflicts}${_R}"
+        elif [ "$_bga_git_dirty"  = 1 ]; then
+            ps1+=" ${_c_dirty}${_g_dirty}${_R}"
+        fi
+        [ "${_bga_git_gone:-0}" = 1 ]             && ps1+=" ${_c_state}${_g_gone}${_R}"
         [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_stash}${_g_stash}${_bga_git_stash}${_R}"
         # M5 async: subtle placeholder while the expensive info is still being
         # computed in the background. Cleared on the next prompt cycle once

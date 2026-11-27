@@ -79,6 +79,7 @@ mode enum auto plain full
 theme theme
 style enum lean classic
 vi_mode enum auto 0
+git_status enum compact detail
 nerd_font bool
 async bool
 osc bool

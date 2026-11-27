@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-11-27
+
 ### Fixed
 
 - Enter pressed in vi command mode now collapses the transient prompt, as

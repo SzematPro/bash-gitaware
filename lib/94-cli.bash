@@ -229,6 +229,7 @@ __bga_cli_cfg_edit_body() {
         while :; do
             printf 'Edit again or discard your changes? [e/d] ' >&2
             IFS= read -r a || a=d
+            a="${a%$'\r'}"     # a terminal may send CR LF
             case "$a" in e | E | '') continue 2 ;; d | D) rm -f "$tmp"; printf 'bga: discarded; %s unchanged\n' "$f" >&2; return 1 ;; esac
         done
     done

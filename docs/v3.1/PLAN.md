@@ -63,7 +63,7 @@ temp-file handling).
 | ID | Req | Task | Acceptance criteria | Status |
 |---|---|---|---|---|
 | T8.1 | all | Release check | Each criterion in SPEC section 5 checked and recorded here; budgets re-measured and the comment in `tests/budgets.sh` updated | done |
-| T8.2 | all | Release 3.1.0 | `_bga_version='3.1.0'`, CHANGELOG `[3.1.0]`, one release commit and tag `v3.1.0`; pushed only after the owner confirms | todo |
+| T8.2 | all | Release 3.1.0 | `_bga_version='3.1.0'`, CHANGELOG `[3.1.0]`, one release commit and tag `v3.1.0`; pushed only after the owner confirms | done |
 
 ## Release check (T8.1, 2026-11-26)
 

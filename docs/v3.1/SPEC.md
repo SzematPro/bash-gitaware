@@ -1,6 +1,6 @@
 # bash-gitaware 3.1: spec
 
-- Status: Accepted (scope chosen by the owner on 2026-11-25; plan approved the same day)
+- Status: Released as 3.1.0 on 2026-11-26 (scope chosen by the owner on 2026-11-25)
 - Date: 2026-11-25
 - Base: 3.0.0 (`v3.0.0`, commit 15d5e2f) plus the CI budget fix b378023
 - Builds on: [`../v3/SPEC.md`](../v3/SPEC.md). Its locked decisions (section 2),

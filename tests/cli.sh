@@ -140,8 +140,8 @@ scenario_cli_config_edit() {
     out="$(BASHGITAWARE_CONFIG="$f" _bga_cmd config edit </dev/null 2>&1)"; rc=$?
     if [ "$rc" = 2 ]; then ok "no terminal: exit 2"; else fail "no terminal: exit $rc"; fi
     assert_contains "$out" "needs a terminal" "no terminal: says why"
-    if ! command -v script >/dev/null 2>&1 || ! script -qc true /dev/null >/dev/null 2>&1; then
-        skip "config edit on a terminal (needs util-linux script)"; rm -rf "$dir"; return
+    if ! pty_ok; then
+        skip "config edit on a terminal (needs script(1))"; rm -rf "$dir"; return
     fi
     # Editors: append a valid line; append an invalid one; fail; invalid
     # first, then fixed on the second run.
@@ -157,7 +157,9 @@ scenario_cli_config_edit() {
     } > "$dir/ed-fix"
     chmod 755 "$dir"/ed-*
     printf '# keep this comment\ntheme = light\n' > "$f"; chmod 600 "$f"
-    _ce() { printf '%s' "$2" | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/$1" VISUAL='' script -qc "'$REPO/bin/bga' config edit" /dev/null 2>&1; }
+    # The answer is sent after a pause, once the question is waiting: on
+    # macOS, input written to the pty while the editor runs is lost.
+    _ce() { { sleep 1; printf '%s' "$2"; sleep 1; } | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/$1" VISUAL='' pty_run "'$REPO/bin/bga' config edit" 2>&1; }
 
     out="$(_ce ed-ok '')"
     assert_contains "$(cat "$f")" "clock = 1" "valid edit saved"
@@ -171,6 +173,7 @@ scenario_cli_config_edit() {
     if cmp -s "$f" "$dir/before"; then ok "discard: file unchanged"; else fail "discard changed the file"; fi
     out="$(_ce ed-fix $'e\n')"
     assert_contains "$(cat "$f")" "glyphs = ascii" "edit again: fixed version saved"
+    case "$(cat "$f")" in *'glyphs = ascii'*) ;; *) printf '    pty transcript: %s\n' "$(printf '%s' "$out" | od -c | head -12 | tr -s ' ' | tr '\n' '|')" ;; esac
     cp "$f" "$dir/before"
     out="$(_ce ed-fail '')"
     assert_contains "$out" "the editor failed" "editor failure reported"
@@ -181,12 +184,12 @@ scenario_cli_config_edit() {
     # VISUAL wins over EDITOR, and an editor command with arguments gets the
     # file as its last argument.
     printf '#!/bin/sh\nprintf "%%s\\n" "$*" > "%s/args"\nprintf "osc = 0\\n" >> "$3"\n' "$dir" > "$dir/ed-args"; chmod 755 "$dir/ed-args"
-    printf '' | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/ed-fail" VISUAL="$dir/ed-args --wait -n" script -qc "'$REPO/bin/bga' config edit" /dev/null >/dev/null 2>&1
+    printf '' | BASHGITAWARE_CONFIG="$f" EDITOR="$dir/ed-fail" VISUAL="$dir/ed-args --wait -n" pty_run "'$REPO/bin/bga' config edit" >/dev/null 2>&1
     assert_contains "$(cat "$dir/args" 2>/dev/null)" "--wait -n " "VISUAL with arguments used"
     case "$(cat "$dir/args" 2>/dev/null)" in *' -n '*'/.config.edit.'*) ok "the file is the editor's last argument" ;; *) fail "file not passed last" ;; esac
     assert_contains "$(cat "$f")" "osc = 0" "edit through VISUAL saved"
     ln -s "$f" "$dir/link"
-    out="$(printf '' | BASHGITAWARE_CONFIG="$dir/link" EDITOR="$dir/ed-ok" script -qc "'$REPO/bin/bga' config edit" /dev/null 2>&1)"
+    out="$(printf '' | BASHGITAWARE_CONFIG="$dir/link" EDITOR="$dir/ed-ok" pty_run "'$REPO/bin/bga' config edit" 2>&1)"
     assert_contains "$out" "is a symlink" "symlinked config refused"
     rm -rf "$dir"
 }
@@ -200,17 +203,17 @@ scenario_cli_config_unsafe_dir() {
     assert_contains "$out" "writable by other users" "set: says why"
     BASHGITAWARE_CONFIG="$dir/sticky/config" _bga_cmd config set clock 1 >/dev/null 2>&1; rc=$?
     if [ "$rc" = 0 ]; then ok "set allowed in a sticky directory (like /tmp)"; else fail "sticky directory refused ($rc)"; fi
-    if command -v script >/dev/null 2>&1 && script -qc true /dev/null >/dev/null 2>&1; then
-        out="$(printf '' | BASHGITAWARE_CONFIG="$dir/open/config" EDITOR=true script -qc "'$REPO/bin/bga' config edit" /dev/null 2>&1)"
+    if pty_ok; then
+        out="$(printf '' | BASHGITAWARE_CONFIG="$dir/open/config" EDITOR=true pty_run "'$REPO/bin/bga' config edit" 2>&1)"
         assert_contains "$out" "writable by other users" "edit refused in a directory others can write"
         # SR6 F5: an interrupt while the editor runs leaves no temp copy.
         mkdir -m 700 "$dir/cfg"
         printf '#!/bin/sh\nkill -INT 0\nsleep 2\n' > "$dir/ed-int"; chmod 755 "$dir/ed-int"
-        printf '' | BASHGITAWARE_CONFIG="$dir/cfg/config" EDITOR="$dir/ed-int" script -qc "'$REPO/bin/bga' config edit" /dev/null >/dev/null 2>&1
+        printf '' | BASHGITAWARE_CONFIG="$dir/cfg/config" EDITOR="$dir/ed-int" pty_run "'$REPO/bin/bga' config edit" >/dev/null 2>&1
         local left; left="$(cd "$dir/cfg" && for x in .config.edit.*; do [ -e "$x" ] && printf '%s ' "$x"; done)"
         if [ -z "$left" ]; then ok "interrupted edit: no temp copy left"; else fail "interrupted edit left: $left"; fi
     else
-        skip "config edit refusal and interrupt (needs util-linux script)"
+        skip "config edit refusal and interrupt (needs script(1))"
     fi
     rm -rf "$dir"
 }

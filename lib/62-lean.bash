@@ -106,11 +106,11 @@ __bga_prompt_lean() {
     fi
     ps1+="$_bga_l"
 
-    # --- Right: runtimes, optional clock ---------------------------------------
+    # --- Right: runtimes, contexts, optional clock -----------------------------
     local -a rt=() rw=()
     local item tok label rtok
-    __bga_runtime
-    for item in "${_bga_rt_items[@]}"; do
+    __bga_runtime; __bga_context
+    for item in "${_bga_rt_items[@]}" "${_bga_ctx_items[@]}"; do
         tok="${item%%|*}" label="${item#*|}"
         rtok="_cr_$tok"; __bga_ps1_lit "$label"
         rt+=("${!rtok}${REPLY}${_Rr}")
@@ -120,7 +120,7 @@ __bga_prompt_lean() {
         printf -v label '%(%H:%M)T' -1
         rt+=("${_cr_dim}${label}${_Rr}"); rw+=("${#label}")
     fi
-    # Drop from the end (clock first, then the last runtimes) until it fits.
+    # Drop from the end (clock, then contexts, then runtimes) until it fits.
     local n="${#rt[@]}" wr i sepw="${#sep}"
     while [ "$n" -gt 0 ]; do
         wr=0; for (( i = 0; i < n; i++ )); do wr=$(( wr + rw[i] )); done

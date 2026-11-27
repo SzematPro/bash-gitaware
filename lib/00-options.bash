@@ -94,6 +94,7 @@ progress bool
 timer_threshold num
 path_maxdepth num
 runtimes list py node rust go ruby deno bun java
+contexts list kube aws tf
 '
 
 # The table line of key $1 without the key ("<kind> [values]") in REPLY;

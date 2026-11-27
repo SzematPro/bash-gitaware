@@ -48,6 +48,8 @@ source "$HERE/vimode.sh"
 source "$HERE/complete.sh"
 # shellcheck source=gitdetail.sh
 source "$HERE/gitdetail.sh"
+# shellcheck source=context.sh
+source "$HERE/context.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -203,6 +205,10 @@ scenario_gitdetail_counts
 scenario_gitdetail_cap_and_compact
 scenario_gitdetail_upstream_gone
 scenario_gitdetail_old_cache
+scenario_context_segments
+scenario_context_kube_cache_and_noexec
+scenario_context_tf_hostile
+scenario_context_layout
 scenario_cli_shell_function
 scenario_cli_reload_keeps_runtime
 

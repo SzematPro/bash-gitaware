@@ -101,7 +101,7 @@ __bga_prompt() {
     fi
 
     # Runtime / version module(s), only when the directory calls for it.
-    __bga_runtime; local rt="$_bga_rt_str"
+    __bga_runtime; __bga_context; local rt="$_bga_rt_str$_bga_ctx_str"
     [ -n "$rt" ] && ps1+="$rt"
 
     # Command duration (if slow), then exit code (on failure only).

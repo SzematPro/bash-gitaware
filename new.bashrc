@@ -96,6 +96,7 @@ progress bool
 timer_threshold num
 path_maxdepth num
 runtimes list py node rust go ruby deno bun java
+contexts list kube aws tf
 '
 
 # The table line of key $1 without the key ("<kind> [values]") in REPLY;
@@ -718,6 +719,9 @@ ruby     ff6b81 204 91 0
 deno     8fb0d9 110 94 0
 bun      ff9f5a 215 33 0
 java     e6b450 179 93 0
+kube     6fa8ff  75 94 0
+aws      ff9f5a 215 33 0
+tf       b48cf2 141 95 0
 tag      ff9f5a 215 33 0
 timer    e6b450 179 93 0
 err      ff6b81 204 91 1
@@ -754,6 +758,9 @@ ruby     b5172f 124 31 0
 deno     34538a  60 34 0
 bun      a34a06 130 33 0
 java     8a5300  94 33 0
+kube     1d5fd1  26 34 0
+aws      a34a06 130 33 0
+tf       6d32d8  62 35 0
 tag      a34a06 130 33 0
 timer    8a5300  94 33 0
 err      b5172f 124 31 1
@@ -787,6 +794,9 @@ ruby     ff6b6b 203 91 0
 deno     b4d7ff 153 94 0
 bun      ffb000 214 93 0
 java     ffe600 220 93 0
+kube     6cb6ff  75 94 0
+aws      ffb000 214 93 0
+tf       dcb4ff 183 95 0
 tag      ffb000 214 93 0
 timer    ffe600 220 93 0
 err      ff6b6b 203 91 1
@@ -799,13 +809,13 @@ sym_err  ff6b6b 203 91 1
 _R='' _Rr=''
 _c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
 _c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_staged='' _c_unstaged='' _c_untracked='' _c_conflict='' _c_commit='' _c_node=''
-_c_py='' _c_rust='' _c_go='' _c_ruby='' _c_deno='' _c_bun='' _c_java='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
+_c_py='' _c_rust='' _c_go='' _c_ruby='' _c_deno='' _c_bun='' _c_java='' _c_kube='' _c_aws='' _c_tf='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
 _cr_dim='' _cr_path='' _cr_user='' _cr_host='' _cr_host_ssh='' _cr_branch='' _cr_hash=''
 _cr_state='' _cr_ahead='' _cr_behind='' _cr_dirty='' _cr_stash='' _cr_staged='' _cr_unstaged='' _cr_untracked='' _cr_conflict='' _cr_commit='' _cr_node=''
-_cr_py='' _cr_rust='' _cr_go='' _cr_ruby='' _cr_deno='' _cr_bun='' _cr_java='' _cr_tag='' _cr_timer='' _cr_err='' _cr_ok='' _cr_sym_err=''
+_cr_py='' _cr_rust='' _cr_go='' _cr_ruby='' _cr_deno='' _cr_bun='' _cr_java='' _cr_kube='' _cr_aws='' _cr_tf='' _cr_tag='' _cr_timer='' _cr_err='' _cr_ok='' _cr_sym_err=''
 
 # Every token a theme must define (the test suite checks each theme).
-_bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash staged unstaged untracked conflict commit node py rust go ruby deno bun java tag timer err ok sym_err'
+_bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash staged unstaged untracked conflict commit node py rust go ruby deno bun java kube aws tf tag timer err ok sym_err'
 
 __bga_theme_apply() {
     local name="${1:-aware}" table var line tok sgr
@@ -1451,6 +1461,86 @@ __bga_runtime() {
 }
 
 # ---------------------------------------------------------------------------
+# Context segments (3.2, SPEC X1; ADR-0014), opt-in with contexts =
+# kube,aws,tf. Sets _bga_ctx_items ("token|label", like _bga_rt_items) and
+# _bga_ctx_str (the classic-layout text). No program runs: kubectl, aws and
+# terraform are never called.
+#   kube  current-context of the first file in $KUBECONFIG (or
+#         ~/.kube/config); reread only when the file is newer than a marker
+#         in the state directory.
+#   aws   $AWS_PROFILE, else $AWS_VAULT.
+#   tf    the workspace in ./.terraform/environment. It comes from the
+#         repository, so it is read with the version-file rules (no symlink
+#         out of the repository, NUL-safe, version-like value).
+# ---------------------------------------------------------------------------
+_bga_ctx_items=() _bga_ctx_str='' _bga_kube_file='' _bga_kube_ctx=''
+
+# True if context $1 is listed in BASHGITAWARE_CONTEXTS.
+__bga_ctx_on() {
+    case ",${BASHGITAWARE_CONTEXTS:-}," in *",$1,"*) return 0 ;; esac
+    return 1
+}
+
+# Shorten label text $1 to at most 40 characters (keeping the end, which is
+# the distinctive part of names such as EKS ARNs) into REPLY.
+__bga_ctx_short() {
+    REPLY="$1"
+    [ "${#REPLY}" -le 40 ] || REPLY="…${REPLY: -39}"
+}
+
+# current-context from kubeconfig file $1 into _bga_kube_ctx. One bounded
+# read (64 KB, NUL-terminated); the file is parsed as data.
+__bga_kube_read() {
+    local buf line v
+    _bga_kube_ctx=''
+    [ -f "$1" ] && [ -r "$1" ] || return 0
+    IFS= read -r -d '' -n 65536 buf < "$1" 2>/dev/null
+    while [ -n "$buf" ]; do
+        line="${buf%%$'\n'*}"
+        if [ "$line" = "$buf" ]; then buf=''; else buf="${buf#*$'\n'}"; fi
+        case "$line" in
+            current-context:*)
+                v="${line#current-context:}"; v="${v%$'\r'}"
+                v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
+                case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
+                _bga_kube_ctx="$v"; return 0 ;;
+        esac
+    done
+}
+
+__bga_context() {
+    _bga_ctx_items=() _bga_ctx_str=''
+    [ -n "${BASHGITAWARE_CONTEXTS:-}" ] || return 0
+    local REPLY v f
+    if __bga_ctx_on kube; then
+        f="${KUBECONFIG:-$HOME/.kube/config}"; f="${f%%:*}"
+        local mark="${_bga_state_dir:+$_bga_state_dir/kube.mark}"
+        if [ "$f" != "$_bga_kube_file" ] || [ -z "$mark" ] || [ ! -e "$mark" ] || [ "$f" -nt "$mark" ]; then
+            __bga_kube_read "$f"
+            _bga_kube_file="$f"
+            # `: >` sets the marker's mtime to now without a fork.
+            [ -n "$mark" ] && : > "$mark" 2>/dev/null
+        fi
+        if [ -n "$_bga_kube_ctx" ]; then __bga_ctx_short "$_bga_kube_ctx"; __bga_ctx_add kube "k8s $REPLY"; fi
+    fi
+    if __bga_ctx_on aws; then
+        v="${AWS_PROFILE:-${AWS_VAULT:-}}"
+        if [ -n "$v" ]; then __bga_ctx_short "$v"; __bga_ctx_add aws "aws $REPLY"; fi
+    fi
+    if __bga_ctx_on tf && __bga_read_version "$PWD/.terraform/environment"; then
+        __bga_ctx_add tf "tf $REPLY"
+    fi
+    return 0
+}
+
+# Add context $1 (token) with label $2 to the Lean items and classic string.
+__bga_ctx_add() {
+    local REPLY tok="_c_$1"
+    _bga_ctx_items+=("$1|$2")
+    __bga_ps1_lit "$2"; _bga_ctx_str+=" ${_c_dim}[${_R}${!tok}${REPLY}${_c_dim}]${_R}"
+}
+
+# ---------------------------------------------------------------------------
 # Prompt
 # ---------------------------------------------------------------------------
 __bga_prompt() {
@@ -1552,7 +1642,7 @@ __bga_prompt() {
     fi
 
     # Runtime / version module(s), only when the directory calls for it.
-    __bga_runtime; local rt="$_bga_rt_str"
+    __bga_runtime; __bga_context; local rt="$_bga_rt_str$_bga_ctx_str"
     [ -n "$rt" ] && ps1+="$rt"
 
     # Command duration (if slow), then exit code (on failure only).
@@ -1736,11 +1826,11 @@ __bga_prompt_lean() {
     fi
     ps1+="$_bga_l"
 
-    # --- Right: runtimes, optional clock ---------------------------------------
+    # --- Right: runtimes, contexts, optional clock -----------------------------
     local -a rt=() rw=()
     local item tok label rtok
-    __bga_runtime
-    for item in "${_bga_rt_items[@]}"; do
+    __bga_runtime; __bga_context
+    for item in "${_bga_rt_items[@]}" "${_bga_ctx_items[@]}"; do
         tok="${item%%|*}" label="${item#*|}"
         rtok="_cr_$tok"; __bga_ps1_lit "$label"
         rt+=("${!rtok}${REPLY}${_Rr}")
@@ -1750,7 +1840,7 @@ __bga_prompt_lean() {
         printf -v label '%(%H:%M)T' -1
         rt+=("${_cr_dim}${label}${_Rr}"); rw+=("${#label}")
     fi
-    # Drop from the end (clock first, then the last runtimes) until it fits.
+    # Drop from the end (clock, then contexts, then runtimes) until it fits.
     local n="${#rt[@]}" wr i sepw="${#sep}"
     while [ "$n" -gt 0 ]; do
         wr=0; for (( i = 0; i < n; i++ )); do wr=$(( wr + rw[i] )); done

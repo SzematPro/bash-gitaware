@@ -89,3 +89,29 @@ scenario_gitdetail_old_cache() {
     assert_contains "$out" "ahead=0 pending=1" "3.1 cache (no version) treated as a miss"
     rm -rf "$d"
 }
+
+scenario_gitdetail_review_fixes() {
+    section "git detail: cap mark, posix classic, empty clone, showStash (W10 review)"
+    local d base out i; d="$(mktemp_repo)"
+    for i in $(seq 1 2100); do printf 'a\n' > "$d/t$i"; done
+    _gd_git -C "$d" add -A >/dev/null; _gd_git -C "$d" commit -qm many
+    for i in $(seq 1 2100); do printf 'b\n' >> "$d/t$i"; done
+    out="$(_gd_visible "$(bga_render "$d" BASHGITAWARE_GIT_STATUS=detail)")"
+    assert_contains "$out" "!2000+" "tracked changes past the cap: + on the last count shown"
+    # status.showStash adds a header line; 2001 entries must still cap.
+    _gd_git -C "$d" stash -q; for i in $(seq 1 2001); do : > "$d/u$i"; done
+    out="$(_gd_visible "$(bga_render "$d" BASHGITAWARE_GIT_STATUS=detail GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=status.showStash GIT_CONFIG_VALUE_0=true)")"
+    assert_contains "$out" "?2000+" "with status.showStash: still capped"
+    rm -rf "$d"
+    # posix mode, classic: a literal ! (not the history number).
+    d="$(mktemp_repo)"; printf 'a\n' > "$d/a"; _gd_git -C "$d" add a; _gd_git -C "$d" commit -qm a; printf 'b\n' >> "$d/a"
+    out="$(cd "$d" && bash --posix --norc --noprofile -i -c "export HOME='$HOME' PATH='$PATH' TERM=xterm-256color LANG=C.UTF-8 BASHGITAWARE_MODE=full BASHGITAWARE_ASYNC=0 BASHGITAWARE_STYLE=classic BASHGITAWARE_GIT_STATUS=detail; source '$REPO/new.bashrc'; __bga_prompt; printf '%s' \"\${PS1@P}\"" 2>/dev/null)"
+    assert_contains "$(_gd_visible "$out")" " !1" "posix mode, classic: ! shown literally"
+    rm -rf "$d"
+    # A fresh clone of an empty repository: no gone mark.
+    base="$(mktemp -d "${TMPDIR:-/tmp}/bga-gd-XXXXXX")"
+    _gd_git init -q --bare "$base/e.git"; _gd_git clone -q "$base/e.git" "$base/c" 2>/dev/null
+    out="$(_gd_visible "$(bga_render "$base/c")")"
+    assert_lacks "$out" "gone" "empty clone (no commit yet): no gone mark"
+    rm -rf "$base"
+}

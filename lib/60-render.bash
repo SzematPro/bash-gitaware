@@ -84,11 +84,14 @@ __bga_prompt() {
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_ahead}${_g_ahead}${_bga_git_ahead}${_R}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
         if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
-            local cap=''; [ "${_bga_git_capped:-0}" = 1 ] && cap='+'
-            [ "${_bga_git_staged:-0}"    -gt 0 ] 2>/dev/null && ps1+=" ${_c_staged}${_g_staged}${_bga_git_staged}${_R}"
-            [ "${_bga_git_unstaged:-0}"  -gt 0 ] 2>/dev/null && ps1+=" ${_c_unstaged}${_g_unstaged}${_bga_git_unstaged}${_R}"
-            [ "${_bga_git_untracked:-0}" -gt 0 ] 2>/dev/null && ps1+=" ${_c_untracked}${_g_untracked}${_bga_git_untracked}${cap}${_R}"
-            [ "${_bga_git_conflicts:-0}" -gt 0 ] 2>/dev/null && ps1+=" ${_c_conflict}${_g_conflict}${_bga_git_conflicts}${_R}"
+            __bga_git_detail_parts
+            local i tk
+            for (( i = 0; i < ${#_bga_gd_tok[@]}; i++ )); do
+                # Through __bga_ps1_lit: in posix mode a bare ! in PS1 is the
+                # history number.
+                tk="_c_${_bga_gd_tok[i]}"; __bga_ps1_lit "${_bga_gd_txt[i]}"
+                ps1+=" ${!tk}${REPLY}${_R}"
+            done
         elif [ "$_bga_git_dirty"  = 1 ]; then
             ps1+=" ${_c_dirty}${_g_dirty}${_R}"
         fi

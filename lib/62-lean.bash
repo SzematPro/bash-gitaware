@@ -68,11 +68,11 @@ __bga_lean_left() {
         __bga_lean_add branch "${_g_branch}${_bga_git_branch}"
         [ -n "$_bga_git_state" ]                 && __bga_lean_add state " $_bga_git_state"
         if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
-            local cap=''; [ "${_bga_git_capped:-0}" = 1 ] && cap='+'
-            [ "${_bga_git_staged:-0}"    -gt 0 ] 2>/dev/null && __bga_lean_add staged    " ${_g_staged}${_bga_git_staged}"
-            [ "${_bga_git_unstaged:-0}"  -gt 0 ] 2>/dev/null && __bga_lean_add unstaged  " ${_g_unstaged}${_bga_git_unstaged}"
-            [ "${_bga_git_untracked:-0}" -gt 0 ] 2>/dev/null && __bga_lean_add untracked " ${_g_untracked}${_bga_git_untracked}${cap}"
-            [ "${_bga_git_conflicts:-0}" -gt 0 ] 2>/dev/null && __bga_lean_add conflict  " ${_g_conflict}${_bga_git_conflicts}"
+            __bga_git_detail_parts
+            local i
+            for (( i = 0; i < ${#_bga_gd_tok[@]}; i++ )); do
+                __bga_lean_add "${_bga_gd_tok[i]}" " ${_bga_gd_txt[i]}"
+            done
         elif [ "$_bga_git_dirty" = 1 ]; then
             __bga_lean_add dirty " $_g_dirty"
         fi

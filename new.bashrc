@@ -1183,14 +1183,32 @@ __bga_git_status_safe() {
 # entries; _bga_st_capped=1 when it stopped there (3.2, ADR-0013).
 # No process substitution (a syntax and runtime error in posix mode before
 # bash 5.1) and no here-string (a temp file before bash 5.1).
+# The detail segments for the current counts, in order: tokens in
+# _bga_gd_tok and raw text in _bga_gd_txt. A capped count (more than 2000
+# entries) puts "+" after the last segment shown, whichever kind it is.
+_bga_gd_tok=() _bga_gd_txt=()
+__bga_git_detail_parts() {
+    _bga_gd_tok=() _bga_gd_txt=()
+    [ "${_bga_git_staged:-0}"    -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(staged);    _bga_gd_txt+=("${_g_staged}${_bga_git_staged}"); }
+    [ "${_bga_git_unstaged:-0}"  -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(unstaged);  _bga_gd_txt+=("${_g_unstaged}${_bga_git_unstaged}"); }
+    [ "${_bga_git_untracked:-0}" -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(untracked); _bga_gd_txt+=("${_g_untracked}${_bga_git_untracked}"); }
+    [ "${_bga_git_conflicts:-0}" -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(conflict);  _bga_gd_txt+=("${_g_conflict}${_bga_git_conflicts}"); }
+    local n="${#_bga_gd_txt[@]}"
+    if [ "${_bga_git_capped:-0}" = 1 ] && [ "$n" -gt 0 ]; then
+        _bga_gd_txt[n-1]+='+'
+    fi
+    return 0
+}
+
 # Results of __bga_git_status_parse (assigned there through printf -v).
 _bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0 _bga_st_gone=0 _bga_st_staged=0
 _bga_st_unstaged=0 _bga_st_untracked=0 _bga_st_conflicts=0 _bga_st_capped=0
 __bga_git_status_parse() {
     local detail=0 n=8 r
-    # Detail: up to 4 header lines, 2000 entries, and one more to tell "2000"
-    # from "more than 2000".
-    [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ] && detail=1 n=2005
+    # Detail: 2000 entries plus the headers (up to 5, with status.showStash)
+    # and one more entry to tell "2000" from "more than 2000"; the count
+    # itself stops at entry 2001, so a few spare lines do no harm.
+    [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ] && detail=1 n=2010
     # The counting runs at the end of a pipe and prints one result line: a
     # `read` loop is linear, while cutting lines off a captured string copies
     # the rest each time (17 s for 2000 entries, ruling out the worker's 10 s
@@ -1210,10 +1228,13 @@ __bga_git_status_parse() {
 # Count porcelain v2 lines from stdin; $1 = 1 for detail. Prints "dirty ahead
 # behind gone staged unstaged untracked conflicts capped" (numbers only).
 __bga_git_status_count() {
-    local line a b dirty=0 ahead=0 behind=0 up=0 ab=0 st=0 un=0 ut=0 cf=0 cap=0 e=0
+    local line a b dirty=0 ahead=0 behind=0 up=0 ab=0 st=0 un=0 ut=0 cf=0 cap=0 e=0 born=1
     while IFS= read -r line; do
         case "$line" in
             '# branch.upstream '*) up=1 ;;
+            # No commit yet (a fresh clone of an empty repository): git
+            # prints no branch.ab, but nothing is gone.
+            '# branch.oid (initial)') born=0 ;;
             '# branch.ab '*)
                 ab=1; a="${line#'# branch.ab +'}"; b="${a##*-}"; a="${a%% -*}"
                 case "$a" in '' | *[!0-9]*) a=0 ;; esac
@@ -1235,7 +1256,7 @@ __bga_git_status_count() {
                 esac ;;
         esac
     done
-    [ "$up" = 1 ] && [ "$ab" = 0 ] && up=gone
+    [ "$up" = 1 ] && [ "$ab" = 0 ] && [ "$born" = 1 ] && up=gone
     [ "$up" = gone ] && up=1 || up=0
     printf '%s %s %s %s %s %s %s %s %s\n' "$dirty" "$ahead" "$behind" "$up" "$st" "$un" "$ut" "$cf" "$cap"
 }
@@ -1625,11 +1646,14 @@ __bga_prompt() {
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_ahead}${_g_ahead}${_bga_git_ahead}${_R}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
         if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
-            local cap=''; [ "${_bga_git_capped:-0}" = 1 ] && cap='+'
-            [ "${_bga_git_staged:-0}"    -gt 0 ] 2>/dev/null && ps1+=" ${_c_staged}${_g_staged}${_bga_git_staged}${_R}"
-            [ "${_bga_git_unstaged:-0}"  -gt 0 ] 2>/dev/null && ps1+=" ${_c_unstaged}${_g_unstaged}${_bga_git_unstaged}${_R}"
-            [ "${_bga_git_untracked:-0}" -gt 0 ] 2>/dev/null && ps1+=" ${_c_untracked}${_g_untracked}${_bga_git_untracked}${cap}${_R}"
-            [ "${_bga_git_conflicts:-0}" -gt 0 ] 2>/dev/null && ps1+=" ${_c_conflict}${_g_conflict}${_bga_git_conflicts}${_R}"
+            __bga_git_detail_parts
+            local i tk
+            for (( i = 0; i < ${#_bga_gd_tok[@]}; i++ )); do
+                # Through __bga_ps1_lit: in posix mode a bare ! in PS1 is the
+                # history number.
+                tk="_c_${_bga_gd_tok[i]}"; __bga_ps1_lit "${_bga_gd_txt[i]}"
+                ps1+=" ${!tk}${REPLY}${_R}"
+            done
         elif [ "$_bga_git_dirty"  = 1 ]; then
             ps1+=" ${_c_dirty}${_g_dirty}${_R}"
         fi
@@ -1788,11 +1812,11 @@ __bga_lean_left() {
         __bga_lean_add branch "${_g_branch}${_bga_git_branch}"
         [ -n "$_bga_git_state" ]                 && __bga_lean_add state " $_bga_git_state"
         if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
-            local cap=''; [ "${_bga_git_capped:-0}" = 1 ] && cap='+'
-            [ "${_bga_git_staged:-0}"    -gt 0 ] 2>/dev/null && __bga_lean_add staged    " ${_g_staged}${_bga_git_staged}"
-            [ "${_bga_git_unstaged:-0}"  -gt 0 ] 2>/dev/null && __bga_lean_add unstaged  " ${_g_unstaged}${_bga_git_unstaged}"
-            [ "${_bga_git_untracked:-0}" -gt 0 ] 2>/dev/null && __bga_lean_add untracked " ${_g_untracked}${_bga_git_untracked}${cap}"
-            [ "${_bga_git_conflicts:-0}" -gt 0 ] 2>/dev/null && __bga_lean_add conflict  " ${_g_conflict}${_bga_git_conflicts}"
+            __bga_git_detail_parts
+            local i
+            for (( i = 0; i < ${#_bga_gd_tok[@]}; i++ )); do
+                __bga_lean_add "${_bga_gd_tok[i]}" " ${_bga_gd_txt[i]}"
+            done
         elif [ "$_bga_git_dirty" = 1 ]; then
             __bga_lean_add dirty " $_g_dirty"
         fi

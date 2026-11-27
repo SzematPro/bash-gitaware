@@ -144,7 +144,7 @@ __bga_key_uc() { local LC_ALL=C; REPLY="${1^^}"; }
 # Policy lines are assigned even over the environment and recorded in
 # _bga_policy_locked (" key key "); user lines fill only unset, unlocked keys.
 __bga_config_parse() {
-    local f="$1" label="$2" pol="$3" line k v n=0 var q=\' REPLY
+    local f="$1" label="$2" pol="$3" line k v n=0 var q=\' REPLY fileset=' '
     while IFS= read -r line || [ -n "$line" ]; do
         n=$(( n + 1 ))
         line="${line%$'\r'}"
@@ -165,12 +165,19 @@ __bga_config_parse() {
         __bga_key_uc "$k"; var="BASHGITAWARE_$REPLY"
         if [ "$pol" = 1 ]; then
             printf -v "$var" '%s' "$v"
+            printf -v "_bga_src_$k" '%s' policy
             _bga_policy_vars+="$var "
             case "$_bga_policy_locked" in *" $k "*) ;; *) _bga_policy_locked+="$k " ;; esac
         else
             case "$_bga_policy_locked" in *" $k "*) continue ;; esac
-            # Environment wins: only fill variables that are not set yet.
-            [ -n "${!var+set}" ] || printf -v "$var" '%s' "$v"
+            # Environment wins: fill only variables that are not set yet,
+            # or that an earlier line of this file set (the last line wins).
+            case "$fileset" in
+                *" $k "*) ;;
+                *) [ -n "${!var+set}" ] && continue; fileset+="$k " ;;
+            esac
+            printf -v "$var" '%s' "$v"
+            printf -v "_bga_src_$k" 'config:%s' "$n"
         fi
     done < "$f"
 }
@@ -273,10 +280,11 @@ __bga_settings_reset() {
         [ -n "$v" ] && unset "$v"
     done
     _bga_managed='' _bga_env_vars=' '
+    for v in "${!_bga_src_@}" "${!_bga_val_@}"; do unset "$v"; done
     for v in "${!BASHGITAWARE_@}"; do _bga_env_vars+="$v "; done
 }
 __bga_settings_mark() {
-    local v
+    local v k REPLY
     _bga_managed=''
     for v in "${!BASHGITAWARE_@}"; do
         case "$_bga_env_vars" in *" $v "*) ;; *) _bga_managed+="$v " ;; esac
@@ -286,6 +294,18 @@ __bga_settings_mark() {
     while [ -n "$rest" ]; do
         v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
         case " $_bga_managed" in *" $v "*) ;; *) [ -n "$v" ] && _bga_managed+="$v " ;; esac
+    done
+    # Where each value we set came from, and the value itself, for
+    # `bga config list --all` (a later change in the shell is "environment").
+    local sv; rest="$_bga_managed"
+    while [ -n "$rest" ]; do
+        v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
+        [ -n "$v" ] || continue
+        __bga_key_lc "${v#BASHGITAWARE_}"; k="$REPLY"
+        case "$k" in '' | *[!a-z0-9_]*) continue ;; esac
+        sv="_bga_src_$k"
+        [ -n "${!sv-}" ] || printf -v "$sv" '%s' default
+        printf -v "_bga_val_$k" '%s' "${!v}"
     done
 }
 __bga_settings_reset
@@ -2385,11 +2405,11 @@ __bga_cli_cfg_find() {
 }
 
 # `bga config list --all`: every key from _bga_config_keys with its effective
-# value and where it comes from: policy, environment, config:N (the last
-# valid line for it in file $1) or default (a preset or plain-mode default,
-# or unset). Values are made safe for the terminal.
+# value and where it came from at load time (policy, config:N, default), as
+# recorded by the loader; anything else, or a value changed in the shell
+# since, is "environment". Values are made safe for the terminal.
 __bga_cli_cfg_all() {
-    local f="$1" rest="$_bga_config_keys" line key var src v n REPLY
+    local rest="$_bga_config_keys" line key var sv vv src REPLY
     while [ -n "$rest" ]; do
         line="${rest%%$'\n'*}"
         if [ "$line" = "$rest" ]; then rest=''; else rest="${rest#*$'\n'}"; fi
@@ -2397,39 +2417,12 @@ __bga_cli_cfg_all() {
         key="${line%% *}"
         __bga_key_uc "$key"; var="BASHGITAWARE_$REPLY"
         if [ -z "${!var+set}" ]; then printf '%s   (unset, default)\n' "$key"; continue; fi
-        case "${_bga_policy_locked:- }" in
-            *" $key "*) src=policy ;;
-            *)
-                case " ${_bga_managed:-} " in
-                    *" $var "*)
-                        if __bga_cli_cfg_validline "$f" "$key" && [ "$REPLY" -gt 0 ]; then src="config:$REPLY"
-                        else src=default; fi ;;
-                    *) src=environment ;;
-                esac ;;
-        esac
-        __bga_term_safe "${!var}"; v="$REPLY"
-        printf '%s = %s   (%s)\n' "$key" "$v" "$src"
+        sv="_bga_src_$key" vv="_bga_val_$key"
+        src="${!sv-}"
+        if [ -z "$src" ] || [ "${!vv-}" != "${!var}" ]; then src=environment; fi
+        __bga_term_safe "${!var}"
+        printf '%s = %s   (%s)\n' "$key" "$REPLY" "$src"
     done
-}
-
-# Line number of the last valid "key = value" line for key $2 in file $1
-# into REPLY (0 if none), with the loader's own rules.
-__bga_cli_cfg_validline() {
-    local f="$1" want="$2" line k v n=0 last=0 q=\'
-    REPLY=0
-    [ -f "$f" ] && [ -r "$f" ] || return 1
-    while IFS= read -r line || [ -n "$line" ]; do
-        n=$(( n + 1 ))
-        line="${line%$'\r'}"
-        line="${line#"${line%%[![:blank:]]*}"}"; line="${line%"${line##*[![:blank:]]}"}"
-        case "$line" in '' | '#'*) continue ;; *=*) ;; *) continue ;; esac
-        k="${line%%=*}"; v="${line#*=}"
-        k="${k%"${k##*[![:blank:]]}"}"; v="${v#"${v%%[![:blank:]]*}"}"
-        case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; "$q"*"$q") v="${v#"$q"}"; v="${v%"$q"}" ;; esac
-        __bga_key_lc "$k"; [ "$REPLY" = "$want" ] || continue
-        __bga_config_valid "$want" "$v" && last="$n"
-    done < "$f"
-    REPLY="$last"
 }
 
 # True if bga may write config file $1: the same rule as the loader. Its
@@ -2658,7 +2651,8 @@ __bga_cli_doctor() {
 # names. No subshell and no external command: words are filtered against the
 # current word in a loop. A completion the user set for bga is kept.
 __bga_complete() {
-    local cur="${COMP_WORDS[COMP_CWORD]:-}" w1="${COMP_WORDS[1]:-}" w2="${COMP_WORDS[2]:-}"
+    # $2 is the word up to the cursor, already dequoted by bash.
+    local cur="${2-}" w1="${COMP_WORDS[1]:-}" w2="${COMP_WORDS[2]:-}"
     local words='' pre='' w REPLY kind IFS=$' \t\n' -
     set -f
     COMPREPLY=()
@@ -2691,8 +2685,10 @@ __bga_complete() {
                               [ "$w" = _bga_theme_tokens ] || words+="${w#_bga_theme_} "
                           done ;;
                    list) words="${REPLY#list }"
-                         # Complete the item after the last comma.
-                         case "$cur" in *,*) pre="${cur%,*},"; cur="${cur##*,}" ;; esac ;;
+                         # Complete the item after the last comma, and leave
+                         # the cursor on it so another ",item" can follow.
+                         case "$cur" in *,*) pre="${cur%,*},"; cur="${cur##*,}" ;; esac
+                         compopt -o nospace 2>/dev/null ;;
                esac
            fi ;;
     esac

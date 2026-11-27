@@ -6,7 +6,7 @@ _cp_run() {
     bash --norc --noprofile -i -c "
         export HOME='$HOME' PATH='$PATH' BASHGITAWARE_MODE=full
         source '$REPO/new.bashrc'
-        t() { COMP_WORDS=(\"\$@\"); COMP_CWORD=\$(( \$# - 1 )); __bga_complete; printf '[%s] ' \"\${COMPREPLY[@]}\"; echo; }
+        t() { COMP_WORDS=(\"\$@\"); COMP_CWORD=\$(( \$# - 1 )); __bga_complete bga \"\${COMP_WORDS[COMP_CWORD]}\" \"\${COMP_WORDS[COMP_CWORD-1]}\"; printf '[%s] ' \"\${COMPREPLY[@]}\"; echo; }
         $1
     " 2>/dev/null
 }
@@ -40,5 +40,9 @@ scenario_complete_pty() {
     out="$( { sleep 1; printf 'bga conf\t'; sleep 0.5; printf 'pa\t'; sleep 0.5; printf '\r'; sleep 0.5; printf 'exit\r'; sleep 0.5; } \
         | HOME="$d" pty_run "bash --rcfile '$d/rc' -i" 2>&1)"
     assert_contains "$out" "bga config path" "TAB completes subcommand and config subcommand"
+    # A quoted word is completed (bash passes it dequoted as $2).
+    out="$( { sleep 1; printf 'bga config set style "le\t'; sleep 0.5; printf '\003'; sleep 0.3; printf 'exit\r'; sleep 0.5; } \
+        | HOME="$d" pty_run "bash --rcfile '$d/rc' -i" 2>&1)"
+    assert_contains "$out" 'style "lean' "TAB completes inside double quotes"
     rm -rf "$d"
 }

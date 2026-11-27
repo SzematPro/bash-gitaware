@@ -142,7 +142,7 @@ __bga_key_uc() { local LC_ALL=C; REPLY="${1^^}"; }
 # Policy lines are assigned even over the environment and recorded in
 # _bga_policy_locked (" key key "); user lines fill only unset, unlocked keys.
 __bga_config_parse() {
-    local f="$1" label="$2" pol="$3" line k v n=0 var q=\' REPLY
+    local f="$1" label="$2" pol="$3" line k v n=0 var q=\' REPLY fileset=' '
     while IFS= read -r line || [ -n "$line" ]; do
         n=$(( n + 1 ))
         line="${line%$'\r'}"
@@ -163,12 +163,19 @@ __bga_config_parse() {
         __bga_key_uc "$k"; var="BASHGITAWARE_$REPLY"
         if [ "$pol" = 1 ]; then
             printf -v "$var" '%s' "$v"
+            printf -v "_bga_src_$k" '%s' policy
             _bga_policy_vars+="$var "
             case "$_bga_policy_locked" in *" $k "*) ;; *) _bga_policy_locked+="$k " ;; esac
         else
             case "$_bga_policy_locked" in *" $k "*) continue ;; esac
-            # Environment wins: only fill variables that are not set yet.
-            [ -n "${!var+set}" ] || printf -v "$var" '%s' "$v"
+            # Environment wins: fill only variables that are not set yet,
+            # or that an earlier line of this file set (the last line wins).
+            case "$fileset" in
+                *" $k "*) ;;
+                *) [ -n "${!var+set}" ] && continue; fileset+="$k " ;;
+            esac
+            printf -v "$var" '%s' "$v"
+            printf -v "_bga_src_$k" 'config:%s' "$n"
         fi
     done < "$f"
 }
@@ -271,10 +278,11 @@ __bga_settings_reset() {
         [ -n "$v" ] && unset "$v"
     done
     _bga_managed='' _bga_env_vars=' '
+    for v in "${!_bga_src_@}" "${!_bga_val_@}"; do unset "$v"; done
     for v in "${!BASHGITAWARE_@}"; do _bga_env_vars+="$v "; done
 }
 __bga_settings_mark() {
-    local v
+    local v k REPLY
     _bga_managed=''
     for v in "${!BASHGITAWARE_@}"; do
         case "$_bga_env_vars" in *" $v "*) ;; *) _bga_managed+="$v " ;; esac
@@ -284,6 +292,18 @@ __bga_settings_mark() {
     while [ -n "$rest" ]; do
         v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
         case " $_bga_managed" in *" $v "*) ;; *) [ -n "$v" ] && _bga_managed+="$v " ;; esac
+    done
+    # Where each value we set came from, and the value itself, for
+    # `bga config list --all` (a later change in the shell is "environment").
+    local sv; rest="$_bga_managed"
+    while [ -n "$rest" ]; do
+        v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
+        [ -n "$v" ] || continue
+        __bga_key_lc "${v#BASHGITAWARE_}"; k="$REPLY"
+        case "$k" in '' | *[!a-z0-9_]*) continue ;; esac
+        sv="_bga_src_$k"
+        [ -n "${!sv-}" ] || printf -v "$sv" '%s' default
+        printf -v "_bga_val_$k" '%s' "${!v}"
     done
 }
 __bga_settings_reset

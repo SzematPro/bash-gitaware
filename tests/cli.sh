@@ -230,6 +230,17 @@ scenario_cli_config_list_all() {
     assert_contains "$out" "show_host   (unset, default)" "unset key"
     out="$(BASHGITAWARE_CONFIG="$dir/config" BASHGITAWARE_THEME=$'x\e]0;y' _bga_cmd config list --all 2>/dev/null)"
     assert_lacks "$out" $'\e' "values made safe for the terminal"
+    # Duplicate valid lines: the last one wins, and is the one named.
+    printf 'clock = 0\nclock = 1\n' > "$dir/dup"; chmod 600 "$dir/dup"
+    out="$(BASHGITAWARE_CONFIG="$dir/dup" _bga_cmd config list --all 2>/dev/null)"
+    assert_contains "$out" "clock = 1   (config:2)" "duplicate key: last valid line wins and is named"
+    # A config the loader refused is not named as a source.
+    mkdir -m 700 "$dir/gw"; printf 'glyphs = unicode\n' > "$dir/gw/config"; chmod 620 "$dir/gw/config"
+    out="$(BASHGITAWARE_CONFIG="$dir/gw/config" BASHGITAWARE_PRESET=minimal _bga_cmd config list --all 2>/dev/null)"
+    assert_contains "$out" "glyphs = ascii   (default)" "refused config: preset value shown as default"
+    # A value changed in the shell after loading is environment.
+    out="$(BASHGITAWARE_CONFIG="$dir/dup" bash --norc --noprofile -i -c "export HOME='$HOME' PATH='$PATH'; source '$REPO/new.bashrc'; BASHGITAWARE_CLOCK=0; bga config list --all" 2>/dev/null)"
+    assert_contains "$out" "clock = 0   (environment)" "changed in the shell after load: environment"
     rm -rf "$dir"
 }
 

@@ -13,6 +13,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`bga config list --all`** shows every setting, its effective value and
   where it comes from (policy, environment, a config line or the default).
 
+### Changed
+
+- When a key appears twice in the config file, the **last** valid line now
+  wins, as `bga config get` already assumed. Before, the first one won.
+
 ## [3.1.0] - 2026-11-26
 
 ### Added

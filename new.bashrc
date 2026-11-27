@@ -69,30 +69,68 @@ esac
 # hostile config cannot send escape sequences to the terminal.
 __bga_config_warn() { local m="$*"; printf 'bash-gitaware: %s\n' "${m//[[:cntrl:]]/?}" >&2; }
 
-# Valid values per key, as a case pattern. Echoes nothing; returns 1 if invalid.
+# Every config key and its values, one per line: "<key> <kind> [values]".
+# Kinds: enum (one of the values), bool (0 or 1), num (digits), theme (a
+# theme name), list (a comma list of the values). __bga_config_valid, the
+# bga completion and `bga config list --all` all read this one table.
+_bga_config_keys='
+preset enum minimal default powerline full
+glyphs enum nerd unicode ascii
+show_host enum auto always never
+mode enum auto plain full
+theme theme
+style enum lean classic
+vi_mode enum auto 0
+git_status enum compact detail
+nerd_font bool
+async bool
+osc bool
+transient bool
+commit_line bool
+runtime bool
+trust_repo_config bool
+clock bool
+powerline bool
+shell_defaults bool
+progress bool
+timer_threshold num
+path_maxdepth num
+runtimes list py node rust go ruby deno bun java
+contexts list kube aws tf
+'
+
+# The table line of key $1 without the key ("<kind> [values]") in REPLY;
+# returns 1 for an unknown key.
+__bga_config_spec() {
+    REPLY=''
+    case "$1" in '' | *[!a-z_]*) return 1 ;; esac
+    case "$_bga_config_keys" in *$'\n'"$1 "*) ;; *) return 1 ;; esac
+    REPLY="${_bga_config_keys#*$'\n'"$1 "}"; REPLY="${REPLY%%$'\n'*}"
+}
+
+# Valid value $2 for key $1? Returns 0 if valid, 1 if invalid, 2 if the key
+# is unknown. Echoes nothing.
 __bga_config_valid() {
-    case "$1" in
-        preset)       case "$2" in minimal | default | powerline | full) ;; *) return 1 ;; esac ;;
-        glyphs)       case "$2" in nerd | unicode | ascii) ;; *) return 1 ;; esac ;;
-        show_host)    case "$2" in auto | always | never) ;; *) return 1 ;; esac ;;
-        mode)         case "$2" in auto | plain | full) ;; *) return 1 ;; esac ;;
-        theme)        case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac ;;
-        style)        case "$2" in lean | classic) ;; *) return 1 ;; esac ;;
-        vi_mode)      case "$2" in auto | 0) ;; *) return 1 ;; esac ;;
-        nerd_font | async | osc | transient | commit_line | runtime | trust_repo_config | clock | powerline \
-        | shell_defaults | progress)
-                      case "$2" in 0 | 1) ;; *) return 1 ;; esac ;;
-        timer_threshold | path_maxdepth)
-                      case "$2" in '' | *[!0-9]*) return 1 ;; esac ;;
-        runtimes)     # Comma list of runtime names (lib/50-runtime.bash).
-                      local rest="$2," x
-                      [ "$2" != '' ] || return 1
-                      while [ -n "$rest" ]; do
-                          x="${rest%%,*}"; rest="${rest#*,}"
-                          case "$x" in py | node | rust | go | ruby | deno | bun | java) ;; *) return 1 ;; esac
-                      done ;;
-        *) return 2 ;;
+    local REPLY kind vals rest x
+    __bga_config_spec "$1" || return 2
+    kind="${REPLY%% *}"; vals=" ${REPLY#"$kind"} "
+    [ -n "$2" ] || return 1
+    case "$2" in *[[:space:]]*) return 1 ;; esac
+    case "$kind" in
+        enum)  case "$vals" in *" $2 "*) return 0 ;; esac; return 1 ;;
+        bool)  case "$2" in 0 | 1) return 0 ;; esac; return 1 ;;
+        num)   case "$2" in '' | *[!0-9]*) return 1 ;; esac; return 0 ;;
+        theme) case "$2" in '' | *[!a-z0-9_]*) return 1 ;; esac; return 0 ;;
+        list)  [ -n "$2" ] || return 1
+               rest="$2,"
+               while [ -n "$rest" ]; do
+                   x="${rest%%,*}"; rest="${rest#*,}"
+                   [ -n "$x" ] || return 1
+                   case "$vals" in *" $x "*) ;; *) return 1 ;; esac
+               done
+               return 0 ;;
     esac
+    return 1
 }
 
 # Key case folding in the C locale: keys are ASCII, and in some locales
@@ -107,7 +145,7 @@ __bga_key_uc() { local LC_ALL=C; REPLY="${1^^}"; }
 # Policy lines are assigned even over the environment and recorded in
 # _bga_policy_locked (" key key "); user lines fill only unset, unlocked keys.
 __bga_config_parse() {
-    local f="$1" label="$2" pol="$3" line k v n=0 var q=\' REPLY
+    local f="$1" label="$2" pol="$3" line k v n=0 var q=\' REPLY fileset=' '
     while IFS= read -r line || [ -n "$line" ]; do
         n=$(( n + 1 ))
         line="${line%$'\r'}"
@@ -128,12 +166,19 @@ __bga_config_parse() {
         __bga_key_uc "$k"; var="BASHGITAWARE_$REPLY"
         if [ "$pol" = 1 ]; then
             printf -v "$var" '%s' "$v"
+            printf -v "_bga_src_$k" '%s' policy
             _bga_policy_vars+="$var "
             case "$_bga_policy_locked" in *" $k "*) ;; *) _bga_policy_locked+="$k " ;; esac
         else
             case "$_bga_policy_locked" in *" $k "*) continue ;; esac
-            # Environment wins: only fill variables that are not set yet.
-            [ -n "${!var+set}" ] || printf -v "$var" '%s' "$v"
+            # Environment wins: fill only variables that are not set yet,
+            # or that an earlier line of this file set (the last line wins).
+            case "$fileset" in
+                *" $k "*) ;;
+                *) [ -n "${!var+set}" ] && continue; fileset+="$k " ;;
+            esac
+            printf -v "$var" '%s' "$v"
+            printf -v "_bga_src_$k" 'config:%s' "$n"
         fi
     done < "$f"
 }
@@ -236,10 +281,11 @@ __bga_settings_reset() {
         [ -n "$v" ] && unset "$v"
     done
     _bga_managed='' _bga_env_vars=' '
+    for v in "${!_bga_src_@}" "${!_bga_val_@}"; do unset "$v"; done
     for v in "${!BASHGITAWARE_@}"; do _bga_env_vars+="$v "; done
 }
 __bga_settings_mark() {
-    local v
+    local v k REPLY
     _bga_managed=''
     for v in "${!BASHGITAWARE_@}"; do
         case "$_bga_env_vars" in *" $v "*) ;; *) _bga_managed+="$v " ;; esac
@@ -249,6 +295,18 @@ __bga_settings_mark() {
     while [ -n "$rest" ]; do
         v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
         case " $_bga_managed" in *" $v "*) ;; *) [ -n "$v" ] && _bga_managed+="$v " ;; esac
+    done
+    # Where each value we set came from, and the value itself, for
+    # `bga config list --all` (a later change in the shell is "environment").
+    local sv; rest="$_bga_managed"
+    while [ -n "$rest" ]; do
+        v="${rest%% *}"; rest="${rest#"$v"}"; rest="${rest# }"
+        [ -n "$v" ] || continue
+        __bga_key_lc "${v#BASHGITAWARE_}"; k="$REPLY"
+        case "$k" in '' | *[!a-z0-9_]*) continue ;; esac
+        sv="_bga_src_$k"
+        [ -n "${!sv-}" ] || printf -v "$sv" '%s' default
+        printf -v "_bga_val_$k" '%s' "${!v}"
     done
 }
 __bga_settings_reset
@@ -397,6 +455,7 @@ __bga_ps1_lit() {
     local s="$1" bs=\\ dl='$' bt='`'
     s="${s//[[:cntrl:]]/?}"
     case "$s" in *$'\xc2'*) __bga_strip_c1 "$s"; s="$REPLY" ;; esac
+    case "$s" in *$'\xe2'*) __bga_strip_bidi "$s"; s="$REPLY" ;; esac
     if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$s"; s="$REPLY"; fi
     if shopt -q promptvars; then
         s="${s//"$bs"/"$bs$bs"}"
@@ -413,6 +472,7 @@ __bga_ps1_lit() {
 __bga_term_safe() {
     REPLY="${1//[[:cntrl:]]/?}"
     case "$REPLY" in *$'\xc2'*) __bga_strip_c1 "$REPLY" ;; esac
+    case "$REPLY" in *$'\xe2'*) __bga_strip_bidi "$REPLY" ;; esac
     if [ "${_bga_utf8:-0}" != 1 ]; then __bga_strip_c1_raw "$REPLY"; fi
 }
 
@@ -423,6 +483,17 @@ __bga_term_safe() {
 __bga_strip_c1() {
     local LC_ALL=C
     REPLY="${1//$'\xc2'[$'\x80'-$'\x9f']/?}"
+}
+
+# Bidi and invisible format controls: U+200E/U+200F (marks), U+202A-U+202E
+# (embeddings and overrides; U+202E reverses text), U+2066-U+2069
+# (isolates). They are not [[:cntrl:]], terminals draw them as zero width
+# while the width table counted one cell, and with bidi support they can
+# reorder a branch or context name on screen (SR7 F6). Matched as bytes.
+__bga_strip_bidi() {
+    local LC_ALL=C s="$1"
+    s="${s//$'\xe2\x80'[$'\x8e'$'\x8f'$'\xaa'-$'\xae']/?}"
+    REPLY="${s//$'\xe2\x81'[$'\xa6'-$'\xa9']/?}"
 }
 
 # Outside a UTF-8 locale the terminal may be 8-bit, where a lone byte 0x9B is
@@ -510,6 +581,14 @@ __bga_state_dir_init() {
         return 1
     fi
     _bga_state_dir="$d"
+}
+
+# True if the state directory is still ours: a real directory we own. It is
+# created private, but a cleaner may delete it while the shell lives, and
+# another user could then recreate the name and plant symlinks in it (SR7
+# F3). Builtin tests only, so it costs no fork; checked before each write.
+__bga_state_ok() {
+    [ -n "${_bga_state_dir:-}" ] && [ -d "$_bga_state_dir" ] && [ ! -L "$_bga_state_dir" ] && [ -O "$_bga_state_dir" ]
 }
 
 # Remove the state directory and everything we put in it. Only touches the
@@ -648,6 +727,10 @@ ahead    5ccfe6  80 96 0
 behind   5ccfe6  80 96 0
 dirty    e6b450 179 93 0
 stash    8fb0d9 110 94 0
+staged   8ccf7e 114 92 0
+unstaged e6b450 179 93 0
+untracked 8fb0d9 110 94 0
+conflict ff6b81 204 91 1
 commit   6c7591  66 90 0
 node     8ccf7e 114 92 0
 py       e6b450 179 93 0
@@ -657,6 +740,9 @@ ruby     ff6b81 204 91 0
 deno     8fb0d9 110 94 0
 bun      ff9f5a 215 33 0
 java     e6b450 179 93 0
+kube     6fa8ff  75 94 0
+aws      ff9f5a 215 33 0
+tf       b48cf2 141 95 0
 tag      ff9f5a 215 33 0
 timer    e6b450 179 93 0
 err      ff6b81 204 91 1
@@ -680,6 +766,10 @@ ahead    0b6e83  24 36 0
 behind   0b6e83  24 36 0
 dirty    8a5300  94 33 0
 stash    34538a  60 34 0
+staged   26702a  22 32 0
+unstaged 8a5300  94 33 0
+untracked 34538a  60 34 0
+conflict b5172f 124 31 1
 commit   5f6b7a  60 90 0
 node     26702a  22 32 0
 py       8a5300  94 33 0
@@ -689,6 +779,9 @@ ruby     b5172f 124 31 0
 deno     34538a  60 34 0
 bun      a34a06 130 33 0
 java     8a5300  94 33 0
+kube     1d5fd1  26 34 0
+aws      a34a06 130 33 0
+tf       6d32d8  62 35 0
 tag      a34a06 130 33 0
 timer    8a5300  94 33 0
 err      b5172f 124 31 1
@@ -709,6 +802,10 @@ ahead    00e5ff  45 96 0
 behind   00e5ff  45 96 0
 dirty    ffe600 220 93 0
 stash    b4d7ff 153 94 0
+staged   8cff8c 120 92 0
+unstaged ffe600 220 93 0
+untracked b4d7ff 153 94 0
+conflict ff6b6b 203 91 1
 commit   c8c8c8 251 37 0
 node     8cff8c 120 92 0
 py       ffe600 220 93 0
@@ -718,6 +815,9 @@ ruby     ff6b6b 203 91 0
 deno     b4d7ff 153 94 0
 bun      ffb000 214 93 0
 java     ffe600 220 93 0
+kube     6cb6ff  75 94 0
+aws      ffb000 214 93 0
+tf       dcb4ff 183 95 0
 tag      ffb000 214 93 0
 timer    ffe600 220 93 0
 err      ff6b6b 203 91 1
@@ -729,14 +829,14 @@ sym_err  ff6b6b 203 91 1
 # applies; __bga_theme_apply overwrites them.
 _R='' _Rr=''
 _c_dim='' _c_path='' _c_user='' _c_host='' _c_host_ssh='' _c_branch='' _c_hash=''
-_c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_commit='' _c_node=''
-_c_py='' _c_rust='' _c_go='' _c_ruby='' _c_deno='' _c_bun='' _c_java='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
+_c_state='' _c_ahead='' _c_behind='' _c_dirty='' _c_stash='' _c_staged='' _c_unstaged='' _c_untracked='' _c_conflict='' _c_commit='' _c_node=''
+_c_py='' _c_rust='' _c_go='' _c_ruby='' _c_deno='' _c_bun='' _c_java='' _c_kube='' _c_aws='' _c_tf='' _c_tag='' _c_timer='' _c_err='' _c_ok='' _c_sym_err=''
 _cr_dim='' _cr_path='' _cr_user='' _cr_host='' _cr_host_ssh='' _cr_branch='' _cr_hash=''
-_cr_state='' _cr_ahead='' _cr_behind='' _cr_dirty='' _cr_stash='' _cr_commit='' _cr_node=''
-_cr_py='' _cr_rust='' _cr_go='' _cr_ruby='' _cr_deno='' _cr_bun='' _cr_java='' _cr_tag='' _cr_timer='' _cr_err='' _cr_ok='' _cr_sym_err=''
+_cr_state='' _cr_ahead='' _cr_behind='' _cr_dirty='' _cr_stash='' _cr_staged='' _cr_unstaged='' _cr_untracked='' _cr_conflict='' _cr_commit='' _cr_node=''
+_cr_py='' _cr_rust='' _cr_go='' _cr_ruby='' _cr_deno='' _cr_bun='' _cr_java='' _cr_kube='' _cr_aws='' _cr_tf='' _cr_tag='' _cr_timer='' _cr_err='' _cr_ok='' _cr_sym_err=''
 
 # Every token a theme must define (the test suite checks each theme).
-_bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash commit node py rust go ruby deno bun java tag timer err ok sym_err'
+_bga_theme_tokens='dim path user host host_ssh branch hash state ahead behind dirty stash staged unstaged untracked conflict commit node py rust go ruby deno bun java kube aws tf tag timer err ok sym_err'
 
 __bga_theme_apply() {
     local name="${1:-aware}" table var line tok sgr
@@ -815,6 +915,11 @@ case "$_bga_glyphs" in
         _g_dirty='*' _g_ahead='^' _g_behind='v' _g_stash='s' _g_commit='' _g_sym='>' _g_ell='...'
         ;;
 esac
+# Detailed git status (git_status = detail) and "upstream gone".
+case "$_bga_glyphs" in
+    ascii) _g_staged='+' _g_unstaged='!' _g_untracked='?' _g_conflict='x' _g_gone='gone' ;;
+    *)     _g_staged='+' _g_unstaged='!' _g_untracked='?' _g_conflict='✘' _g_gone='⇣gone' ;;
+esac
 [ "$_bga_root" = 1 ] && _g_sym='#'
 
 # ---------------------------------------------------------------------------
@@ -862,6 +967,7 @@ __bga_git_info_cheap() {
     _bga_in_git=0
     _bga_git_branch='' _bga_git_hash='' _bga_git_dirty=0
     _bga_git_ahead=0 _bga_git_behind=0 _bga_git_stash=0
+    _bga_git_gone=0 _bga_git_staged=0 _bga_git_unstaged=0 _bga_git_untracked=0 _bga_git_conflicts=0 _bga_git_capped=0
     _bga_git_msg='' _bga_git_state='' _bga_git_dir='' _bga_git_top='' _bga_git_common=''
 
     # 1 subprocess: the git dir, the common dir (where the config lives for a
@@ -1088,28 +1194,92 @@ __bga_git_status_safe() {
     __bga_git status --porcelain=v2 --branch --ignore-submodules=dirty 2>/dev/null
 }
 
-# Parse the head of `git status --porcelain=v2 --branch` into _bga_st_dirty,
-# _bga_st_ahead and _bga_st_behind. Branch headers come first, so the first
-# entry line already answers "dirty"; `head` bounds the output and stops git
-# early on large dirty trees. No process substitution (a syntax and runtime
-# error in posix mode before bash 5.1) and no here-string (a temp file
-# before bash 5.1).
+# Parse `git status --porcelain=v2 --branch` into _bga_st_dirty,
+# _bga_st_ahead, _bga_st_behind and _bga_st_gone (an upstream is configured
+# but no longer exists: the branch.upstream header without branch.ab).
+# Headers come first. In compact mode the first entry line answers "dirty",
+# so `head` stops git early on large dirty trees. With git_status = detail
+# it counts staged, unstaged, untracked and conflicted entries
+# (_bga_st_staged/_unstaged/_untracked/_conflicts) over at most 2000
+# entries; _bga_st_capped=1 when it stopped there (3.2, ADR-0013).
+# No process substitution (a syntax and runtime error in posix mode before
+# bash 5.1) and no here-string (a temp file before bash 5.1).
+# The detail segments for the current counts, in order: tokens in
+# _bga_gd_tok and raw text in _bga_gd_txt. A capped count (more than 2000
+# entries) puts "+" after the last segment shown, whichever kind it is.
+_bga_gd_tok=() _bga_gd_txt=()
+__bga_git_detail_parts() {
+    _bga_gd_tok=() _bga_gd_txt=()
+    [ "${_bga_git_staged:-0}"    -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(staged);    _bga_gd_txt+=("${_g_staged}${_bga_git_staged}"); }
+    [ "${_bga_git_unstaged:-0}"  -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(unstaged);  _bga_gd_txt+=("${_g_unstaged}${_bga_git_unstaged}"); }
+    [ "${_bga_git_untracked:-0}" -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(untracked); _bga_gd_txt+=("${_g_untracked}${_bga_git_untracked}"); }
+    [ "${_bga_git_conflicts:-0}" -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(conflict);  _bga_gd_txt+=("${_g_conflict}${_bga_git_conflicts}"); }
+    local n="${#_bga_gd_txt[@]}"
+    if [ "${_bga_git_capped:-0}" = 1 ] && [ "$n" -gt 0 ]; then
+        _bga_gd_txt[n-1]+='+'
+    fi
+    return 0
+}
+
+# Results of __bga_git_status_parse (assigned there through printf -v).
+_bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0 _bga_st_gone=0 _bga_st_staged=0
+_bga_st_unstaged=0 _bga_st_untracked=0 _bga_st_conflicts=0 _bga_st_capped=0
 __bga_git_status_parse() {
-    local st line
-    _bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0
-    st="$(__bga_git_status_safe | head -n 8)"
-    while [ -n "$st" ]; do
-        line="${st%%$'\n'*}"
-        case "$st" in *$'\n'*) st="${st#*$'\n'}" ;; *) st='' ;; esac
+    local detail=0 n=8 r
+    # Detail: 2000 entries plus the headers (up to 5, with status.showStash)
+    # and one more entry to tell "2000" from "more than 2000"; the count
+    # itself stops at entry 2001, so a few spare lines do no harm.
+    [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ] && detail=1 n=2010
+    # The counting runs at the end of a pipe and prints one result line: a
+    # `read` loop is linear, while cutting lines off a captured string copies
+    # the rest each time (17 s for 2000 entries, ruling out the worker's 10 s
+    # limit). A pipe, not process substitution (R-3).
+    r="$(__bga_git_status_safe | head -n "$n" | __bga_git_status_count "$detail")"
+    case "$r" in *[!0-9\ ]* | '') r='0 0 0 0 0 0 0 0 0' ;; esac
+    # Split with parameter expansion: no here-document (a temp file before
+    # bash 5.1), and no dependence on the caller's IFS or globbing.
+    local rest="$r " f v
+    for f in dirty ahead behind gone staged unstaged untracked conflicts capped; do
+        v="${rest%% *}"; rest="${rest#* }"
+        printf -v "_bga_st_$f" '%s' "${v:-0}"
+    done
+    return 0
+}
+
+# Count porcelain v2 lines from stdin; $1 = 1 for detail. Prints "dirty ahead
+# behind gone staged unstaged untracked conflicts capped" (numbers only).
+__bga_git_status_count() {
+    local line a b dirty=0 ahead=0 behind=0 up=0 ab=0 st=0 un=0 ut=0 cf=0 cap=0 e=0 born=1
+    while IFS= read -r line; do
         case "$line" in
+            '# branch.upstream '*) up=1 ;;
+            # No commit yet (a fresh clone of an empty repository): git
+            # prints no branch.ab, but nothing is gone.
+            '# branch.oid (initial)') born=0 ;;
             '# branch.ab '*)
-                _bga_st_ahead="${line#\# branch.ab +}"
-                _bga_st_behind="${_bga_st_ahead##*-}"
-                _bga_st_ahead="${_bga_st_ahead%% -*}" ;;
+                ab=1; a="${line#'# branch.ab +'}"; b="${a##*-}"; a="${a%% -*}"
+                case "$a" in '' | *[!0-9]*) a=0 ;; esac
+                case "$b" in '' | *[!0-9]*) b=0 ;; esac
+                ahead="$a" behind="$b" ;;
             '#'*) ;;
-            ?*) _bga_st_dirty=1; break ;;
+            ?*)
+                dirty=1
+                [ "$1" = 1 ] || break
+                e=$(( e + 1 ))
+                if [ "$e" -gt 2000 ]; then cap=1; break; fi
+                case "$line" in
+                    [12]' '[!.]*) st=$(( st + 1 )) ;;
+                esac
+                case "$line" in
+                    [12]' '?[!.]*) un=$(( un + 1 )) ;;
+                    'u '*) cf=$(( cf + 1 )) ;;
+                    '? '*) ut=$(( ut + 1 )) ;;
+                esac ;;
         esac
     done
+    [ "$up" = 1 ] && [ "$ab" = 0 ] && [ "$born" = 1 ] && up=gone
+    [ "$up" = gone ] && up=1 || up=0
+    printf '%s %s %s %s %s %s %s %s %s\n' "$dirty" "$ahead" "$behind" "$up" "$st" "$un" "$ut" "$cf" "$cap"
 }
 
 # Full sync info: cheap + the expensive porcelain v2 status. Used when
@@ -1121,6 +1291,8 @@ __bga_git_info_full() {
     _bga_git_dirty="$_bga_st_dirty"
     _bga_git_ahead="$_bga_st_ahead"
     _bga_git_behind="$_bga_st_behind"
+    _bga_git_gone="$_bga_st_gone" _bga_git_staged="$_bga_st_staged" _bga_git_unstaged="$_bga_st_unstaged"
+    _bga_git_untracked="$_bga_st_untracked" _bga_git_conflicts="$_bga_st_conflicts" _bga_git_capped="$_bga_st_capped"
 }
 
 # Expensive: compute dirty / ahead / behind and emit them as "key=value" lines
@@ -1129,8 +1301,10 @@ __bga_git_info_full() {
 __bga_git_info_expensive_compute() {
     local _bga_status_limit=10
     __bga_git_status_parse
-    printf '_bga_async_dirty=%d\n_bga_async_ahead=%d\n_bga_async_behind=%d\n' \
+    printf '_bga_async_v=2\n_bga_async_dirty=%d\n_bga_async_ahead=%d\n_bga_async_behind=%d\n' \
         "$_bga_st_dirty" "$_bga_st_ahead" "$_bga_st_behind"
+    printf '_bga_async_gone=%d\n_bga_async_staged=%d\n_bga_async_unstaged=%d\n_bga_async_untracked=%d\n_bga_async_conflicts=%d\n_bga_async_capped=%d\n' \
+        "$_bga_st_gone" "$_bga_st_staged" "$_bga_st_unstaged" "$_bga_st_untracked" "$_bga_st_conflicts" "$_bga_st_capped"
 }
 
 # Entry point used by the renderer. Picks the sync or async path.
@@ -1329,6 +1503,91 @@ __bga_runtime() {
 }
 
 # ---------------------------------------------------------------------------
+# Context segments (3.2, SPEC X1; ADR-0014), opt-in with contexts =
+# kube,aws,tf. Sets _bga_ctx_items ("token|label", like _bga_rt_items) and
+# _bga_ctx_str (the classic-layout text). No program runs: kubectl, aws and
+# terraform are never called.
+#   kube  current-context of the first file in $KUBECONFIG (or
+#         ~/.kube/config); reread unless a marker in the state directory is
+#         newer (a file with a future mtime is reread on every prompt, which
+#         the single bounded read keeps cheap).
+#   aws   $AWS_PROFILE, else $AWS_VAULT.
+#   tf    the workspace in ./.terraform/environment. It comes from the
+#         repository, so it is read with the version-file rules (no symlink
+#         out of the repository, NUL-safe, version-like value).
+# ---------------------------------------------------------------------------
+_bga_ctx_items=() _bga_ctx_str='' _bga_kube_file='' _bga_kube_ctx=''
+
+# True if context $1 is listed in BASHGITAWARE_CONTEXTS.
+__bga_ctx_on() {
+    case ",${BASHGITAWARE_CONTEXTS:-}," in *",$1,"*) return 0 ;; esac
+    return 1
+}
+
+# Shorten label text $1 to at most 40 characters (keeping the end, which is
+# the distinctive part of names such as EKS ARNs) into REPLY.
+__bga_ctx_short() {
+    REPLY="$1"
+    [ "${#REPLY}" -le 40 ] || REPLY="…${REPLY: -39}"
+}
+
+# current-context from kubeconfig file $1 into _bga_kube_ctx. One bounded
+# read (64 KB, NUL-terminated); the file is parsed as data.
+__bga_kube_read() {
+    local buf v re=$'(^|\n)current-context:([^\n]*)'
+    _bga_kube_ctx=''
+    [ -f "$1" ] && [ -r "$1" ] || return 0
+    IFS= read -r -d '' -n 65536 buf < "$1" 2>/dev/null
+    # One regex match, not a loop that cuts lines off the buffer: that is
+    # quadratic, and a 64 KB file of newlines took 141 s per prompt (SR7 F1).
+    [[ $buf =~ $re ]] || return 0
+    v="${BASH_REMATCH[2]}"; v="${v%$'\r'}"
+    v="${v#"${v%%[![:blank:]]*}"}"; v="${v%"${v##*[![:blank:]]}"}"
+    case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
+    _bga_kube_ctx="$v"
+}
+
+__bga_context() {
+    _bga_ctx_items=() _bga_ctx_str=''
+    [ -n "${BASHGITAWARE_CONTEXTS:-}" ] || return 0
+    local REPLY v f
+    if __bga_ctx_on kube; then
+        f="${KUBECONFIG:-$HOME/.kube/config}"; f="${f%%:*}"
+        local mark=''
+        __bga_state_ok && mark="$_bga_state_dir/kube.mark"
+        # Reread unless the marker is strictly newer than the file. bash
+        # before 5.1 compares whole seconds, so "file newer than marker"
+        # would miss a change made in the same second as the last read and
+        # keep showing the old cluster; this way that second rereads.
+        if [ "$f" != "$_bga_kube_file" ] || [ -z "$mark" ] || [ ! -e "$mark" ] || ! [ "$mark" -nt "$f" ]; then
+            __bga_kube_read "$f"
+            _bga_kube_file="$f"
+            # `: >|` sets the marker's mtime to now without a fork (>| so
+            # noclobber does not refuse it, SR7 F4).
+            [ -n "$mark" ] && { : >| "$mark"; } 2>/dev/null
+        fi
+        if [ -n "$_bga_kube_ctx" ]; then __bga_ctx_short "$_bga_kube_ctx"; __bga_ctx_add kube "k8s $REPLY"; fi
+    fi
+    if __bga_ctx_on aws; then
+        v="${AWS_PROFILE:-${AWS_VAULT:-}}"
+        if [ -n "$v" ]; then __bga_ctx_short "$v"; __bga_ctx_add aws "aws $REPLY"; fi
+    fi
+    # .terraform itself may be a symlink out of the repository (SR7 F5).
+    if __bga_ctx_on tf && __bga_link_inside "$PWD/.terraform" \
+       && __bga_read_version "$PWD/.terraform/environment"; then
+        __bga_ctx_add tf "tf $REPLY"
+    fi
+    return 0
+}
+
+# Add context $1 (token) with label $2 to the Lean items and classic string.
+__bga_ctx_add() {
+    local REPLY tok="_c_$1"
+    _bga_ctx_items+=("$1|$2")
+    __bga_ps1_lit "$2"; _bga_ctx_str+=" ${_c_dim}[${_R}${!tok}${REPLY}${_c_dim}]${_R}"
+}
+
+# ---------------------------------------------------------------------------
 # Prompt
 # ---------------------------------------------------------------------------
 __bga_prompt() {
@@ -1412,7 +1671,19 @@ __bga_prompt() {
         fi
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_ahead}${_g_ahead}${_bga_git_ahead}${_R}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
-        [ "$_bga_git_dirty"  = 1 ]                && ps1+=" ${_c_dirty}${_g_dirty}${_R}"
+        if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
+            __bga_git_detail_parts
+            local i tk
+            for (( i = 0; i < ${#_bga_gd_tok[@]}; i++ )); do
+                # Through __bga_ps1_lit: in posix mode a bare ! in PS1 is the
+                # history number.
+                tk="_c_${_bga_gd_tok[i]}"; __bga_ps1_lit "${_bga_gd_txt[i]}"
+                ps1+=" ${!tk}${REPLY}${_R}"
+            done
+        elif [ "$_bga_git_dirty"  = 1 ]; then
+            ps1+=" ${_c_dirty}${_g_dirty}${_R}"
+        fi
+        [ "${_bga_git_gone:-0}" = 1 ]             && ps1+=" ${_c_state}${_g_gone}${_R}"
         [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_stash}${_g_stash}${_bga_git_stash}${_R}"
         # M5 async: subtle placeholder while the expensive info is still being
         # computed in the background. Cleared on the next prompt cycle once
@@ -1421,7 +1692,7 @@ __bga_prompt() {
     fi
 
     # Runtime / version module(s), only when the directory calls for it.
-    __bga_runtime; local rt="$_bga_rt_str"
+    __bga_runtime; __bga_context; local rt="$_bga_rt_str$_bga_ctx_str"
     [ -n "$rt" ] && ps1+="$rt"
 
     # Command duration (if slow), then exit code (on failure only).
@@ -1566,7 +1837,16 @@ __bga_lean_left() {
         fi
         __bga_lean_add branch "${_g_branch}${_bga_git_branch}"
         [ -n "$_bga_git_state" ]                 && __bga_lean_add state " $_bga_git_state"
-        [ "$_bga_git_dirty" = 1 ]                && __bga_lean_add dirty " $_g_dirty"
+        if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
+            __bga_git_detail_parts
+            local i
+            for (( i = 0; i < ${#_bga_gd_tok[@]}; i++ )); do
+                __bga_lean_add "${_bga_gd_tok[i]}" " ${_bga_gd_txt[i]}"
+            done
+        elif [ "$_bga_git_dirty" = 1 ]; then
+            __bga_lean_add dirty " $_g_dirty"
+        fi
+        [ "${_bga_git_gone:-0}" = 1 ]            && __bga_lean_add state " $_g_gone"
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null && __bga_lean_add ahead " ${_g_ahead}${_bga_git_ahead}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null && __bga_lean_add behind " ${_g_behind}${_bga_git_behind}"
         [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null && __bga_lean_add stash " ${_g_stash}${_bga_git_stash}"
@@ -1596,11 +1876,11 @@ __bga_prompt_lean() {
     fi
     ps1+="$_bga_l"
 
-    # --- Right: runtimes, optional clock ---------------------------------------
+    # --- Right: runtimes, contexts, optional clock -----------------------------
     local -a rt=() rw=()
     local item tok label rtok
-    __bga_runtime
-    for item in "${_bga_rt_items[@]}"; do
+    __bga_runtime; __bga_context
+    for item in "${_bga_rt_items[@]}" "${_bga_ctx_items[@]}"; do
         tok="${item%%|*}" label="${item#*|}"
         rtok="_cr_$tok"; __bga_ps1_lit "$label"
         rt+=("${!rtok}${REPLY}${_Rr}")
@@ -1610,7 +1890,7 @@ __bga_prompt_lean() {
         printf -v label '%(%H:%M)T' -1
         rt+=("${_cr_dim}${label}${_Rr}"); rw+=("${#label}")
     fi
-    # Drop from the end (clock first, then the last runtimes) until it fits.
+    # Drop from the end (clock, then contexts, then runtimes) until it fits.
     local n="${#rt[@]}" wr i sepw="${#sep}"
     while [ "$n" -gt 0 ]; do
         wr=0; for (( i = 0; i < n; i++ )); do wr=$(( wr + rw[i] )); done
@@ -1924,30 +2204,42 @@ __bga_async_cleanup() {
 # expensive vars, _bga_async_pending=0. Miss -> defaults stay (0,0,0),
 # dispatch a job, _bga_async_pending=1.
 __bga_async_apply_or_dispatch() {
-    local key="${PWD}|${_bga_git_dir}"
+    # The git_status mode is part of the key: a compact result has no counts.
+    local key="${PWD}|${_bga_git_dir}|${BASHGITAWARE_GIT_STATUS:-compact}"
     key="${key//$'\n'/?}"     # the cache is line-based: one line per key
-    local cache_key='' dirty='' ahead='' behind=''
+    local cache_key='' dirty='' ahead='' behind='' ver='' f
+    local gone='' staged='' unstaged='' untracked='' conflicts='' capped=''
 
     if [ -n "$_bga_async_cache" ] && [ -e "$_bga_async_cache" ]; then
         local k v
-        # Defensive parse: no `source`; accept only four known keys.
+        # Defensive parse: no `source`; accept only known keys.
         while IFS='=' read -r k v; do
             v="${v#\"}"; v="${v%\"}"
             case "$k" in
-                _bga_async_key)    cache_key="$v" ;;
-                _bga_async_dirty)  dirty="$v" ;;
-                _bga_async_ahead)  ahead="$v" ;;
-                _bga_async_behind) behind="$v" ;;
+                _bga_async_key)       cache_key="$v" ;;
+                _bga_async_v)         ver="$v" ;;
+                _bga_async_dirty)     dirty="$v" ;;
+                _bga_async_ahead)     ahead="$v" ;;
+                _bga_async_behind)    behind="$v" ;;
+                _bga_async_gone)      gone="$v" ;;
+                _bga_async_staged)    staged="$v" ;;
+                _bga_async_unstaged)  unstaged="$v" ;;
+                _bga_async_untracked) untracked="$v" ;;
+                _bga_async_conflicts) conflicts="$v" ;;
+                _bga_async_capped)    capped="$v" ;;
             esac
         done < "$_bga_async_cache"
-        if [ "$cache_key" = "$key" ]; then
+        # A cache from another format version is a miss, never misread.
+        if [ "$cache_key" = "$key" ] && [ "$ver" = 2 ]; then
             # Cache hit: only accept numeric values; reject anything funky.
-            case "$dirty"  in '' | *[!0-9]*) dirty=0  ;; esac
-            case "$ahead"  in '' | *[!0-9]*) ahead=0  ;; esac
-            case "$behind" in '' | *[!0-9]*) behind=0 ;; esac
+            for f in dirty ahead behind gone staged unstaged untracked conflicts capped; do
+                case "${!f}" in '' | *[!0-9]*) printf -v "$f" 0 ;; esac
+            done
             _bga_git_dirty="$dirty"
             _bga_git_ahead="$ahead"
             _bga_git_behind="$behind"
+            _bga_git_gone="$gone" _bga_git_staged="$staged" _bga_git_unstaged="$unstaged"
+            _bga_git_untracked="$untracked" _bga_git_conflicts="$conflicts" _bga_git_capped="$capped"
             _bga_async_pending=0
             # A command just ran (the timer is set): it may have changed the
             # tree, so refresh in the background. The cached values stay on
@@ -1966,6 +2258,8 @@ __bga_async_apply_or_dispatch() {
 
 __bga_async_dispatch() {
     [ -z "$_bga_async_cache" ] && return
+    # The directory must still be ours before the job writes into it.
+    __bga_state_ok || return
     local key="$1" top="$2"
     [ -z "$top" ] && return
 
@@ -2128,7 +2422,7 @@ __bga_hooks_install
 #
 # Exit status: 0 ok, 1 a check or operation failed, 2 usage error.
 # ---------------------------------------------------------------------------
-_bga_version='3.1.0'
+_bga_version='3.2.0'
 
 __bga_cli_err() { printf 'bga: %s\n' "$*" >&2; }
 
@@ -2138,6 +2432,7 @@ usage: bga <command> [args]
 
   config path                 print the config file path
   config list                 print the settings in the config file
+  config list --all           every key: its value and where it comes from
   config get KEY              print one setting
   config set KEY VALUE        validate and store a setting
   config unset KEY            remove a setting
@@ -2192,6 +2487,7 @@ __bga_cli_config() {
     case "$sub" in
         path) printf '%s\n' "$f" ;;
         list)
+            if [ "${1:-}" = --all ]; then __bga_cli_cfg_all "$f"; return; fi
             [ -f "$f" ] || return 0
             while IFS= read -r line || [ -n "$line" ]; do
                 line="${line%$'\r'}"
@@ -2248,6 +2544,27 @@ __bga_cli_cfg_find() {
     done < "$f"
     REPLY="$val"
     return "$found"
+}
+
+# `bga config list --all`: every key from _bga_config_keys with its effective
+# value and where it came from at load time (policy, config:N, default), as
+# recorded by the loader; anything else, or a value changed in the shell
+# since, is "environment". Values are made safe for the terminal.
+__bga_cli_cfg_all() {
+    local rest="$_bga_config_keys" line key var sv vv src REPLY
+    while [ -n "$rest" ]; do
+        line="${rest%%$'\n'*}"
+        if [ "$line" = "$rest" ]; then rest=''; else rest="${rest#*$'\n'}"; fi
+        [ -n "$line" ] || continue
+        key="${line%% *}"
+        __bga_key_uc "$key"; var="BASHGITAWARE_$REPLY"
+        if [ -z "${!var+set}" ]; then printf '%s   (unset, default)\n' "$key"; continue; fi
+        sv="_bga_src_$key" vv="_bga_val_$key"
+        src="${!sv-}"
+        if [ -z "$src" ] || [ "${!vv-}" != "${!var}" ]; then src=environment; fi
+        __bga_term_safe "${!var}"
+        printf '%s = %s   (%s)\n' "$key" "$REPLY" "$src"
+    done
 }
 
 # True if bga may write config file $1: the same rule as the loader. Its
@@ -2470,6 +2787,61 @@ __bga_cli_doctor() {
     esac
     return "$bad"
 }
+
+# --- completion (3.2, SPEC C1) -----------------------------------------------
+# Subcommands, config keys and their values (from _bga_config_keys) and theme
+# names. No subshell and no external command: words are filtered against the
+# current word in a loop. A completion the user set for bga is kept.
+__bga_complete() {
+    # $2 is the word up to the cursor, already dequoted by bash.
+    local cur="${2-}" w1="${COMP_WORDS[1]:-}" w2="${COMP_WORDS[2]:-}"
+    local words='' pre='' w REPLY kind IFS=$' \t\n' -
+    set -f
+    COMPREPLY=()
+    case "$COMP_CWORD" in
+        1) words='config theme doctor reload version help' ;;
+        2) case "$w1" in
+               config) words='path list get set unset edit' ;;
+               theme)  words='list preview set' ;;
+           esac ;;
+        3) case "$w1 $w2" in
+               'config get' | 'config set' | 'config unset')
+                   local rest="$_bga_config_keys" line
+                   while [ -n "$rest" ]; do
+                       line="${rest%%$'\n'*}"
+                       if [ "$line" = "$rest" ]; then rest=''; else rest="${rest#*$'\n'}"; fi
+                       [ -n "$line" ] && words+="${line%% *} "
+                   done ;;
+               'config list') words='--all' ;;
+               'theme preview' | 'theme set')
+                   for w in "${!_bga_theme_@}"; do
+                       [ "$w" = _bga_theme_tokens ] || words+="${w#_bga_theme_} "
+                   done ;;
+           esac ;;
+        4) if [ "$w1 $w2" = 'config set' ] && __bga_config_spec "${COMP_WORDS[3]:-}"; then
+               kind="${REPLY%% *}"
+               case "$kind" in
+                   enum) words="${REPLY#enum }" ;;
+                   bool) words='0 1' ;;
+                   theme) for w in "${!_bga_theme_@}"; do
+                              [ "$w" = _bga_theme_tokens ] || words+="${w#_bga_theme_} "
+                          done ;;
+                   list) words="${REPLY#list }"
+                         # Complete the item after the last comma, and leave
+                         # the cursor on it so another ",item" can follow.
+                         case "$cur" in *,*) pre="${cur%,*},"; cur="${cur##*,}" ;; esac
+                         compopt -o nospace 2>/dev/null ;;
+               esac
+           fi ;;
+    esac
+    for w in $words; do
+        case "$w" in "$cur"*) COMPREPLY+=("$pre$w") ;; esac
+    done
+    return 0
+}
+if [[ $- == *i* ]] && [ "${_bga_plain:-0}" != 1 ] && [ -z "${_BGA_CLI:-}" ]; then
+    complete -p bga >/dev/null 2>&1 || complete -F __bga_complete bga
+fi
 
 # bin/bga (_BGA_CLI=1) stops here: shell defaults, aliases and completion are
 # for interactive shells only.

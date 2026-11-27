@@ -55,6 +55,7 @@ bga config set theme light      # aware, light, contrast
 bga config set style classic    # the v2 three-line layout
 bga theme preview contrast
 bga config edit                 # opens $VISUAL or $EDITOR, checks before saving
+bga config list --all           # every setting, its value and where it comes from
 bga doctor                      # checks your setup
 bga reload                      # applies changes to this shell
 ```
@@ -72,8 +73,12 @@ bga reload                      # applies changes to this shell
 | `mode` | `auto`, `plain`, `full` | `auto` |
 | `runtimes` | lista separada por comas de `py`, `node`, `rust`, `go`, `ruby`, `deno`, `bun`, `java` | todos |
 | `vi_mode` | `auto`, `0` | `auto` (marca en el modo comando de vi) |
+| `contexts` | lista separada por comas de `kube` (contexto de kubectl), `aws` (perfil), `tf` (workspace de Terraform) | ninguno |
+| `git_status` | `compact` (un `●`), `detail` (`+staged !unstaged ?untracked ✘conflicts`) | `compact` |
 | `progress` | `0`, `1` (progreso en la barra de tareas mientras corre un comando, OSC 9;4) | `0` |
 | `shell_defaults` | `0`, `1` | lo escribe el instalador (ver abajo) |
+
+`bga` completa sus comandos, claves y valores con TAB.
 
 Cada clave también funciona como variable de entorno (`BASHGITAWARE_THEME`,
 etc.), que tiene prioridad sobre el archivo. Se respeta `NO_COLOR`. La

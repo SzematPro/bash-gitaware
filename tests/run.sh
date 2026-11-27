@@ -44,6 +44,12 @@ source "$HERE/runtime.sh"
 source "$HERE/progress.sh"
 # shellcheck source=vimode.sh
 source "$HERE/vimode.sh"
+# shellcheck source=complete.sh
+source "$HERE/complete.sh"
+# shellcheck source=gitdetail.sh
+source "$HERE/gitdetail.sh"
+# shellcheck source=context.sh
+source "$HERE/context.sh"
 # shellcheck source=security.sh
 source "$HERE/security.sh"
 
@@ -156,6 +162,7 @@ scenario_config_file_validation
 scenario_config_file_permissions
 scenario_config_file_sticky_dir
 scenario_config_turkish_locale
+scenario_config_key_table
 scenario_shell_defaults
 scenario_shell_path_untouched
 scenario_policy_untrusted_user_file
@@ -191,6 +198,19 @@ scenario_cli_theme_and_doctor
 scenario_cli_reload_applies_config
 scenario_cli_config_edit
 scenario_cli_config_unsafe_dir
+scenario_cli_config_list_all
+scenario_complete_positions
+scenario_complete_pty
+scenario_gitdetail_counts
+scenario_gitdetail_cap_and_compact
+scenario_gitdetail_upstream_gone
+scenario_gitdetail_old_cache
+scenario_gitdetail_review_fixes
+scenario_context_segments
+scenario_context_kube_cache_and_noexec
+scenario_context_tf_hostile
+scenario_context_layout
+scenario_context_sr7
 scenario_cli_shell_function
 scenario_cli_reload_keeps_runtime
 

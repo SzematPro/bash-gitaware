@@ -67,7 +67,16 @@ __bga_lean_left() {
         fi
         __bga_lean_add branch "${_g_branch}${_bga_git_branch}"
         [ -n "$_bga_git_state" ]                 && __bga_lean_add state " $_bga_git_state"
-        [ "$_bga_git_dirty" = 1 ]                && __bga_lean_add dirty " $_g_dirty"
+        if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
+            __bga_git_detail_parts
+            local i
+            for (( i = 0; i < ${#_bga_gd_tok[@]}; i++ )); do
+                __bga_lean_add "${_bga_gd_tok[i]}" " ${_bga_gd_txt[i]}"
+            done
+        elif [ "$_bga_git_dirty" = 1 ]; then
+            __bga_lean_add dirty " $_g_dirty"
+        fi
+        [ "${_bga_git_gone:-0}" = 1 ]            && __bga_lean_add state " $_g_gone"
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null && __bga_lean_add ahead " ${_g_ahead}${_bga_git_ahead}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null && __bga_lean_add behind " ${_g_behind}${_bga_git_behind}"
         [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null && __bga_lean_add stash " ${_g_stash}${_bga_git_stash}"
@@ -97,11 +106,11 @@ __bga_prompt_lean() {
     fi
     ps1+="$_bga_l"
 
-    # --- Right: runtimes, optional clock ---------------------------------------
+    # --- Right: runtimes, contexts, optional clock -----------------------------
     local -a rt=() rw=()
     local item tok label rtok
-    __bga_runtime
-    for item in "${_bga_rt_items[@]}"; do
+    __bga_runtime; __bga_context
+    for item in "${_bga_rt_items[@]}" "${_bga_ctx_items[@]}"; do
         tok="${item%%|*}" label="${item#*|}"
         rtok="_cr_$tok"; __bga_ps1_lit "$label"
         rt+=("${!rtok}${REPLY}${_Rr}")
@@ -111,7 +120,7 @@ __bga_prompt_lean() {
         printf -v label '%(%H:%M)T' -1
         rt+=("${_cr_dim}${label}${_Rr}"); rw+=("${#label}")
     fi
-    # Drop from the end (clock first, then the last runtimes) until it fits.
+    # Drop from the end (clock, then contexts, then runtimes) until it fits.
     local n="${#rt[@]}" wr i sepw="${#sep}"
     while [ "$n" -gt 0 ]; do
         wr=0; for (( i = 0; i < n; i++ )); do wr=$(( wr + rw[i] )); done

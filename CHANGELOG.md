@@ -6,6 +6,48 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-11-27
+
+### Added
+
+- **TAB completion for `bga`**: commands, config keys, their valid values
+  and theme names.
+- **`bga config list --all`** shows every setting, its effective value and
+  where it comes from (policy, environment, a config line or the default).
+
+- **Detailed git status** (`git_status = detail`): `+N` staged, `!N`
+  unstaged, `?N` untracked and `✘N` conflicts instead of one dirty mark.
+  Counted in the background, at most 2000 entries.
+- **Upstream gone**: a branch whose upstream was deleted shows `⇣gone`.
+- **Context segments** (`contexts = kube,aws,tf`): the kubectl context, AWS
+  profile and Terraform workspace on the right. Files are read as data; no
+  program runs.
+
+### Changed
+
+- When a key appears twice in the config file, the **last** valid line now
+  wins, as `bga config get` already assumed. Before, the first one won.
+
+### Fixed
+
+- `bga config edit` accepts an answer that ends in CR (macOS terminals).
+
+### Security
+
+- **The private state directory could be hijacked** after a cleaner (for
+  example systemd-tmpfiles) deleted it while the shell was running.
+  Another local user could recreate the name and plant symlinks, so the
+  background job's cache write, and the new kubeconfig marker, wrote
+  through them and truncated a file of the victim's. Each write now checks
+  that the directory is still a real directory owned by the user. Affects
+  3.0.x and 3.1.x.
+- **Bidi and invisible format controls** (U+200E/F, U+202A-U+202E,
+  U+2066-U+2069) in branch names, paths and labels are now replaced. They
+  could reorder text on screen and threw off the right-aligned block.
+  Affects 3.0.x and 3.1.x.
+- Review SR7 (context segments) reproduced every finding; the record is in
+  `docs/v3.2/reviews/SR7.md`.
+
 ## [3.1.0] - 2026-11-26
 
 ### Added

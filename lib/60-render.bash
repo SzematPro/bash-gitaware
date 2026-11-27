@@ -83,7 +83,19 @@ __bga_prompt() {
         fi
         [ "$_bga_git_ahead"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_ahead}${_g_ahead}${_bga_git_ahead}${_R}"
         [ "$_bga_git_behind" -gt 0 ] 2>/dev/null  && ps1+=" ${_c_behind}${_g_behind}${_bga_git_behind}${_R}"
-        [ "$_bga_git_dirty"  = 1 ]                && ps1+=" ${_c_dirty}${_g_dirty}${_R}"
+        if [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ]; then
+            __bga_git_detail_parts
+            local i tk
+            for (( i = 0; i < ${#_bga_gd_tok[@]}; i++ )); do
+                # Through __bga_ps1_lit: in posix mode a bare ! in PS1 is the
+                # history number.
+                tk="_c_${_bga_gd_tok[i]}"; __bga_ps1_lit "${_bga_gd_txt[i]}"
+                ps1+=" ${!tk}${REPLY}${_R}"
+            done
+        elif [ "$_bga_git_dirty"  = 1 ]; then
+            ps1+=" ${_c_dirty}${_g_dirty}${_R}"
+        fi
+        [ "${_bga_git_gone:-0}" = 1 ]             && ps1+=" ${_c_state}${_g_gone}${_R}"
         [ "$_bga_git_stash"  -gt 0 ] 2>/dev/null  && ps1+=" ${_c_stash}${_g_stash}${_bga_git_stash}${_R}"
         # M5 async: subtle placeholder while the expensive info is still being
         # computed in the background. Cleared on the next prompt cycle once
@@ -92,7 +104,7 @@ __bga_prompt() {
     fi
 
     # Runtime / version module(s), only when the directory calls for it.
-    __bga_runtime; local rt="$_bga_rt_str"
+    __bga_runtime; __bga_context; local rt="$_bga_rt_str$_bga_ctx_str"
     [ -n "$rt" ] && ps1+="$rt"
 
     # Command duration (if slow), then exit code (on failure only).

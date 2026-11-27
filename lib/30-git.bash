@@ -44,6 +44,7 @@ __bga_git_info_cheap() {
     _bga_in_git=0
     _bga_git_branch='' _bga_git_hash='' _bga_git_dirty=0
     _bga_git_ahead=0 _bga_git_behind=0 _bga_git_stash=0
+    _bga_git_gone=0 _bga_git_staged=0 _bga_git_unstaged=0 _bga_git_untracked=0 _bga_git_conflicts=0 _bga_git_capped=0
     _bga_git_msg='' _bga_git_state='' _bga_git_dir='' _bga_git_top='' _bga_git_common=''
 
     # 1 subprocess: the git dir, the common dir (where the config lives for a
@@ -270,28 +271,92 @@ __bga_git_status_safe() {
     __bga_git status --porcelain=v2 --branch --ignore-submodules=dirty 2>/dev/null
 }
 
-# Parse the head of `git status --porcelain=v2 --branch` into _bga_st_dirty,
-# _bga_st_ahead and _bga_st_behind. Branch headers come first, so the first
-# entry line already answers "dirty"; `head` bounds the output and stops git
-# early on large dirty trees. No process substitution (a syntax and runtime
-# error in posix mode before bash 5.1) and no here-string (a temp file
-# before bash 5.1).
+# Parse `git status --porcelain=v2 --branch` into _bga_st_dirty,
+# _bga_st_ahead, _bga_st_behind and _bga_st_gone (an upstream is configured
+# but no longer exists: the branch.upstream header without branch.ab).
+# Headers come first. In compact mode the first entry line answers "dirty",
+# so `head` stops git early on large dirty trees. With git_status = detail
+# it counts staged, unstaged, untracked and conflicted entries
+# (_bga_st_staged/_unstaged/_untracked/_conflicts) over at most 2000
+# entries; _bga_st_capped=1 when it stopped there (3.2, ADR-0013).
+# No process substitution (a syntax and runtime error in posix mode before
+# bash 5.1) and no here-string (a temp file before bash 5.1).
+# The detail segments for the current counts, in order: tokens in
+# _bga_gd_tok and raw text in _bga_gd_txt. A capped count (more than 2000
+# entries) puts "+" after the last segment shown, whichever kind it is.
+_bga_gd_tok=() _bga_gd_txt=()
+__bga_git_detail_parts() {
+    _bga_gd_tok=() _bga_gd_txt=()
+    [ "${_bga_git_staged:-0}"    -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(staged);    _bga_gd_txt+=("${_g_staged}${_bga_git_staged}"); }
+    [ "${_bga_git_unstaged:-0}"  -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(unstaged);  _bga_gd_txt+=("${_g_unstaged}${_bga_git_unstaged}"); }
+    [ "${_bga_git_untracked:-0}" -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(untracked); _bga_gd_txt+=("${_g_untracked}${_bga_git_untracked}"); }
+    [ "${_bga_git_conflicts:-0}" -gt 0 ] 2>/dev/null && { _bga_gd_tok+=(conflict);  _bga_gd_txt+=("${_g_conflict}${_bga_git_conflicts}"); }
+    local n="${#_bga_gd_txt[@]}"
+    if [ "${_bga_git_capped:-0}" = 1 ] && [ "$n" -gt 0 ]; then
+        _bga_gd_txt[n-1]+='+'
+    fi
+    return 0
+}
+
+# Results of __bga_git_status_parse (assigned there through printf -v).
+_bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0 _bga_st_gone=0 _bga_st_staged=0
+_bga_st_unstaged=0 _bga_st_untracked=0 _bga_st_conflicts=0 _bga_st_capped=0
 __bga_git_status_parse() {
-    local st line
-    _bga_st_dirty=0 _bga_st_ahead=0 _bga_st_behind=0
-    st="$(__bga_git_status_safe | head -n 8)"
-    while [ -n "$st" ]; do
-        line="${st%%$'\n'*}"
-        case "$st" in *$'\n'*) st="${st#*$'\n'}" ;; *) st='' ;; esac
+    local detail=0 n=8 r
+    # Detail: 2000 entries plus the headers (up to 5, with status.showStash)
+    # and one more entry to tell "2000" from "more than 2000"; the count
+    # itself stops at entry 2001, so a few spare lines do no harm.
+    [ "${BASHGITAWARE_GIT_STATUS:-compact}" = detail ] && detail=1 n=2010
+    # The counting runs at the end of a pipe and prints one result line: a
+    # `read` loop is linear, while cutting lines off a captured string copies
+    # the rest each time (17 s for 2000 entries, ruling out the worker's 10 s
+    # limit). A pipe, not process substitution (R-3).
+    r="$(__bga_git_status_safe | head -n "$n" | __bga_git_status_count "$detail")"
+    case "$r" in *[!0-9\ ]* | '') r='0 0 0 0 0 0 0 0 0' ;; esac
+    # Split with parameter expansion: no here-document (a temp file before
+    # bash 5.1), and no dependence on the caller's IFS or globbing.
+    local rest="$r " f v
+    for f in dirty ahead behind gone staged unstaged untracked conflicts capped; do
+        v="${rest%% *}"; rest="${rest#* }"
+        printf -v "_bga_st_$f" '%s' "${v:-0}"
+    done
+    return 0
+}
+
+# Count porcelain v2 lines from stdin; $1 = 1 for detail. Prints "dirty ahead
+# behind gone staged unstaged untracked conflicts capped" (numbers only).
+__bga_git_status_count() {
+    local line a b dirty=0 ahead=0 behind=0 up=0 ab=0 st=0 un=0 ut=0 cf=0 cap=0 e=0 born=1
+    while IFS= read -r line; do
         case "$line" in
+            '# branch.upstream '*) up=1 ;;
+            # No commit yet (a fresh clone of an empty repository): git
+            # prints no branch.ab, but nothing is gone.
+            '# branch.oid (initial)') born=0 ;;
             '# branch.ab '*)
-                _bga_st_ahead="${line#\# branch.ab +}"
-                _bga_st_behind="${_bga_st_ahead##*-}"
-                _bga_st_ahead="${_bga_st_ahead%% -*}" ;;
+                ab=1; a="${line#'# branch.ab +'}"; b="${a##*-}"; a="${a%% -*}"
+                case "$a" in '' | *[!0-9]*) a=0 ;; esac
+                case "$b" in '' | *[!0-9]*) b=0 ;; esac
+                ahead="$a" behind="$b" ;;
             '#'*) ;;
-            ?*) _bga_st_dirty=1; break ;;
+            ?*)
+                dirty=1
+                [ "$1" = 1 ] || break
+                e=$(( e + 1 ))
+                if [ "$e" -gt 2000 ]; then cap=1; break; fi
+                case "$line" in
+                    [12]' '[!.]*) st=$(( st + 1 )) ;;
+                esac
+                case "$line" in
+                    [12]' '?[!.]*) un=$(( un + 1 )) ;;
+                    'u '*) cf=$(( cf + 1 )) ;;
+                    '? '*) ut=$(( ut + 1 )) ;;
+                esac ;;
         esac
     done
+    [ "$up" = 1 ] && [ "$ab" = 0 ] && [ "$born" = 1 ] && up=gone
+    [ "$up" = gone ] && up=1 || up=0
+    printf '%s %s %s %s %s %s %s %s %s\n' "$dirty" "$ahead" "$behind" "$up" "$st" "$un" "$ut" "$cf" "$cap"
 }
 
 # Full sync info: cheap + the expensive porcelain v2 status. Used when
@@ -303,6 +368,8 @@ __bga_git_info_full() {
     _bga_git_dirty="$_bga_st_dirty"
     _bga_git_ahead="$_bga_st_ahead"
     _bga_git_behind="$_bga_st_behind"
+    _bga_git_gone="$_bga_st_gone" _bga_git_staged="$_bga_st_staged" _bga_git_unstaged="$_bga_st_unstaged"
+    _bga_git_untracked="$_bga_st_untracked" _bga_git_conflicts="$_bga_st_conflicts" _bga_git_capped="$_bga_st_capped"
 }
 
 # Expensive: compute dirty / ahead / behind and emit them as "key=value" lines
@@ -311,8 +378,10 @@ __bga_git_info_full() {
 __bga_git_info_expensive_compute() {
     local _bga_status_limit=10
     __bga_git_status_parse
-    printf '_bga_async_dirty=%d\n_bga_async_ahead=%d\n_bga_async_behind=%d\n' \
+    printf '_bga_async_v=2\n_bga_async_dirty=%d\n_bga_async_ahead=%d\n_bga_async_behind=%d\n' \
         "$_bga_st_dirty" "$_bga_st_ahead" "$_bga_st_behind"
+    printf '_bga_async_gone=%d\n_bga_async_staged=%d\n_bga_async_unstaged=%d\n_bga_async_untracked=%d\n_bga_async_conflicts=%d\n_bga_async_capped=%d\n' \
+        "$_bga_st_gone" "$_bga_st_staged" "$_bga_st_unstaged" "$_bga_st_untracked" "$_bga_st_conflicts" "$_bga_st_capped"
 }
 
 # Entry point used by the renderer. Picks the sync or async path.
